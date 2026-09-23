@@ -149,6 +149,22 @@ export function Welcome({
               </>
             }
           />
+          <Step
+            n={6}
+            title="Orchestrate a build with Maestro (preview)"
+            body={
+              <>
+                Press{' '}
+                <kbd className="px-1.5 py-0.5 rounded bg-black/50 border border-solix-border text-[10px]">
+                  P
+                </kbd>{' '}
+                or click <span className="text-amber-300">✷ Maestro</span> in
+                the top bar to describe a goal — Maestro plans it into tasks you
+                approve, then dispatches a fleet to build it, verifies each step,
+                and shows you the diff. Budget-capped and governed.
+              </>
+            }
+          />
         </div>
 
         <div className="px-6 pb-3 pt-1">
@@ -158,6 +174,7 @@ export function Welcome({
           <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-slate-400">
             <Kbd k="V">cycle Galaxy → List → Missions</Kbd>
             <Kbd k="G">toggle Galaxy panel</Kbd>
+            <Kbd k="P">Maestro — plan a build</Kbd>
             <Kbd k="L">new task</Kbd>
             <Kbd k="T">timeline</Kbd>
             <Kbd k="M">jump to Missions</Kbd>

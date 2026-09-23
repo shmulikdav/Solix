@@ -46,6 +46,7 @@ export function PlanPanel({ open, onClose }: PlanPanelProps): JSX.Element | null
 
   const [goal, setGoal] = useState('');
   const [cwd, setCwd] = useState('');
+  const [budget, setBudget] = useState(''); // optional plan-wide USD cap
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -118,8 +119,10 @@ export function PlanPanel({ open, onClose }: PlanPanelProps): JSX.Element | null
     setWarnings([]);
     const canAuto =
       autoMode && (containment?.ok ?? false) && entitlement?.tier === 'pro';
+    const budgetUsd = Number.parseFloat(budget);
     const res = await createPlanFromGoal(g, effectiveCwd.trim(), {
       autoMode: canAuto,
+      ...(Number.isFinite(budgetUsd) && budgetUsd > 0 ? { budgetUsd } : {}),
     });
     setBusy(false);
     if (res.ok) {
@@ -268,6 +271,23 @@ export function PlanPanel({ open, onClose }: PlanPanelProps): JSX.Element | null
             rows={3}
             className="w-full text-sm bg-black/40 border border-solix-border rounded p-2 text-slate-100 placeholder-slate-600 focus:outline-none focus:border-solix-accent resize-none"
           />
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] uppercase tracking-wide text-slate-400 shrink-0">
+              Budget cap
+            </span>
+            <div className="relative flex-1">
+              <span className="absolute left-2 top-1/2 -translate-y-1/2 text-slate-500 text-xs">
+                $
+              </span>
+              <input
+                value={budget}
+                onChange={(e) => setBudget(e.target.value)}
+                inputMode="decimal"
+                placeholder="optional — pauses the plan when spend hits this"
+                className="w-full text-xs bg-black/40 border border-solix-border rounded p-2 pl-5 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-solix-accent"
+              />
+            </div>
+          </div>
           {errors.length > 0 && (
             <div className="text-[11px] text-solix-danger border border-solix-danger/40 bg-solix-danger/10 rounded px-2 py-1 space-y-0.5">
               {errors.map((e) => (
@@ -331,6 +351,13 @@ export function PlanPanel({ open, onClose }: PlanPanelProps): JSX.Element | null
               </label>
             );
           })()}
+
+          <div className="text-[10px] text-slate-500 leading-snug">
+            Workers are governed by a command denylist and confined to the
+            project. That's a guardrail, not a jail — for hard isolation, run
+            Solix with an OS sandbox (<span className="font-mono">SOLIX_SANDBOX_CMD</span>).
+            Use full-auto for trusted goals.
+          </div>
 
           <button
             onClick={() => void onPlan()}
