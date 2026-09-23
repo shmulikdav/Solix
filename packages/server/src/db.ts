@@ -337,6 +337,8 @@ function applySchema(db: DB): void {
   // Last rejection reason, fed back into the next attempt's worker prompt so a
   // retry knows why the previous try was rejected (Phase 3).
   ensureColumn(db, 'plan_tasks', 'last_error', 'last_error TEXT');
+  // A completed task's result summary, injected into dependent tasks' prompts.
+  ensureColumn(db, 'plan_tasks', 'result_summary', 'result_summary TEXT');
   // Build-studio (Phase 5): user-created projects are durable + owned by Solix,
   // distinct from auto-observed ones; `template` records how to scaffold/preview.
   ensureColumn(db, 'projects', 'managed', 'managed INTEGER NOT NULL DEFAULT 0');

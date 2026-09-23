@@ -224,6 +224,10 @@ export interface PlanTask {
   /** Why the previous attempt was rejected — fed back into the next attempt's
    *  worker prompt so a retry corrects the specific failure. */
   lastError?: string;
+  /** The worker's final output captured when the task completed — injected (as
+   *  untrusted context) into dependent tasks' prompts so they know what upstream
+   *  work produced, beyond the files on disk. */
+  resultSummary?: string;
   /** Stable ordering for display. */
   orderIndex: number;
   createdAt: number;
