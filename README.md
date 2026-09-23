@@ -28,6 +28,17 @@ terminals.
 > an in-app session launcher, and shareable galaxies (local file or opt-in
 > cloud registry).
 
+## Maestro — describe a goal, your fleet builds it (preview)
+
+New in 1.12: Solix doesn't just *watch* your agents — it can *run* them. Open the
+Maestro panel (press **`P`**), create a project, and describe a goal. Maestro
+plans it into tasks you approve, dispatches a Claude session per task, verifies
+each against acceptance criteria, retries with feedback, and drives it to done —
+then you review the diff and preview the result, all in-app. Every worker is
+governed by a budget cap, a kill-switch, and a safe-by-default command denylist.
+Still 100% local. *(Preview — a paid Pro tier is coming; the beta is fully
+unlocked and free.)*
+
 ## Quick start
 
 The easiest path — install from npm:

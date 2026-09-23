@@ -5,6 +5,33 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.12.0] — 2026-09-23
+
+**Maestro (preview): describe a goal, watch your agent fleet build it — 100% local.**
+
+Solix goes from observing agents to *orchestrating* them. All of v2 is additive;
+the paid tier ships dormant (free public beta — everything unlocked).
+
+### Added
+- **Maestro orchestrator.** Give a goal → a planner decomposes it into a task
+  plan you approve → Solix dispatches one Claude session per task (each its own
+  planet), verifies each result against acceptance criteria, retries with
+  feedback, and drives the build to done. New Plan panel (press `P` / ✷ Maestro)
+  and dispatch beams in the galaxy.
+- **Build studio.** Create a project in-app (scaffold + `git init`), let Maestro
+  build into it, review the real diff of what changed, preview the result, and
+  iterate with a follow-up goal.
+- **Governed autonomy.** A kill-switch, per-plan budget cap, and a
+  safe-by-default command denylist (blocks `rm -rf /`, out-of-cwd writes, etc.)
+  govern every worker with no setup; a per-run full-auto toggle for trusted flows.
+- **Pro licensing (dormant).** Offline, signature-verified license support +
+  `solix license activate` — off by default (free beta); nothing to buy yet.
+- **Tests + CI.** A test suite (152 tests) and PR-gating CI, from zero.
+
+### Notes
+- The Pro gate is inert until enforcement is turned on — this release changes
+  nothing for existing users.
+
 ## [1.11.7] — 2026-09-04
 
 **Launch hardening: `solix demo` can't get stuck, and the UI tells you when it's stale.**
