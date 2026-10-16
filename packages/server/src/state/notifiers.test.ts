@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import type { ServerMessage } from '@solix/shared';
 import { resetDbForTests, type DB } from '../db.js';
 import {
+  MAX_DEDUPE_KEYS,
   buildDelivery,
   classifyEvent,
   createNotifier,
@@ -10,6 +11,7 @@ import {
   getNotifierConfig,
   listNotifiers,
   setNotifierEnabled,
+  rememberDedupeKey,
   startNotificationDispatcher,
   type NotifyTransport,
 } from './notifiers.js';
@@ -138,5 +140,16 @@ describe('notifiers (P3 #11)', () => {
     // Only the subscribed notifier fired, exactly once.
     expect(sent).toHaveLength(1);
     expect(sent[0]).toContain('completed');
+  });
+
+  it('bounds the dedupe set so a long-lived server does not leak', () => {
+    // Unbounded, this grew one key per event for the life of the process.
+    const seen = new Set<string>();
+    for (let i = 0; i < MAX_DEDUPE_KEYS + 200; i++) {
+      expect(rememberDedupeKey(seen, `k${i}`)).toBe(true);
+    }
+    expect(seen.size).toBeLessThanOrEqual(MAX_DEDUPE_KEYS);
+    // Recent keys are still deduped (only the oldest are evicted).
+    expect(rememberDedupeKey(seen, `k${MAX_DEDUPE_KEYS + 199}`)).toBe(false);
   });
 });

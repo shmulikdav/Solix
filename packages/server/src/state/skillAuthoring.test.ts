@@ -105,6 +105,24 @@ describe('skill authoring (P3 #9)', () => {
     expect(listSkillTests(db, skill.id)).toHaveLength(0);
   });
 
+  it('renaming keeps the id and on-disk path stable (ids are durable)', () => {
+    // Previously-undocumented behaviour, now specified: the slug is derived
+    // once at creation and the id/folder never move, so grants, installs and
+    // references to `user:<slug>` survive a rename. Display name and folder
+    // name diverge by design — the same way a URL slug does.
+    const skill = createUserSkill(db, { name: 'Original Name', body: 'b' })!;
+    expect(skill.id).toBe('user:original-name');
+    const pathBefore = skill.manifestPath;
+
+    const renamed = updateUserSkill(db, skill.id, { name: 'Totally Different' })!;
+    expect(renamed.id).toBe('user:original-name'); // id is durable
+    expect(renamed.name).toBe('Totally Different'); // display name changed
+    expect(renamed.manifestPath).toBe(pathBefore); // file did not move
+    expect(readFileSync(renamed.manifestPath, 'utf8')).toContain('name: Totally Different');
+    // Still reachable by its original id.
+    expect(getSkill(db, 'user:original-name')).not.toBeNull();
+  });
+
   it('composes a dry-run prompt with the input delimited as data', () => {
     const prompt = composeSkillTest('Apply the house style.', 'raw input');
     expect(prompt).toContain('Apply the house style.');

@@ -54,6 +54,38 @@ Builds on the v1.12.0 Maestro preview. All additive; the Pro tier stays dormant.
   plug in (`SOLIX_PG_URL` / `SOLIX_S3_BUCKET`) — those adapters are not wired in
   this build.
 
+### Fixed
+- **Upgrading an existing database could crash on boot.** `CREATE INDEX … ON
+  sessions(kind)` ran from the base schema while `kind` is added later by a
+  migration, so opening a pre-v2 `~/.solix/solix.db` threw `no such column:
+  kind`. Index creation now happens after the column is added.
+- **The Agent View migration silently did nothing.** The routine that relaxes the
+  legacy `sessions.origin` CHECK rebuilt the table and then recreated the same
+  `kind` index too early, so the rebuild threw, rolled back, and left the CHECK
+  in place — warning only to the log, on exactly the databases it exists to fix.
+- **The worker gate failed OPEN instead of closed.** The launcher injects
+  `SOLIX_GATE_POLICY=deny`, but the hooks only denied on the literal
+  `fail-closed`, so whenever the Solix server was unreachable or an approval
+  timed out, a contained worker's tool call was allowed through. The hooks now
+  accept every fail-closed spelling, and a cross-component contract test runs
+  the real hook scripts against the value the launcher actually injects.
+- **Plan budgets did not apply to Codex tasks.** Codex reports token usage rather
+  than a cost, so a Codex worker's spend was always undefined and never counted
+  toward a cap. Usage is now priced locally.
+- **A failed run surfaced with no reason.** The result parser read only `result`,
+  which the documented failure arms omit in favour of `errors[]`, so an
+  escalation reached the operator (and the retry prompt) with an empty
+  explanation. It now reads `errors[]`, and treats any non-`success` subtype as a
+  failure even when `is_error` is absent.
+- **Slow memory leak in chat notifications.** The dispatcher's dedupe set grew
+  unbounded for the life of the process; it is now capped.
+
+### Changed
+- `SOLIX_CLAUDE_BIN` / `SOLIX_CODEX_BIN` override the agent executable, for
+  non-standard installs.
+- Codex support is documented as **experimental and unverified against the real
+  CLI** (`docs/multi-runtime.md`).
+
 ## [1.12.0] — 2026-10-16
 
 **Maestro (preview): describe a goal, watch your agent fleet build it — 100% local.**
