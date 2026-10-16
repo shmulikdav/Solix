@@ -104,6 +104,19 @@ import {
   recordSkillInstall,
 } from './state/skills.js';
 import {
+  composeSkillTest,
+  createUserSkill,
+  deleteSkillTest,
+  deleteUserSkill,
+  extractSkillBody,
+  isUserSkill,
+  listSkillTests,
+  listSkillVersions,
+  restoreSkillVersion,
+  saveSkillTest,
+  updateUserSkill,
+} from './state/skillAuthoring.js';
+import {
   installTeamTemplate,
   listTeamTemplates,
 } from './state/teams.js';
@@ -531,6 +544,103 @@ export function createHttpApp(opts: {
       return c.json({ error: 'projectId required' }, 400);
     const s = recordSkillInstall(opts.db, id, body.projectId);
     return c.json({ ok: Boolean(s), skill: s });
+  });
+
+  // ──── P3 #9: skill authoring (user skills) ──────────────────
+  // Create/edit/version/test USER skills. Bundled anthropic/solix skills stay
+  // read-only — these routes refuse anything but a `user:` skill.
+  app.post('/api/skills', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      name?: string;
+      description?: string;
+      body?: string;
+    };
+    if (!body.name || !body.body) {
+      return c.json({ error: 'name and body are required' }, 400);
+    }
+    const skill = createUserSkill(opts.db, {
+      name: body.name,
+      description: body.description,
+      body: body.body,
+    });
+    if (!skill) {
+      return c.json({ error: 'a skill with that name already exists' }, 409);
+    }
+    opts.router.broadcastSkillUpsert(skill);
+    return c.json(skill);
+  });
+
+  app.patch('/api/skills/:id', async (c) => {
+    const id = decodeURIComponent(c.req.param('id'));
+    if (!isUserSkill(id)) return c.json({ error: 'only user skills are editable' }, 403);
+    const body = (await c.req.json().catch(() => ({}))) as {
+      name?: string;
+      description?: string;
+      body?: string;
+    };
+    const skill = updateUserSkill(opts.db, id, body);
+    if (!skill) return c.json({ error: 'not found' }, 404);
+    opts.router.broadcastSkillUpsert(skill);
+    return c.json(skill);
+  });
+
+  app.delete('/api/skills/:id', (c) => {
+    const id = decodeURIComponent(c.req.param('id'));
+    if (!isUserSkill(id)) return c.json({ error: 'only user skills are deletable' }, 403);
+    const ok = deleteUserSkill(opts.db, id);
+    if (ok) opts.router.broadcastSkillRemove(id);
+    return c.json({ ok });
+  });
+
+  app.get('/api/skills/:id/versions', (c) => {
+    const id = decodeURIComponent(c.req.param('id'));
+    if (!getSkill(opts.db, id)) return c.json({ error: 'not found' }, 404);
+    return c.json(listSkillVersions(opts.db, id));
+  });
+
+  app.post('/api/skills/:id/versions/:versionId/restore', (c) => {
+    const id = decodeURIComponent(c.req.param('id'));
+    if (!isUserSkill(id)) return c.json({ error: 'only user skills are editable' }, 403);
+    const skill = restoreSkillVersion(opts.db, id, c.req.param('versionId'));
+    if (!skill) return c.json({ error: 'not found' }, 404);
+    opts.router.broadcastSkillUpsert(skill);
+    return c.json(skill);
+  });
+
+  app.get('/api/skills/:id/tests', (c) => {
+    const id = decodeURIComponent(c.req.param('id'));
+    if (!getSkill(opts.db, id)) return c.json({ error: 'not found' }, 404);
+    return c.json(listSkillTests(opts.db, id));
+  });
+
+  app.post('/api/skills/:id/tests', async (c) => {
+    const id = decodeURIComponent(c.req.param('id'));
+    if (!getSkill(opts.db, id)) return c.json({ error: 'not found' }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as {
+      name?: string;
+      input?: string;
+    };
+    if (!body.input) return c.json({ error: 'input is required' }, 400);
+    return c.json(
+      saveSkillTest(opts.db, id, { name: body.name ?? 'test', input: body.input }),
+    );
+  });
+
+  app.delete('/api/skills/:id/tests/:testId', (c) => {
+    const ok = deleteSkillTest(opts.db, c.req.param('testId'));
+    return c.json({ ok });
+  });
+
+  // Local, model-free "dry run": the composed prompt the skill would produce
+  // for a given input. (Running it against a live model uses the normal launch
+  // path.)
+  app.post('/api/skills/:id/compose', async (c) => {
+    const id = decodeURIComponent(c.req.param('id'));
+    const s = getSkill(opts.db, id);
+    if (!s) return c.json({ error: 'not found' }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as { input?: string };
+    const skillBody = extractSkillBody(readSkillManifest(s));
+    return c.json({ prompt: composeSkillTest(skillBody, body.input ?? '') });
   });
 
   app.get('/api/galaxy/export', (c) => {

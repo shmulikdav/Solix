@@ -273,6 +273,21 @@ interface SolixState {
     templateId: string,
     cwd: string,
   ) => Promise<{ ok: boolean; warnings?: string[]; error?: string }>;
+  /** Skill authoring (P3 #9). */
+  createSkill: (input: {
+    name: string;
+    description?: string;
+    body: string;
+  }) => Promise<{ ok: boolean; id?: string; error?: string }>;
+  updateSkill: (
+    id: string,
+    patch: { name?: string; description?: string; body?: string },
+  ) => Promise<{ ok: boolean; error?: string }>;
+  deleteSkill: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  restoreSkillVersion: (
+    id: string,
+    versionId: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
   createProject: (
     name: string,
     opts?: { path?: string; template?: string },
@@ -432,6 +447,14 @@ export const useSolixStore = create<SolixState>((set, get) => ({
         set((s) => ({
           skills: { ...s.skills, [msg.skill.id]: msg.skill },
         }));
+        break;
+      }
+      case 'skill_remove': {
+        set((s) => {
+          const next = { ...s.skills };
+          delete next[msg.skillId];
+          return { skills: next };
+        });
         break;
       }
       case 'galaxy_imported': {
@@ -843,6 +866,62 @@ export const useSolixStore = create<SolixState>((set, get) => ({
         warnings?: string[];
       };
       return { ok: Boolean(data.ok), warnings: data.warnings };
+    } catch {
+      return { ok: false, error: 'Could not reach the server.' };
+    }
+  },
+
+  createSkill: async (input) => {
+    try {
+      const res = await fetch('/api/skills', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        id?: string;
+        error?: string;
+      };
+      if (!res.ok) return { ok: false, error: data.error ?? 'Create failed.' };
+      return { ok: true, id: data.id };
+    } catch {
+      return { ok: false, error: 'Could not reach the server.' };
+    }
+  },
+
+  updateSkill: async (id, patch) => {
+    try {
+      const res = await fetch(`/api/skills/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: res.ok, error: data.error };
+    } catch {
+      return { ok: false, error: 'Could not reach the server.' };
+    }
+  },
+
+  deleteSkill: async (id) => {
+    try {
+      const res = await fetch(`/api/skills/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+      return { ok: res.ok };
+    } catch {
+      return { ok: false, error: 'Could not reach the server.' };
+    }
+  },
+
+  restoreSkillVersion: async (id, versionId) => {
+    try {
+      const res = await fetch(
+        `/api/skills/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/restore`,
+        { method: 'POST' },
+      );
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: res.ok, error: data.error };
     } catch {
       return { ok: false, error: 'Could not reach the server.' };
     }

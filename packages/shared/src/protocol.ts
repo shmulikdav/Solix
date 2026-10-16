@@ -74,6 +74,7 @@ export type ServerMessage =
   | { type: 'thread_entry_append'; entry: TaskThreadEntry }
   | { type: 'advisor_upsert'; advisor: Advisor }
   | { type: 'skill_upsert'; skill: Skill }
+  | { type: 'skill_remove'; skillId: string }
   | { type: 'galaxy_imported'; manifest: GalaxyManifest }
   | {
       type: 'toast';

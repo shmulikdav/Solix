@@ -1,4 +1,5 @@
 import { useSolixStore, selectPlanets } from '../store/index.js';
+import { NEW_SKILL_ID } from '../panels/SkillPanel.js';
 
 interface TopBarProps {
   onOpenGalaxy?: () => void;
@@ -24,6 +25,7 @@ export function TopBar({
   const viewMode = useSolixStore((s) => s.viewMode);
   const playbackActive = useSolixStore((s) => s.playback.active);
   const exitPlayback = useSolixStore((s) => s.exitPlayback);
+  const selectSkill = useSolixStore((s) => s.selectSkill);
 
   const counts = planets.reduce(
     (acc, s) => {
@@ -142,6 +144,13 @@ export function TopBar({
             ⌬ Galaxy
           </button>
         )}
+        <button
+          onClick={() => selectSkill(NEW_SKILL_ID)}
+          className="px-2 py-1 rounded bg-cyan-500/15 border border-cyan-400/40 text-cyan-200 hover:bg-cyan-500/25"
+          title="Author a new skill"
+        >
+          ✎ Skill
+        </button>
         {onOpenHelp && (
           <button
             onClick={onOpenHelp}

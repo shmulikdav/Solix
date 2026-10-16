@@ -67,6 +67,26 @@ CREATE TABLE IF NOT EXISTS skills (
   updated_at INTEGER NOT NULL
 );
 
+-- P3 #9 — skill authoring: version history + saved test inputs for user skills.
+CREATE TABLE IF NOT EXISTS skill_versions (
+  id TEXT PRIMARY KEY,
+  skill_id TEXT NOT NULL,
+  ordinal INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  body TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_skill_versions_skill ON skill_versions(skill_id);
+CREATE TABLE IF NOT EXISTS skill_tests (
+  id TEXT PRIMARY KEY,
+  skill_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  input TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_skill_tests_skill ON skill_tests(skill_id);
+
 CREATE TABLE IF NOT EXISTS galaxy_imports (
   id TEXT PRIMARY KEY,
   source_url TEXT,
