@@ -1,32 +1,37 @@
 # Solix
 
-A solar-system command center for Claude Code agents.
+### Mission control for your AI coding agents — 100% local.
 
 [![npm version](https://img.shields.io/npm/v/@shmulikdav/solix.svg)](https://www.npmjs.com/package/@shmulikdav/solix)
 [![npm downloads](https://img.shields.io/npm/dm/@shmulikdav/solix.svg)](https://www.npmjs.com/package/@shmulikdav/solix)
 [![license](https://img.shields.io/npm/l/@shmulikdav/solix.svg)](LICENSE)
 [![node](https://img.shields.io/node/v/@shmulikdav/solix.svg)](https://nodejs.org)
 
+Running a fleet of Claude Code agents in parallel? You can't watch ten terminals.
+**Solix renders every running session as a planet orbiting a central sun** — so you
+see your whole fleet at a glance, catch the one waiting on your approval, and know
+what it all costs, without leaving one screen.
+
 ```sh
 npm i -g @shmulikdav/solix
-solix install && solix start
+solix demo          # see the full galaxy in ~10s — fully synthetic, no setup
 ```
-
-Solix renders every running Claude Code session as a planet orbiting a central
-sun. You see all your agents at once, click any planet to inspect its mission
-log, and react to permission requests without context-switching between
-terminals.
 
 ![Solix — every running Claude Code session as a planet orbiting a central sun](docs/galaxy.png)
 
 <sub>Run `solix demo` to see the live galaxy in your browser (fully synthetic, no real Claude Code needed) — capture guide in [docs/CAPTURE.md](docs/CAPTURE.md).</sub>
 
-> **100% local, zero telemetry.** Solix runs entirely on `127.0.0.1` — a
-> local server, a local SQLite file, no account, no sign-in, and nothing
-> ever leaves your machine. It ships a crew of **14 advisor agents**, a
-> skills asteroid belt, live mission logs tailed from your transcripts,
-> an in-app session launcher, and shareable galaxies (local file or opt-in
-> cloud registry).
+- 🪐 **See everything at once** — each agent is a planet; the star brightens with activity and flares red when a session needs you, before you click.
+- ⚡ **One decision queue** — approve or deny risky actions (`git push`, `rm -rf`) with a keystroke.
+- ☀️ **Mission Control** — click the sun for total spend, cost per completed mission, and what needs your attention now.
+- 👥 **A crew of 14 advisors** — code review, security, debugging, cost, and more — invoke or pin them to any session.
+- 🔒 **100% local, zero telemetry** — a local server, a local SQLite file, no account, no sign-in. Nothing ever leaves your machine.
+
+> MIT-licensed and free forever. Solix also tails live mission logs from your
+> transcripts, ships a skills asteroid belt, an in-app session launcher, and
+> shareable galaxies (local file or opt-in cloud registry). *(A local Pro
+> edition — agent orchestration + deeper cost/efficiency analytics — is on the
+> roadmap; the core stays free.)*
 
 ## Maestro — describe a goal, your fleet builds it (preview)
 
