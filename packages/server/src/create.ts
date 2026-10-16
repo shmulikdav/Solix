@@ -21,7 +21,12 @@ import { discoverSkills } from './state/skills.js';
 import { TranscriptWatcherManager } from './state/transcript.js';
 import { cleanupOrphanedSockets } from './state/wrappers.js';
 import { startAgentViewBridge } from './state/agentview.js';
-import { listDueSchedules, markScheduleRun } from './state/schedules.js';
+import {
+  listDueSchedules,
+  markScheduleRun,
+  recordScheduleRun,
+} from './state/schedules.js';
+import type { ScheduledTask, TriggerKind } from '@solix/shared';
 import { now } from './util.js';
 
 // Models a plan task may be dispatched with (mirrors the New Task picker).
@@ -126,12 +131,56 @@ export async function createSolixServer(
     token = null;
   }
 
+  // Fire a routine now: launch its prompt, record the run, advance (interval
+  // only), and broadcast. Shared by the heartbeat timer and the manual/webhook
+  // fire routes so every trigger path records identical run history.
+  const fireScheduleNow = (
+    schedule: ScheduledTask,
+    trigger: TriggerKind,
+  ): void => {
+    if (!schedule.cwd) {
+      recordScheduleRun(db, {
+        scheduleId: schedule.id,
+        trigger,
+        status: 'skipped',
+        detail: 'no working directory set',
+      });
+      return;
+    }
+    try {
+      launcher.launch({ cwd: schedule.cwd, initialPrompt: schedule.prompt });
+      recordScheduleRun(db, {
+        scheduleId: schedule.id,
+        trigger,
+        status: 'fired',
+        detail: schedule.prompt.slice(0, 120),
+      });
+      const updated = markScheduleRun(db, schedule.id);
+      if (updated) {
+        broadcaster.broadcast({ type: 'schedule_upsert', schedule: updated });
+        broadcaster.broadcast({
+          type: 'toast',
+          level: 'info',
+          message: `${trigger === 'interval' ? 'Heartbeat' : trigger === 'webhook' ? 'Webhook' : 'Manual run'} fired: ${schedule.name ?? schedule.prompt.slice(0, 32)}`,
+        });
+      }
+    } catch (err) {
+      recordScheduleRun(db, {
+        scheduleId: schedule.id,
+        trigger,
+        status: 'error',
+        detail: (err as Error).message,
+      });
+    }
+  };
+
   const app = createHttpApp({
     db,
     router,
     orchestrator,
     token,
     version: opts.version,
+    fireSchedule: fireScheduleNow,
   });
 
   const server = serve({
@@ -174,19 +223,8 @@ export async function createSolixServer(
   // launch path, then advance its next_run_at.
   const scheduleTimer = setInterval(() => {
     try {
-      const due = listDueSchedules(db, now());
-      for (const s of due) {
-        if (!s.cwd) continue;
-        launcher.launch({ cwd: s.cwd, initialPrompt: s.prompt });
-        const updated = markScheduleRun(db, s.id);
-        if (updated) {
-          broadcaster.broadcast({ type: 'schedule_upsert', schedule: updated });
-          broadcaster.broadcast({
-            type: 'toast',
-            level: 'info',
-            message: `Heartbeat fired: ${s.name ?? s.prompt.slice(0, 32)}`,
-          });
-        }
+      for (const s of listDueSchedules(db, now())) {
+        fireScheduleNow(s, 'interval');
       }
     } catch (err) {
       console.warn('[scheduler] tick failed:', (err as Error).message);

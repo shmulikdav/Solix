@@ -72,6 +72,9 @@ import { clearSessionWrapper } from './state/sessions.js';
 import {
   createSchedule,
   deleteSchedule,
+  getSchedule,
+  getScheduleByToken,
+  listScheduleRuns,
   listSchedules,
   setScheduleEnabled,
 } from './state/schedules.js';
@@ -120,6 +123,13 @@ export function createHttpApp(opts: {
   /** Product version to report from /api/health. The CLI injects its own
    * package version; absent when the server is embedded directly. */
   version?: string;
+  /** Fire a routine now (launch it, record the run, advance/broadcast). Wired
+   *  by create.ts where the launcher lives; absent in embedded/test contexts,
+   *  where the fire routes report the capability is unavailable. */
+  fireSchedule?: (
+    schedule: import('@solix/shared').ScheduledTask,
+    trigger: import('@solix/shared').TriggerKind,
+  ) => void;
 }) {
   const app = new Hono();
   // The UI is served same-origin from this same port, so it never needs CORS.
@@ -657,15 +667,24 @@ export function createHttpApp(opts: {
       prompt?: string;
       cadence?: string;
       name?: string;
+      trigger?: import('@solix/shared').TriggerKind;
+      owner?: string;
     };
-    if (!body.cwd || !body.prompt || !body.cadence) {
-      return c.json({ error: 'cwd, prompt, cadence required' }, 400);
+    const trigger = body.trigger ?? 'interval';
+    // Interval routines need a cadence; webhook/manual don't.
+    if (!body.cwd || !body.prompt || (trigger === 'interval' && !body.cadence)) {
+      return c.json(
+        { error: 'cwd, prompt required (cadence required for interval triggers)' },
+        400,
+      );
     }
     const schedule = createSchedule(opts.db, {
       cwd: body.cwd,
       prompt: body.prompt,
       cadence: body.cadence,
       name: body.name,
+      trigger,
+      owner: body.owner,
     });
     opts.router.broadcastScheduleUpsert(schedule);
     return c.json(schedule);
@@ -684,6 +703,39 @@ export function createHttpApp(opts: {
     const ok = deleteSchedule(opts.db, id);
     if (ok) opts.router.broadcastScheduleRemove(id);
     return c.json({ ok });
+  });
+
+  // P1 #5 — a routine's run history (newest first).
+  app.get('/api/schedules/:id/runs', (c) => {
+    const id = c.req.param('id');
+    if (!getSchedule(opts.db, id)) return c.json({ error: 'not found' }, 404);
+    return c.json(listScheduleRuns(opts.db, id));
+  });
+
+  // P1 #5 — fire a routine on demand (manual trigger). Origin-gated.
+  app.post('/api/schedules/:id/fire', (c) => {
+    const s = getSchedule(opts.db, c.req.param('id'));
+    if (!s) return c.json({ error: 'not found' }, 404);
+    if (!opts.fireSchedule) {
+      return c.json({ ok: false, error: 'firing unavailable in this context' }, 503);
+    }
+    opts.fireSchedule(s, 'manual');
+    return c.json({ ok: true });
+  });
+
+  // P1 #5 — webhook trigger. An inbound POST to the routine's capability URL
+  // fires it. The token IS the auth; non-browser callers (curl, a tunnel) send
+  // no Origin and pass the CSRF gate. Unknown/non-webhook tokens 404 (no oracle
+  // on which tokens exist beyond the 404/200 split).
+  app.post('/api/triggers/:token', (c) => {
+    const s = getScheduleByToken(opts.db, c.req.param('token'));
+    if (!s) return c.json({ error: 'not found' }, 404);
+    if (!s.enabled) return c.json({ ok: false, error: 'routine is disabled' }, 409);
+    if (!opts.fireSchedule) {
+      return c.json({ ok: false, error: 'firing unavailable in this context' }, 503);
+    }
+    opts.fireSchedule(s, 'webhook');
+    return c.json({ ok: true });
   });
 
   // ──── Sprint M: goals (constellations) ──────────────────────

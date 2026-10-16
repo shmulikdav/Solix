@@ -51,7 +51,15 @@ function HeartbeatNode({
     }
   });
 
-  const nextLabel = relativeNextRun(schedule.nextRunAt);
+  // Interval routines show their cadence + next run; webhook/manual routines
+  // fire on demand, so show the trigger kind instead of a bogus "next run".
+  const trigger = schedule.trigger ?? 'interval';
+  const cadenceLabel =
+    trigger === 'interval'
+      ? `every ${schedule.cron} · next ${relativeNextRun(schedule.nextRunAt)}`
+      : trigger === 'webhook'
+        ? 'webhook trigger'
+        : 'manual trigger';
 
   return (
     <group position={position}>
@@ -68,11 +76,12 @@ function HeartbeatNode({
       >
         <div className="px-2 py-1 rounded text-[10px] whitespace-nowrap border bg-black/50 border-cyan-300/40 text-cyan-100">
           <div className="font-semibold flex items-center gap-1">
-            <span>✷</span>
+            <span>{trigger === 'webhook' ? '⚡' : '✷'}</span>
             <span>{schedule.name ?? schedule.prompt.slice(0, 24)}</span>
           </div>
           <div className="opacity-70">
-            every {schedule.cron} · next {nextLabel}
+            {cadenceLabel}
+            {schedule.owner ? ` · ${schedule.owner}` : ''}
           </div>
         </div>
       </Html>

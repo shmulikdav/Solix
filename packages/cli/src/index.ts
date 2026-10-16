@@ -28,8 +28,10 @@ import {
   addScheduleCmd,
   disableScheduleCmd,
   enableScheduleCmd,
+  fireScheduleCmd,
   listSchedulesCmd,
   removeScheduleCmd,
+  scheduleRunsCmd,
 } from './schedule.js';
 import { addGoalCmd, listGoalsCmd, removeGoalCmd } from './goals.js';
 import { activateLicenseCmd, licenseStatusCmd } from './license.js';
@@ -233,18 +235,40 @@ schedules
 
 schedules
   .command('add <prompt>')
-  .description('Schedule a recurring task')
+  .description('Schedule a task (interval, webhook, or manual trigger)')
   .option('--cwd <dir>', 'working directory (default: current dir)')
-  .option('--every <cadence>', 'cadence, e.g. 30m, 1h, 1d (default: 1h)')
+  .option('--every <cadence>', 'cadence, e.g. 30m, 1h, 1d (interval only; default 1h)')
+  .option('--trigger <kind>', 'interval | webhook | manual (default: interval)')
+  .option('--owner <owner>', 'owner label (advisor role, person, team)')
   .option('--name <name>', 'short label for the schedule')
   .action(
     async (
       prompt: string,
-      opts: { cwd?: string; every?: string; name?: string },
+      opts: {
+        cwd?: string;
+        every?: string;
+        name?: string;
+        trigger?: string;
+        owner?: string;
+      },
     ) => {
       await addScheduleCmd(prompt, opts);
     },
   );
+
+schedules
+  .command('fire <id>')
+  .description('Fire a routine now (manual trigger)')
+  .action(async (id: string) => {
+    await fireScheduleCmd(id);
+  });
+
+schedules
+  .command('runs <id>')
+  .description('Show a routine’s recent run history')
+  .action(async (id: string) => {
+    await scheduleRunsCmd(id);
+  });
 
 schedules
   .command('remove <id>')

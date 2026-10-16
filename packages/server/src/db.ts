@@ -139,6 +139,18 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
   next_run_at INTEGER NOT NULL
 );
 
+-- P1 #5 — per-routine run history (every firing: interval tick, webhook, manual).
+CREATE TABLE IF NOT EXISTS schedule_runs (
+  id TEXT PRIMARY KEY,
+  schedule_id TEXT NOT NULL,
+  trigger TEXT NOT NULL,
+  status TEXT NOT NULL,
+  detail TEXT,
+  fired_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_schedule_runs_schedule ON schedule_runs(schedule_id);
+CREATE INDEX IF NOT EXISTS idx_schedule_runs_fired ON schedule_runs(fired_at);
+
 CREATE TABLE IF NOT EXISTS goals (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -369,6 +381,11 @@ function applySchema(db: DB): void {
   ensureColumn(db, 'missions', 'goal_id', 'goal_id TEXT');
   ensureColumn(db, 'scheduled_tasks', 'cwd', 'cwd TEXT');
   ensureColumn(db, 'scheduled_tasks', 'name', 'name TEXT');
+  // P1 #5 — richer routine triggers: webhook/manual kinds, a per-routine owner,
+  // and a capability token for webhook fire URLs.
+  ensureColumn(db, 'scheduled_tasks', 'trigger', "trigger TEXT NOT NULL DEFAULT 'interval'");
+  ensureColumn(db, 'scheduled_tasks', 'owner', 'owner TEXT');
+  ensureColumn(db, 'scheduled_tasks', 'token', 'token TEXT');
   // v2 Maestro — plan back-links on dispatched sessions.
   ensureColumn(db, 'sessions', 'plan_id', 'plan_id TEXT');
   ensureColumn(db, 'sessions', 'plan_task_id', 'plan_task_id TEXT');

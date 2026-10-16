@@ -333,6 +333,12 @@ export interface Project {
   template?: string;
 }
 
+/** How a routine fires (P1 #5):
+ *  - interval: on a cadence (the heartbeat scheduler ticks it)
+ *  - webhook: on an inbound POST to its capability URL (token-authenticated)
+ *  - manual: fire-only, run on demand from the UI/API */
+export type TriggerKind = 'interval' | 'webhook' | 'manual';
+
 export interface ScheduledTask {
   id: string;
   projectId: string;
@@ -342,11 +348,33 @@ export interface ScheduledTask {
   name?: string;
   prompt: string;
   /** Cadence string. Sprint M supports simple intervals: "30m", "2h", "1d".
-   * (Full cron is future work — see Sprint M plan.) */
+   * (Full cron is future work — see Sprint M plan.) Ignored for non-interval
+   * triggers. */
   cron: string;
   enabled: boolean;
   lastRunAt?: number;
   nextRunAt: number;
+  /** How this routine fires (default 'interval'). */
+  trigger?: TriggerKind;
+  /** Optional owner label (an advisor role, a person, a team). */
+  owner?: string;
+  /** Capability token for a webhook trigger — the secret in its fire URL
+   *  (POST /api/triggers/:token). Local-only; shown so the UI can build the
+   *  URL. Absent for interval/manual triggers. */
+  webhookToken?: string;
+}
+
+/** One recorded firing of a routine (P1 #5 run history). */
+export interface ScheduleRun {
+  id: string;
+  scheduleId: string;
+  /** Which trigger caused this run. */
+  trigger: TriggerKind | string;
+  /** Outcome: 'fired' (launched), 'skipped' (e.g. disabled), 'error'. */
+  status: 'fired' | 'skipped' | 'error' | string;
+  /** Short human-readable detail (prompt snippet, or an error message). */
+  detail?: string;
+  firedAt: number;
 }
 
 export interface ChatMessage {
