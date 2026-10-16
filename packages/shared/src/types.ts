@@ -18,6 +18,10 @@ export type Model = 'opus' | 'sonnet' | 'haiku' | 'default' | string;
  */
 export type SessionOrigin = 'external' | 'internal' | 'agentview';
 
+/** Which agent CLI/runtime a session is. Solix is multi-tool: Claude Code by
+ *  default, plus Codex (and more later). Drives the planet glyph + pricing. */
+export type AgentRuntime = 'claude' | 'codex';
+
 export type SessionKind = 'user' | 'advisor';
 
 /** v2 Maestro — a session's role within an orchestration plan. Absent for
@@ -35,6 +39,8 @@ export interface Session {
   model: Model;
   origin: SessionOrigin;
   kind: SessionKind;
+  /** The agent runtime behind this session ('claude' default, 'codex', …). */
+  runtime?: AgentRuntime;
   advisorRole?: string;
   parentSessionId?: string;
   contextUsagePct: number;

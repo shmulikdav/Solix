@@ -158,6 +158,10 @@ export class EventRouter {
       advisorRole,
       worktreePath,
       wrapperSocketPath: wrapper?.socketPath,
+      runtime:
+        (event.payload as Record<string, unknown>).runtime === 'codex'
+          ? 'codex'
+          : 'claude',
     });
     // Once the session row exists we can record the wrapperId →
     // sessionId binding. On unregister we use it to clear the

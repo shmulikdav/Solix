@@ -44,6 +44,7 @@ import {
 } from './state/connections.js';
 import { defaultProjectsDir, scaffoldProject } from './state/scaffold.js';
 import { buildPlanReview } from './state/git.js';
+import { normalizeCodexEvent } from './codex.js';
 import { fullAutoContainmentStatus } from './containment.js';
 import { activateLicense, getEntitlement } from './licensing.js';
 import { previewTargetPath, slugifyProjectName } from './util.js';
@@ -155,7 +156,7 @@ export function createHttpApp(opts: {
   // this doesn't touch the UI. No token configured → no enforcement.
   if (opts.token) {
     const expected = opts.token;
-    const paths = ['/events', '/events/permission'];
+    const paths = ['/events', '/events/permission', '/events/codex'];
     for (const p of paths) {
       app.use(p, async (c, next) => {
         if (c.req.header('x-solix-token') !== expected) {
@@ -188,6 +189,21 @@ export function createHttpApp(opts: {
     if (body && body.event) {
       opts.router.handleHookEvent(body);
     }
+    return c.json({ ok: true });
+  });
+
+  // Multi-runtime: Codex hooks POST their raw stdin JSON here; we normalize it
+  // to the agent-agnostic HookEvent envelope and feed the same router, so Codex
+  // sessions appear as planets alongside Claude Code.
+  app.post('/events/codex', async (c) => {
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return c.json({ ok: true });
+    }
+    const event = normalizeCodexEvent(raw);
+    if (event) opts.router.handleHookEvent(event);
     return c.json({ ok: true });
   });
 

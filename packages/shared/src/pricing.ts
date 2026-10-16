@@ -34,6 +34,10 @@ export const MODEL_PRICING: Record<string, ModelPrice> = {
   opus: { input: 15, output: 75, cacheRead: 1.5, cacheWrite: 18.75 },
   sonnet: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 },
   haiku: { input: 0.8, output: 4, cacheRead: 0.08, cacheWrite: 1 },
+  // OpenAI / Codex (approximate, USD per million tokens) — multi-runtime cost
+  // parity. Tune to the model you run.
+  'gpt-5': { input: 1.25, output: 10, cacheRead: 0.125, cacheWrite: 1.25 },
+  'gpt-5-mini': { input: 0.25, output: 2, cacheRead: 0.025, cacheWrite: 0.25 },
 };
 
 /** Map any model string (alias or full id) to a pricing tier. Defaults to
@@ -42,6 +46,11 @@ export function pricingFor(model: string | undefined): ModelPrice {
   const m = (model ?? '').toLowerCase();
   if (m.includes('opus')) return MODEL_PRICING.opus!;
   if (m.includes('haiku')) return MODEL_PRICING.haiku!;
+  // OpenAI / Codex models.
+  if (m.includes('gpt-5-mini') || m.includes('mini'))
+    return MODEL_PRICING['gpt-5-mini']!;
+  if (m.includes('gpt-5') || m.includes('codex') || m.includes('gpt'))
+    return MODEL_PRICING['gpt-5']!;
   // sonnet, default, and anything unrecognized fall back to sonnet rates.
   return MODEL_PRICING.sonnet!;
 }

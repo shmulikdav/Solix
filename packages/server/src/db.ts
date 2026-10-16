@@ -355,6 +355,8 @@ function applySchema(db: DB): void {
   ensureColumn(db, 'sessions', 'plan_id', 'plan_id TEXT');
   ensureColumn(db, 'sessions', 'plan_task_id', 'plan_task_id TEXT');
   ensureColumn(db, 'sessions', 'session_role', 'session_role TEXT');
+  // Multi-runtime: which agent CLI a session is ('claude' default, 'codex', …).
+  ensureColumn(db, 'sessions', 'runtime', "runtime TEXT NOT NULL DEFAULT 'claude'");
   // v2 Maestro — durable per-task retry ceiling (idempotent for DBs that
   // created plan_tasks before this column existed).
   ensureColumn(db, 'plan_tasks', 'max_attempts', 'max_attempts INTEGER NOT NULL DEFAULT 3');
