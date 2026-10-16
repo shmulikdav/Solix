@@ -20,6 +20,7 @@ import { SidePanel } from './panels/SidePanel.js';
 import { AdvisorPanel } from './panels/AdvisorPanel.js';
 import { SkillPanel } from './panels/SkillPanel.js';
 import { NewTaskModal } from './panels/NewTaskModal.js';
+import { ErrorBoundary } from './ErrorBoundary.js';
 import { useSolixStore } from './store/index.js';
 import { startWsClient } from './ws/client.js';
 
@@ -251,9 +252,29 @@ function ViewSurface(): JSX.Element {
   // the screen doesn't go blank during the ~hundreds-of-ms first
   // paint while three.js downloads.
   return (
-    <Suspense fallback={<SceneLoading />}>
-      <Scene />
-    </Suspense>
+    // Defense in depth: whatever happens inside the 3D scene (a bad asset, a
+    // driver quirk, a WebGL context failure), it must never take the HUD and
+    // panels down with it. Without this, one throw inside the canvas unmounted
+    // the entire app and the user got a black page with no way back.
+    <ErrorBoundary label="galaxy scene" fallback={<SceneUnavailable />}>
+      <Suspense fallback={<SceneLoading />}>
+        <Scene />
+      </Suspense>
+    </ErrorBoundary>
+  );
+}
+
+/** Shown when the 3D scene itself fails — the rest of the UI keeps working. */
+function SceneUnavailable(): JSX.Element {
+  return (
+    <div className="absolute inset-0 flex items-center justify-center bg-solix-bg z-0">
+      <div className="text-center text-xs text-slate-500 max-w-xs leading-relaxed">
+        <div className="text-slate-300 mb-1">The galaxy view didn’t load.</div>
+        Your agents are still running — switch to{' '}
+        <span className="text-slate-300">List</span> or{' '}
+        <span className="text-slate-300">Missions</span> view, or reload.
+      </div>
+    </div>
   );
 }
 

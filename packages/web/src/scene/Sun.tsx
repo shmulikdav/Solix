@@ -1,3 +1,4 @@
+import { ErrorBoundary } from '../ErrorBoundary.js';
 import { Suspense, useMemo, useRef } from 'react';
 import { useFrame, useLoader } from '@react-three/fiber';
 import {
@@ -84,9 +85,13 @@ export function Sun(): JSX.Element {
         decay={2}
         color="#ffd486"
       />
-      <Suspense fallback={<SunFallback />}>
-        <SunBody />
-      </Suspense>
+      {/* Boundary outside Suspense: a missing/corrupt sun texture must fall
+          back to the procedural sun, not take the scene (and the app) down. */}
+      <ErrorBoundary label="sun texture" fallback={<SunFallback />}>
+        <Suspense fallback={<SunFallback />}>
+          <SunBody />
+        </Suspense>
+      </ErrorBoundary>
       <SunHaloes />
       <SolarProminences />
       {/*

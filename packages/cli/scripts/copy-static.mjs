@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -47,4 +47,28 @@ for (const { label, src, dst, fatal } of trees) {
   mkdirSync(dst, { recursive: true });
   cpSync(src, dst, { recursive: true });
   console.log(`[copy-static] ${label}: ${src} -> ${dst}`);
+}
+
+// ── Texture presence check ────────────────────────────────────────────
+// Planet/sky textures are deliberately NOT committed (binary assets); they are
+// downloaded on demand by `pnpm --filter @solix/web prepare-assets`. That makes
+// their presence untracked local state, so a fresh clone, a CI build, or a
+// publish from a machine that never ran the fetch script would quietly ship a
+// texture-less bundle. The scene degrades to its procedural look (and no longer
+// crashes — see ErrorBoundary), but shipping it unintentionally is still worth
+// a loud warning rather than a silent surprise.
+{
+  const texDir = join(distRoot, 'web', 'textures');
+  const present = existsSync(texDir)
+    ? readdirSync(texDir).filter((f) => /\.(jpg|jpeg|png|webp)$/i.test(f))
+    : [];
+  if (present.length === 0) {
+    console.warn(
+      '[copy-static] ⚠ no planet textures in the bundle — the galaxy will render\n' +
+        '              in its procedural (untextured) look. To include them:\n' +
+        '                pnpm --filter @solix/web prepare-assets && pnpm -r build',
+    );
+  } else {
+    console.log(`[copy-static] textures: ${present.length} present`);
+  }
 }
