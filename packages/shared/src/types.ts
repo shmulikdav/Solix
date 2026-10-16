@@ -241,6 +241,10 @@ export interface PlanTask {
   resultSummary?: string;
   /** Stable ordering for display. */
   orderIndex: number;
+  /** How many delegation hops produced this task (0 = from the original plan).
+   *  A worker may propose subtasks (P2 #8); each inherits parent depth + 1, and
+   *  the orchestrator refuses to expand past a hard depth cap. */
+  delegationDepth?: number;
   createdAt: number;
   updatedAt: number;
 }

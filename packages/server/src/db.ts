@@ -402,6 +402,9 @@ function applySchema(db: DB): void {
   ensureColumn(db, 'plan_tasks', 'result_summary', 'result_summary TEXT');
   // Per-task agent runtime (multi-runtime dispatch).
   ensureColumn(db, 'plan_tasks', 'runtime', "runtime TEXT");
+  // P2 #8 — delegation depth (0 for original plan tasks; worker-proposed
+  // subtasks inherit parent depth + 1, capped by the orchestrator).
+  ensureColumn(db, 'plan_tasks', 'delegation_depth', 'delegation_depth INTEGER NOT NULL DEFAULT 0');
   // Build-studio (Phase 5): user-created projects are durable + owned by Solix,
   // distinct from auto-observed ones; `template` records how to scaffold/preview.
   ensureColumn(db, 'projects', 'managed', 'managed INTEGER NOT NULL DEFAULT 0');

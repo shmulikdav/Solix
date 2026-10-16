@@ -29,6 +29,11 @@ import {
 } from '../licensing.js';
 import { parsePlannerOutput, parseVerifierOutput } from './planner.js';
 import {
+  MAX_DELEGATION_DEPTH,
+  delegationPromptNote,
+  parseSubtaskProposal,
+} from './delegation.js';
+import {
   computeNewlyBlocked,
   computePlanOutcome,
   computeReadyTasks,
@@ -598,7 +603,9 @@ export class Orchestrator {
       task.attempts > 0 && task.lastError
         ? `\n\n=== PREVIOUS ATTEMPT WAS REJECTED — fix this ===\n${task.lastError}`
         : '';
-    const workerPrompt = `${task.prompt}\n\n=== ACCEPTANCE CRITERIA (you must satisfy these) ===\n${task.acceptanceCriteria}${upstreamBlock}${feedback}`;
+    // Let the worker know it MAY delegate (only while under the depth cap).
+    const delegationNote = delegationPromptNote(task.delegationDepth ?? 0);
+    const workerPrompt = `${task.prompt}\n\n=== ACCEPTANCE CRITERIA (you must satisfy these) ===\n${task.acceptanceCriteria}${upstreamBlock}${feedback}${delegationNote}`;
     const run = await runner.runOnce({
       cwd,
       role: 'worker',
@@ -682,6 +689,9 @@ export class Orchestrator {
         verdict.reason || 'Accepted against the acceptance criteria.',
         { attempt: attempts, payload: { sessionId: verifierId } },
       );
+      // A completed task may have proposed subtasks — expand them now (the
+      // orchestrator validates + appends; the worker never dispatches).
+      this.expandDelegation(plan, done ?? task, run.output);
     } else {
       this.handleTaskFailure(
         task.id,
@@ -732,6 +742,87 @@ export class Orchestrator {
       'human',
       'Run aborted by the operator — attempt refunded; task returned to pending.',
       { attempt: t.attempts },
+    );
+  }
+
+  /**
+   * Agent delegation (P2 #8). A completed task may have proposed subtasks in its
+   * output; parse them (strict), enforce the depth cap + the Pro task-count gate,
+   * and append each as a pending task depending ONLY on this (completed) parent —
+   * a flat batch, so no cycle is possible. The orchestrator still owns dispatch;
+   * the worker only proposed. Records a `delegated` thread entry either way.
+   */
+  private expandDelegation(plan: Plan, parent: PlanTask, output: string): void {
+    const { db } = this.deps;
+    const depth = parent.delegationDepth ?? 0;
+    if (depth >= MAX_DELEGATION_DEPTH) {
+      // Parse only to tell the operator why a proposal (if any) was ignored.
+      if (parseSubtaskProposal(output).subtasks.length > 0) {
+        this.thread(
+          parent,
+          'delegated',
+          'system',
+          `Subtask proposal ignored — delegation depth cap (${MAX_DELEGATION_DEPTH}) reached.`,
+        );
+      }
+      return;
+    }
+
+    const { subtasks, warnings } = parseSubtaskProposal(output);
+    if (subtasks.length === 0) {
+      if (warnings.length > 0) {
+        this.thread(parent, 'delegated', 'system', `Subtask proposal ignored: ${warnings.join('; ')}`);
+      }
+      return;
+    }
+
+    // Re-gate on the resulting task count so delegation can't bypass the tier
+    // cap (mirrors approve/resume/follow-up).
+    const ent = (this.deps.getEntitlement ?? getEntitlement)();
+    const current = listPlanTasks(db, plan.id).length;
+    const gate = evaluateRunGate({
+      tier: ent.tier,
+      taskCount: current + subtasks.length,
+      autoMode: plan.autoMode,
+    });
+    if (!gate.allowed) {
+      this.thread(
+        parent,
+        'delegated',
+        'system',
+        `Declined ${subtasks.length} proposed subtask(s): ${gate.reason}`,
+      );
+      return;
+    }
+
+    const baseOrder = listPlanTasks(db, plan.id).reduce(
+      (m, t) => Math.max(m, t.orderIndex),
+      0,
+    );
+    const titles: string[] = [];
+    subtasks.forEach((spec, i) => {
+      const child = createPlanTask(db, {
+        planId: plan.id,
+        title: spec.title,
+        prompt: spec.prompt,
+        acceptanceCriteria: spec.acceptanceCriteria,
+        dependsOn: [parent.id], // flat batch → parent-only edge → no cycles
+        cwd: parent.cwd,
+        model: parent.model,
+        runtime: parent.runtime,
+        assignedAdvisorRole: parent.assignedAdvisorRole,
+        orderIndex: baseOrder + 1 + i,
+        delegationDepth: depth + 1,
+      });
+      this.emitTask(child);
+      titles.push(spec.title);
+    });
+    this.thread(
+      parent,
+      'delegated',
+      'worker',
+      `Spawned ${titles.length} subtask(s): ${titles.join('; ')}${warnings.length ? ` (${warnings.join('; ')})` : ''}`,
+      { payload: { count: titles.length, depth: depth + 1 } },
     );
   }
 

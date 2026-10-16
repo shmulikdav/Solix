@@ -34,6 +34,12 @@ Builds on the v1.12.0 Maestro preview. All additive; the Pro tier stays dormant.
   common goals (ship-fast build team, quality & security gate, launch & devrel,
   architecture & data). Install from the Galaxy panel's new Teams tab or
   `solix teams install <id>`; missing pieces are skipped with a warning.
+- **Agent delegation (propose-and-verify).** A worker that genuinely needs to may
+  propose subtasks; the orchestrator parses them strictly, enforces a depth cap,
+  a per-proposal count cap, and the same task-count gate, then appends and
+  dispatches them as verified tasks depending on the completed parent. The worker
+  never dispatches directly — the orchestrator stays the sole, deterministic
+  dispatcher, so containment is preserved.
 
 ## [1.12.0] — 2026-10-16
 

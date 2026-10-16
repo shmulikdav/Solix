@@ -931,6 +931,7 @@ const THREAD_KIND_META: Record<
   aborted: { icon: '■', color: 'text-slate-400', label: 'Aborted' },
   comment: { icon: '🗨', color: 'text-amber-200', label: 'You' },
   follow_up: { icon: '＋', color: 'text-amber-300', label: 'Follow-up' },
+  delegated: { icon: '⑂', color: 'text-cyan-300', label: 'Delegated' },
 };
 
 /** The task's run history + conversation — lifecycle entries interleaved with

@@ -191,6 +191,7 @@ interface PlanTaskRow {
   last_error: string | null;
   result_summary: string | null;
   order_index: number;
+  delegation_depth: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -223,6 +224,7 @@ function rowToPlanTask(row: PlanTaskRow): PlanTask {
     lastError: row.last_error ?? undefined,
     resultSummary: row.result_summary ?? undefined,
     orderIndex: row.order_index,
+    delegationDepth: row.delegation_depth ?? 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -244,6 +246,7 @@ export function createPlanTask(
     budgetUsd?: number;
     maxAttempts?: number;
     orderIndex?: number;
+    delegationDepth?: number;
   },
 ): PlanTask {
   const id = nanoid(8);
@@ -252,8 +255,9 @@ export function createPlanTask(
     `INSERT INTO plan_tasks
        (id, plan_id, title, prompt, acceptance_criteria, status, depends_on_json,
         assigned_advisor_role, cwd, model, runtime, budget_usd, session_id, mission_id,
-        verifier_session_id, attempts, max_attempts, order_index, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 0, ?, ?, ?, ?)`,
+        verifier_session_id, attempts, max_attempts, order_index, delegation_depth,
+        created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 0, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     input.planId,
@@ -269,6 +273,7 @@ export function createPlanTask(
     input.budgetUsd ?? null,
     input.maxAttempts ?? 3,
     input.orderIndex ?? 0,
+    input.delegationDepth ?? 0,
     ts,
     ts,
   );
