@@ -5,6 +5,7 @@ import type {
   ClientMessage,
   Goal,
   Mission,
+  Org,
   Plan,
   PlanTask,
   Project,
@@ -12,6 +13,7 @@ import type {
   ServerMessage,
   Session,
   Skill,
+  TaskThreadEntry,
   TimelineEvent,
   ToolCall,
 } from '@solix/shared';
@@ -37,6 +39,14 @@ export interface BudgetAlert {
   sessionId: string;
   costUsd: number;
   budgetUsd: number;
+  receivedAt: number;
+}
+
+export interface PlanBudgetAlert {
+  planId: string;
+  spentUsd: number;
+  budgetUsd: number;
+  pct: number;
   receivedAt: number;
 }
 
@@ -188,7 +198,15 @@ interface SolixState {
   goals: Record<string, Goal>;
   plans: Record<string, Plan>;
   planTasks: Record<string, PlanTask>;
+  /** Orgs/tenants (P3 #10) + the active one. Loaded over HTTP, not the WS. */
+  orgs: Org[];
+  currentOrgId: string;
+  /** Per-task thread (P1): lifecycle timeline + human comments, keyed by task
+   *  id. Lazily loaded when a task is expanded; live-appended over the WS. */
+  threadsByTaskId: Record<string, TaskThreadEntry[]>;
   budgetAlerts: Record<string, BudgetAlert>;
+  /** Soft budget heads-ups (~80% of a plan cap), keyed by plan id (P2 #6). */
+  planBudgetAlerts: Record<string, PlanBudgetAlert>;
   recentToolCalls: RecentToolCall[];
   pendingPermissions: Record<string, PendingPermission>;
   // Per-session chat log, in arrival order. Capped at 200 entries per session.
@@ -236,8 +254,48 @@ interface SolixState {
   resumePlan: (
     planId: string,
   ) => Promise<{ ok: boolean; error?: string; upsell?: boolean }>;
+  /** Load a task's thread (GET) into the store — call when a task is expanded. */
+  fetchTaskThread: (planId: string, taskId: string) => Promise<void>;
+  /** Append a human comment to a task's thread (POST). */
+  postTaskComment: (
+    planId: string,
+    taskId: string,
+    body: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  /** Comment-on-passage → follow-up task (POST). A review comment on a file/diff
+   *  becomes a new worker task on the plan, re-running it. */
+  addFollowUp: (
+    planId: string,
+    input: { body: string; file?: string; hunk?: string; sourceTaskId?: string },
+  ) => Promise<{ ok: boolean; taskId?: string; upsell?: boolean; error?: string }>;
   activateLicense: (
     key: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  /** Orgs/tenancy (P3 #10). */
+  loadOrgs: () => Promise<void>;
+  createOrg: (name: string) => Promise<{ ok: boolean; error?: string }>;
+  setCurrentOrg: (orgId: string) => Promise<void>;
+  deleteOrg: (orgId: string) => Promise<{ ok: boolean; error?: string }>;
+  /** Install a ready-made team template (advisors+skills+routines) into a
+   *  project (P2 #7). */
+  installTeamTemplate: (
+    templateId: string,
+    cwd: string,
+  ) => Promise<{ ok: boolean; warnings?: string[]; error?: string }>;
+  /** Skill authoring (P3 #9). */
+  createSkill: (input: {
+    name: string;
+    description?: string;
+    body: string;
+  }) => Promise<{ ok: boolean; id?: string; error?: string }>;
+  updateSkill: (
+    id: string,
+    patch: { name?: string; description?: string; body?: string },
+  ) => Promise<{ ok: boolean; error?: string }>;
+  deleteSkill: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  restoreSkillVersion: (
+    id: string,
+    versionId: string,
   ) => Promise<{ ok: boolean; error?: string }>;
   createProject: (
     name: string,
@@ -336,7 +394,11 @@ export const useSolixStore = create<SolixState>((set, get) => ({
   goals: {},
   plans: {},
   planTasks: {},
+  orgs: [],
+  currentOrgId: 'org-default',
+  threadsByTaskId: {},
   budgetAlerts: {},
+  planBudgetAlerts: {},
   chatBySessionId: {},
   recentToolCalls: [],
   pendingPermissions: {},
@@ -396,6 +458,14 @@ export const useSolixStore = create<SolixState>((set, get) => ({
         set((s) => ({
           skills: { ...s.skills, [msg.skill.id]: msg.skill },
         }));
+        break;
+      }
+      case 'skill_remove': {
+        set((s) => {
+          const next = { ...s.skills };
+          delete next[msg.skillId];
+          return { skills: next };
+        });
         break;
       }
       case 'galaxy_imported': {
@@ -540,6 +610,26 @@ export const useSolixStore = create<SolixState>((set, get) => ({
         chime();
         break;
       }
+      case 'plan_budget_alert': {
+        const alert: PlanBudgetAlert = {
+          planId: msg.planId,
+          spentUsd: msg.spentUsd,
+          budgetUsd: msg.budgetUsd,
+          pct: msg.pct,
+          receivedAt: Date.now(),
+        };
+        set((s) => ({
+          planBudgetAlerts: { ...s.planBudgetAlerts, [msg.planId]: alert },
+        }));
+        const plan = get().plans[msg.planId];
+        void notify({
+          title: `${plan?.name ?? 'A plan'} is nearing its budget`,
+          body: `$${msg.spentUsd.toFixed(2)} / $${msg.budgetUsd.toFixed(2)} (${Math.round(msg.pct * 100)}%)`,
+          tag: `solix-plan-budget-${msg.planId}`,
+          whenHidden: true,
+        });
+        break;
+      }
       case 'schedule_upsert': {
         set((s) => ({
           schedules: { ...s.schedules, [msg.schedule.id]: msg.schedule },
@@ -580,12 +670,21 @@ export const useSolixStore = create<SolixState>((set, get) => ({
         set((s) => {
           const nextPlans = { ...s.plans };
           delete nextPlans[msg.planId];
-          // Drop the plan's tasks too so nothing dangles.
+          // Drop the plan's tasks (and their threads) too so nothing dangles.
           const nextTasks: Record<string, PlanTask> = {};
+          const nextThreads = { ...s.threadsByTaskId };
           for (const [id, t] of Object.entries(s.planTasks)) {
             if (t.planId !== msg.planId) nextTasks[id] = t;
+            else delete nextThreads[id];
           }
-          return { plans: nextPlans, planTasks: nextTasks };
+          const nextPlanAlerts = { ...s.planBudgetAlerts };
+          delete nextPlanAlerts[msg.planId];
+          return {
+            plans: nextPlans,
+            planTasks: nextTasks,
+            threadsByTaskId: nextThreads,
+            planBudgetAlerts: nextPlanAlerts,
+          };
         });
         break;
       }
@@ -599,7 +698,23 @@ export const useSolixStore = create<SolixState>((set, get) => ({
         set((s) => {
           const next = { ...s.planTasks };
           delete next[msg.taskId];
-          return { planTasks: next };
+          const threads = { ...s.threadsByTaskId };
+          delete threads[msg.taskId];
+          return { planTasks: next, threadsByTaskId: threads };
+        });
+        break;
+      }
+      case 'thread_entry_append': {
+        set((s) => {
+          const existing = s.threadsByTaskId[msg.entry.taskId] ?? [];
+          // De-dupe by id so an optimistic POST result + its WS echo don't double.
+          if (existing.some((e) => e.id === msg.entry.id)) return s;
+          return {
+            threadsByTaskId: {
+              ...s.threadsByTaskId,
+              [msg.entry.taskId]: [...existing, msg.entry],
+            },
+          };
         });
         break;
       }
@@ -746,6 +861,137 @@ export const useSolixStore = create<SolixState>((set, get) => ({
     }
   },
 
+  loadOrgs: async () => {
+    try {
+      const res = await fetch('/api/orgs');
+      const data = (await res.json()) as { orgs: Org[]; currentOrgId: string };
+      set({ orgs: data.orgs ?? [], currentOrgId: data.currentOrgId ?? 'org-default' });
+    } catch {
+      /* offline */
+    }
+  },
+
+  createOrg: async (name) => {
+    if (!name.trim()) return { ok: false, error: 'Name is empty.' };
+    try {
+      const res = await fetch('/api/orgs', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: name.trim() }),
+      });
+      if (!res.ok) return { ok: false, error: 'Create failed.' };
+      await get().loadOrgs();
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Could not reach the server.' };
+    }
+  },
+
+  setCurrentOrg: async (orgId) => {
+    // Optimistic — the server persists it; reload to confirm.
+    set({ currentOrgId: orgId });
+    try {
+      await fetch('/api/orgs/current', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ orgId }),
+      });
+    } catch {
+      /* offline; the optimistic value stands for this session */
+    }
+  },
+
+  deleteOrg: async (orgId) => {
+    try {
+      const res = await fetch(`/api/orgs/${encodeURIComponent(orgId)}`, {
+        method: 'DELETE',
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) return { ok: false, error: data.error ?? 'Delete failed.' };
+      await get().loadOrgs();
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Could not reach the server.' };
+    }
+  },
+
+  installTeamTemplate: async (templateId, cwd) => {
+    if (!cwd.trim()) return { ok: false, error: 'Pick a project first.' };
+    try {
+      const res = await fetch(
+        `/api/teams/templates/${encodeURIComponent(templateId)}/install`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ cwd }),
+        },
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        warnings?: string[];
+      };
+      return { ok: Boolean(data.ok), warnings: data.warnings };
+    } catch {
+      return { ok: false, error: 'Could not reach the server.' };
+    }
+  },
+
+  createSkill: async (input) => {
+    try {
+      const res = await fetch('/api/skills', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(input),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        id?: string;
+        error?: string;
+      };
+      if (!res.ok) return { ok: false, error: data.error ?? 'Create failed.' };
+      return { ok: true, id: data.id };
+    } catch {
+      return { ok: false, error: 'Could not reach the server.' };
+    }
+  },
+
+  updateSkill: async (id, patch) => {
+    try {
+      const res = await fetch(`/api/skills/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: res.ok, error: data.error };
+    } catch {
+      return { ok: false, error: 'Could not reach the server.' };
+    }
+  },
+
+  deleteSkill: async (id) => {
+    try {
+      const res = await fetch(`/api/skills/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+      return { ok: res.ok };
+    } catch {
+      return { ok: false, error: 'Could not reach the server.' };
+    }
+  },
+
+  restoreSkillVersion: async (id, versionId) => {
+    try {
+      const res = await fetch(
+        `/api/skills/${encodeURIComponent(id)}/versions/${encodeURIComponent(versionId)}/restore`,
+        { method: 'POST' },
+      );
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      return { ok: res.ok, error: data.error };
+    } catch {
+      return { ok: false, error: 'Could not reach the server.' };
+    }
+  },
+
   activateLicense: async (key) => {
     try {
       const res = await fetch('/api/license/activate', {
@@ -770,6 +1016,86 @@ export const useSolixStore = create<SolixState>((set, get) => ({
       });
     } catch {
       /* offline; the plan_upsert broadcast will reconcile if it lands */
+    }
+  },
+
+  fetchTaskThread: async (planId, taskId) => {
+    try {
+      const res = await fetch(
+        `/api/plans/${encodeURIComponent(planId)}/tasks/${encodeURIComponent(taskId)}/thread`,
+      );
+      if (!res.ok) return;
+      const entries = (await res.json()) as TaskThreadEntry[];
+      set((s) => ({
+        threadsByTaskId: { ...s.threadsByTaskId, [taskId]: entries },
+      }));
+    } catch {
+      /* offline; live appends will still populate as they arrive */
+    }
+  },
+
+  postTaskComment: async (planId, taskId, body) => {
+    const text = body.trim();
+    if (!text) return { ok: false, error: 'Comment is empty.' };
+    try {
+      const res = await fetch(
+        `/api/plans/${encodeURIComponent(planId)}/tasks/${encodeURIComponent(taskId)}/thread`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ body: text }),
+        },
+      );
+      const data = (await res.json().catch(() => ({}))) as
+        | TaskThreadEntry
+        | { error?: string };
+      if (!res.ok) {
+        return { ok: false, error: (data as { error?: string }).error ?? 'Failed.' };
+      }
+      // Merge the created entry immediately (the WS echo de-dupes by id).
+      const entry = data as TaskThreadEntry;
+      set((s) => {
+        const existing = s.threadsByTaskId[taskId] ?? [];
+        if (existing.some((e) => e.id === entry.id)) return s;
+        return {
+          threadsByTaskId: {
+            ...s.threadsByTaskId,
+            [taskId]: [...existing, entry],
+          },
+        };
+      });
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Could not reach the server.' };
+    }
+  },
+
+  addFollowUp: async (planId, input) => {
+    const text = input.body.trim();
+    if (!text) return { ok: false, error: 'Comment is empty.' };
+    try {
+      const res = await fetch(
+        `/api/plans/${encodeURIComponent(planId)}/follow-up`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ...input, body: text }),
+        },
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        taskId?: string;
+        upsell?: boolean;
+        error?: string;
+      };
+      return {
+        ok: Boolean(data.ok),
+        taskId: data.taskId,
+        upsell: data.upsell,
+        error: data.error,
+      };
+    } catch {
+      return { ok: false, error: 'Could not reach the server.' };
     }
   },
 
@@ -1128,8 +1454,18 @@ export function selectGoalsArray(state: SolixState): Goal[] {
 }
 
 // ── v2 Maestro selectors ───────────────────────────────────────────────
+const DEFAULT_ORG = 'org-default';
+
+/** A plan/goal with no orgId belongs to the default org (pre-migration rows). */
+function inCurrentOrg(orgId: string | undefined, currentOrgId: string): boolean {
+  return (orgId ?? DEFAULT_ORG) === currentOrgId;
+}
+
+/** Plans in the currently-selected org (P3 #10), newest first. */
 export function selectPlansArray(state: SolixState): Plan[] {
-  return Object.values(state.plans).sort((a, b) => b.createdAt - a.createdAt);
+  return Object.values(state.plans)
+    .filter((p) => inCurrentOrg(p.orgId, state.currentOrgId))
+    .sort((a, b) => b.createdAt - a.createdAt);
 }
 
 /** Tasks for one plan, in display order. */
@@ -1137,6 +1473,14 @@ export function selectPlanTasks(state: SolixState, planId: string): PlanTask[] {
   return Object.values(state.planTasks)
     .filter((t) => t.planId === planId)
     .sort((a, b) => a.orderIndex - b.orderIndex || a.createdAt - b.createdAt);
+}
+
+/** A task's thread entries (chronological), or an empty array if not loaded. */
+export function selectTaskThread(
+  state: SolixState,
+  taskId: string,
+): TaskThreadEntry[] {
+  return state.threadsByTaskId[taskId] ?? [];
 }
 
 /** The most recent plan that is still live (not completed/failed), if any. */

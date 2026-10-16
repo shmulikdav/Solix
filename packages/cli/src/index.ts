@@ -28,10 +28,14 @@ import {
   addScheduleCmd,
   disableScheduleCmd,
   enableScheduleCmd,
+  fireScheduleCmd,
   listSchedulesCmd,
   removeScheduleCmd,
+  scheduleRunsCmd,
 } from './schedule.js';
 import { addGoalCmd, listGoalsCmd, removeGoalCmd } from './goals.js';
+import { installTeamCmd, listTeamsCmd } from './teams.js';
+import { listOrgsCmd, newOrgCmd, useOrgCmd } from './orgs.js';
 import { activateLicenseCmd, licenseStatusCmd } from './license.js';
 import { connectCmd, listConnectionsCmd } from './connections.js';
 import { start } from './start.js';
@@ -233,18 +237,40 @@ schedules
 
 schedules
   .command('add <prompt>')
-  .description('Schedule a recurring task')
+  .description('Schedule a task (interval, webhook, or manual trigger)')
   .option('--cwd <dir>', 'working directory (default: current dir)')
-  .option('--every <cadence>', 'cadence, e.g. 30m, 1h, 1d (default: 1h)')
+  .option('--every <cadence>', 'cadence, e.g. 30m, 1h, 1d (interval only; default 1h)')
+  .option('--trigger <kind>', 'interval | webhook | manual (default: interval)')
+  .option('--owner <owner>', 'owner label (advisor role, person, team)')
   .option('--name <name>', 'short label for the schedule')
   .action(
     async (
       prompt: string,
-      opts: { cwd?: string; every?: string; name?: string },
+      opts: {
+        cwd?: string;
+        every?: string;
+        name?: string;
+        trigger?: string;
+        owner?: string;
+      },
     ) => {
       await addScheduleCmd(prompt, opts);
     },
   );
+
+schedules
+  .command('fire <id>')
+  .description('Fire a routine now (manual trigger)')
+  .action(async (id: string) => {
+    await fireScheduleCmd(id);
+  });
+
+schedules
+  .command('runs <id>')
+  .description('Show a routine’s recent run history')
+  .action(async (id: string) => {
+    await scheduleRunsCmd(id);
+  });
 
 schedules
   .command('remove <id>')
@@ -265,6 +291,50 @@ schedules
   .description('Disable a schedule')
   .action(async (id: string) => {
     await disableScheduleCmd(id);
+  });
+
+const teams = program
+  .command('teams')
+  .description('Install ready-made advisor+skill+routine team templates');
+
+teams
+  .command('list', { isDefault: true })
+  .description('List available team templates')
+  .action(async () => {
+    await listTeamsCmd();
+  });
+
+teams
+  .command('install <id>')
+  .description('Install a team template into a project')
+  .option('--cwd <dir>', 'project directory (default: current dir)')
+  .action(async (id: string, opts: { cwd?: string }) => {
+    await installTeamCmd(id, opts);
+  });
+
+const orgs = program
+  .command('orgs')
+  .description('Manage orgs/tenants (scopes plans + goals)');
+
+orgs
+  .command('list', { isDefault: true })
+  .description('List orgs + storage backend status')
+  .action(async () => {
+    await listOrgsCmd();
+  });
+
+orgs
+  .command('new <name>')
+  .description('Create an org')
+  .action(async (name: string) => {
+    await newOrgCmd(name);
+  });
+
+orgs
+  .command('use <id>')
+  .description('Switch the active org')
+  .action(async (id: string) => {
+    await useOrgCmd(id);
   });
 
 const goals = program

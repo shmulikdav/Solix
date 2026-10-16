@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import type { PlanTask, PlanTaskStatus } from '@solix/shared';
 import {
+  BUDGET_WARN_THRESHOLD,
   computeNewlyBlocked,
   computePlanOutcome,
   computeReadyTasks,
   decideRetryOrEscalate,
   isBudgetExceeded,
+  shouldWarnBudget,
   validatePlanGraph,
   withinParallelLimit,
   type SchedulableTask,
@@ -124,6 +126,29 @@ describe('validatePlanGraph', () => {
     ]);
     expect(r.ok).toBe(false);
     expect(r.errors.some((e) => e.includes('cycle'))).toBe(true);
+  });
+});
+
+describe('shouldWarnBudget (P2 #6)', () => {
+  it('warns once above the threshold but below the hard cap', () => {
+    const cap = 10;
+    expect(shouldWarnBudget(BUDGET_WARN_THRESHOLD * cap, cap, false)).toBe(true);
+    expect(shouldWarnBudget(9, cap, false)).toBe(true);
+  });
+
+  it('does not warn below the threshold', () => {
+    expect(shouldWarnBudget(7.99, 10, false)).toBe(false);
+  });
+
+  it('does not warn at/over the hard cap (the pause covers it)', () => {
+    expect(shouldWarnBudget(10, 10, false)).toBe(false);
+    expect(shouldWarnBudget(12, 10, false)).toBe(false);
+  });
+
+  it('does not warn twice (already warned) or without a cap', () => {
+    expect(shouldWarnBudget(9, 10, true)).toBe(false);
+    expect(shouldWarnBudget(9, undefined, false)).toBe(false);
+    expect(shouldWarnBudget(9, 0, false)).toBe(false);
   });
 });
 

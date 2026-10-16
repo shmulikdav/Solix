@@ -30,6 +30,7 @@ import type { EventRouter } from './router.js';
 import type { Orchestrator } from './orchestrator/index.js';
 import {
   createManagedProject,
+  ensureProject,
   listProjects,
 } from './state/projects.js';
 import {
@@ -72,21 +73,38 @@ import { clearSessionWrapper } from './state/sessions.js';
 import {
   createSchedule,
   deleteSchedule,
+  getSchedule,
+  getScheduleByToken,
+  listScheduleRuns,
   listSchedules,
   setScheduleEnabled,
 } from './state/schedules.js';
 import { createGoal, deleteGoal, listGoals } from './state/goals.js';
+import {
+  createOrg,
+  deleteOrg,
+  describeStorage,
+  getCurrentOrgId,
+  listOrgs,
+  renameOrg,
+  setCurrentOrgId,
+} from './state/orgs.js';
 import {
   createPlan,
   createPlanTask,
   deletePlan,
   deletePlanTask,
   getPlan,
+  getPlanTask,
   listPlans,
   listPlanTasks,
   updatePlan,
   updatePlanTask,
 } from './state/plans.js';
+import {
+  appendThreadEntry,
+  listThreadEntries,
+} from './state/threads.js';
 import { buildContextEnvelope } from './state/context.js';
 import {
   getSkill,
@@ -94,6 +112,32 @@ import {
   readSkillManifest,
   recordSkillInstall,
 } from './state/skills.js';
+import {
+  composeSkillTest,
+  createUserSkill,
+  deleteSkillTest,
+  deleteUserSkill,
+  extractSkillBody,
+  isUserSkill,
+  listSkillTests,
+  listSkillVersions,
+  restoreSkillVersion,
+  saveSkillTest,
+  updateUserSkill,
+} from './state/skillAuthoring.js';
+import {
+  installTeamTemplate,
+  listTeamTemplates,
+} from './state/teams.js';
+import {
+  createNotifier,
+  deleteNotifier,
+  deliverNotification,
+  getNotifier,
+  getNotifierConfig,
+  listNotifiers,
+  setNotifierEnabled,
+} from './state/notifiers.js';
 import {
   exportManifest,
   getVersion,
@@ -115,6 +159,13 @@ export function createHttpApp(opts: {
   /** Product version to report from /api/health. The CLI injects its own
    * package version; absent when the server is embedded directly. */
   version?: string;
+  /** Fire a routine now (launch it, record the run, advance/broadcast). Wired
+   *  by create.ts where the launcher lives; absent in embedded/test contexts,
+   *  where the fire routes report the capability is unavailable. */
+  fireSchedule?: (
+    schedule: import('@solix/shared').ScheduledTask,
+    trigger: import('@solix/shared').TriggerKind,
+  ) => void;
 }) {
   const app = new Hono();
   // The UI is served same-origin from this same port, so it never needs CORS.
@@ -317,6 +368,60 @@ export function createHttpApp(opts: {
     return c.json(getConnection(opts.db, c.req.param('id')));
   });
 
+  // ──── P3 #11: chat notifiers (Slack/Telegram) ───────────────
+  // Provider config is encrypted at rest and never returned — only the
+  // non-secret notifier shape is listed. Solix posts events to these.
+  app.get('/api/notifiers', (c) => c.json(listNotifiers(opts.db)));
+  app.post('/api/notifiers', async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as {
+      provider?: string;
+      name?: string;
+      config?: Record<string, unknown>;
+      events?: string[];
+    };
+    const provider = b.provider === 'telegram' ? 'telegram' : b.provider === 'slack' ? 'slack' : null;
+    if (!provider || !b.name?.trim() || !b.config) {
+      return c.json({ error: 'provider (slack|telegram), name, config required' }, 400);
+    }
+    // Minimal shape validation per provider (values stay server-side, encrypted).
+    const cfg = b.config as Record<string, string>;
+    if (provider === 'slack' && !cfg.webhookUrl) {
+      return c.json({ error: 'slack config needs webhookUrl' }, 400);
+    }
+    if (provider === 'telegram' && (!cfg.botToken || !cfg.chatId)) {
+      return c.json({ error: 'telegram config needs botToken and chatId' }, 400);
+    }
+    const notifier = createNotifier(opts.db, {
+      provider,
+      name: b.name.trim(),
+      config: cfg as never,
+      events: (b.events ?? []) as never,
+    });
+    return c.json(notifier);
+  });
+  app.post('/api/notifiers/:id/toggle', async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { enabled?: boolean };
+    const n = setNotifierEnabled(opts.db, c.req.param('id'), Boolean(b.enabled));
+    if (!n) return c.json({ error: 'not found' }, 404);
+    return c.json(n);
+  });
+  app.delete('/api/notifiers/:id', (c) =>
+    c.json({ ok: deleteNotifier(opts.db, c.req.param('id')) }),
+  );
+  // Send a test message to verify a notifier is wired correctly.
+  app.post('/api/notifiers/:id/test', async (c) => {
+    const id = c.req.param('id');
+    const n = getNotifier(opts.db, id);
+    const config = getNotifierConfig(opts.db, id);
+    if (!n || !config) return c.json({ error: 'not found' }, 404);
+    const ok = await deliverNotification(
+      n.provider,
+      config,
+      `🔔 Test from Solix — "${n.name}" is wired up.`,
+    );
+    return c.json({ ok });
+  });
+
   // Build-studio: create a durable, user-owned project — scaffold a directory,
   // git-init it, register it managed. Maestro then builds into `project.cwd`.
   app.post('/api/projects', async (c) => {
@@ -513,6 +618,103 @@ export function createHttpApp(opts: {
     return c.json({ ok: Boolean(s), skill: s });
   });
 
+  // ──── P3 #9: skill authoring (user skills) ──────────────────
+  // Create/edit/version/test USER skills. Bundled anthropic/solix skills stay
+  // read-only — these routes refuse anything but a `user:` skill.
+  app.post('/api/skills', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      name?: string;
+      description?: string;
+      body?: string;
+    };
+    if (!body.name || !body.body) {
+      return c.json({ error: 'name and body are required' }, 400);
+    }
+    const skill = createUserSkill(opts.db, {
+      name: body.name,
+      description: body.description,
+      body: body.body,
+    });
+    if (!skill) {
+      return c.json({ error: 'a skill with that name already exists' }, 409);
+    }
+    opts.router.broadcastSkillUpsert(skill);
+    return c.json(skill);
+  });
+
+  app.patch('/api/skills/:id', async (c) => {
+    const id = decodeURIComponent(c.req.param('id'));
+    if (!isUserSkill(id)) return c.json({ error: 'only user skills are editable' }, 403);
+    const body = (await c.req.json().catch(() => ({}))) as {
+      name?: string;
+      description?: string;
+      body?: string;
+    };
+    const skill = updateUserSkill(opts.db, id, body);
+    if (!skill) return c.json({ error: 'not found' }, 404);
+    opts.router.broadcastSkillUpsert(skill);
+    return c.json(skill);
+  });
+
+  app.delete('/api/skills/:id', (c) => {
+    const id = decodeURIComponent(c.req.param('id'));
+    if (!isUserSkill(id)) return c.json({ error: 'only user skills are deletable' }, 403);
+    const ok = deleteUserSkill(opts.db, id);
+    if (ok) opts.router.broadcastSkillRemove(id);
+    return c.json({ ok });
+  });
+
+  app.get('/api/skills/:id/versions', (c) => {
+    const id = decodeURIComponent(c.req.param('id'));
+    if (!getSkill(opts.db, id)) return c.json({ error: 'not found' }, 404);
+    return c.json(listSkillVersions(opts.db, id));
+  });
+
+  app.post('/api/skills/:id/versions/:versionId/restore', (c) => {
+    const id = decodeURIComponent(c.req.param('id'));
+    if (!isUserSkill(id)) return c.json({ error: 'only user skills are editable' }, 403);
+    const skill = restoreSkillVersion(opts.db, id, c.req.param('versionId'));
+    if (!skill) return c.json({ error: 'not found' }, 404);
+    opts.router.broadcastSkillUpsert(skill);
+    return c.json(skill);
+  });
+
+  app.get('/api/skills/:id/tests', (c) => {
+    const id = decodeURIComponent(c.req.param('id'));
+    if (!getSkill(opts.db, id)) return c.json({ error: 'not found' }, 404);
+    return c.json(listSkillTests(opts.db, id));
+  });
+
+  app.post('/api/skills/:id/tests', async (c) => {
+    const id = decodeURIComponent(c.req.param('id'));
+    if (!getSkill(opts.db, id)) return c.json({ error: 'not found' }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as {
+      name?: string;
+      input?: string;
+    };
+    if (!body.input) return c.json({ error: 'input is required' }, 400);
+    return c.json(
+      saveSkillTest(opts.db, id, { name: body.name ?? 'test', input: body.input }),
+    );
+  });
+
+  app.delete('/api/skills/:id/tests/:testId', (c) => {
+    const ok = deleteSkillTest(opts.db, c.req.param('testId'));
+    return c.json({ ok });
+  });
+
+  // Local, model-free "dry run": the composed prompt the skill would produce
+  // for a given input. (Running it against a live model uses the normal launch
+  // path.)
+  app.post('/api/skills/:id/compose', async (c) => {
+    const id = decodeURIComponent(c.req.param('id'));
+    const s = getSkill(opts.db, id);
+    if (!s) return c.json({ error: 'not found' }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as { input?: string };
+    const skillBody = extractSkillBody(readSkillManifest(s));
+    return c.json({ prompt: composeSkillTest(skillBody, body.input ?? '') });
+  });
+
   app.get('/api/galaxy/export', (c) => {
     const name = c.req.query('name') ?? undefined;
     const author = c.req.query('author') ?? undefined;
@@ -652,15 +854,24 @@ export function createHttpApp(opts: {
       prompt?: string;
       cadence?: string;
       name?: string;
+      trigger?: import('@solix/shared').TriggerKind;
+      owner?: string;
     };
-    if (!body.cwd || !body.prompt || !body.cadence) {
-      return c.json({ error: 'cwd, prompt, cadence required' }, 400);
+    const trigger = body.trigger ?? 'interval';
+    // Interval routines need a cadence; webhook/manual don't.
+    if (!body.cwd || !body.prompt || (trigger === 'interval' && !body.cadence)) {
+      return c.json(
+        { error: 'cwd, prompt required (cadence required for interval triggers)' },
+        400,
+      );
     }
     const schedule = createSchedule(opts.db, {
       cwd: body.cwd,
       prompt: body.prompt,
       cadence: body.cadence,
       name: body.name,
+      trigger,
+      owner: body.owner,
     });
     opts.router.broadcastScheduleUpsert(schedule);
     return c.json(schedule);
@@ -680,6 +891,103 @@ export function createHttpApp(opts: {
     if (ok) opts.router.broadcastScheduleRemove(id);
     return c.json({ ok });
   });
+
+  // P1 #5 — a routine's run history (newest first).
+  app.get('/api/schedules/:id/runs', (c) => {
+    const id = c.req.param('id');
+    if (!getSchedule(opts.db, id)) return c.json({ error: 'not found' }, 404);
+    return c.json(listScheduleRuns(opts.db, id));
+  });
+
+  // P1 #5 — fire a routine on demand (manual trigger). Origin-gated.
+  app.post('/api/schedules/:id/fire', (c) => {
+    const s = getSchedule(opts.db, c.req.param('id'));
+    if (!s) return c.json({ error: 'not found' }, 404);
+    if (!opts.fireSchedule) {
+      return c.json({ ok: false, error: 'firing unavailable in this context' }, 503);
+    }
+    opts.fireSchedule(s, 'manual');
+    return c.json({ ok: true });
+  });
+
+  // P1 #5 — webhook trigger. An inbound POST to the routine's capability URL
+  // fires it. The token IS the auth; non-browser callers (curl, a tunnel) send
+  // no Origin and pass the CSRF gate. Unknown/non-webhook tokens 404 (no oracle
+  // on which tokens exist beyond the 404/200 split).
+  app.post('/api/triggers/:token', (c) => {
+    const s = getScheduleByToken(opts.db, c.req.param('token'));
+    if (!s) return c.json({ error: 'not found' }, 404);
+    if (!s.enabled) return c.json({ ok: false, error: 'routine is disabled' }, 409);
+    if (!opts.fireSchedule) {
+      return c.json({ ok: false, error: 'firing unavailable in this context' }, 503);
+    }
+    opts.fireSchedule(s, 'webhook');
+    return c.json({ ok: true });
+  });
+
+  // ──── P2 #7: ready-made team templates ──────────────────────
+  // Curated advisor+skill+routine bundles. GET lists the catalog; install
+  // enables the advisors, installs the skills into a project, and creates the
+  // routines, broadcasting each change so the galaxy updates live.
+  app.get('/api/teams/templates', (c) => c.json(listTeamTemplates()));
+
+  app.post('/api/teams/templates/:id/install', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { cwd?: string };
+    if (!body.cwd || !body.cwd.trim()) {
+      return c.json({ ok: false, warnings: ['cwd is required'] }, 400);
+    }
+    const result = installTeamTemplate(opts.db, c.req.param('id'), {
+      cwd: body.cwd,
+    });
+    if (!result.ok) {
+      // Unknown template vs. a bad cwd both come back as a 400 with warnings.
+      return c.json(result, 400);
+    }
+    // Push every applied change so connected clients update without a refresh.
+    opts.router.broadcastProjectUpsert(ensureProject(opts.db, body.cwd.trim()));
+    for (const advisorId of result.advisorsEnabled) {
+      const a = getAdvisor(opts.db, advisorId);
+      if (a) opts.router.broadcastAdvisorUpsert(a);
+    }
+    for (const skillId of result.skillsInstalled) {
+      const s = getSkill(opts.db, skillId);
+      if (s) opts.router.broadcastSkillUpsert(s);
+    }
+    for (const scheduleId of result.routinesCreated) {
+      const sched = getSchedule(opts.db, scheduleId);
+      if (sched) opts.router.broadcastScheduleUpsert(sched);
+    }
+    return c.json(result);
+  });
+
+  // ──── P3 #10: multi-org tenancy + storage backend status ─────
+  app.get('/api/orgs', (c) =>
+    c.json({ orgs: listOrgs(opts.db), currentOrgId: getCurrentOrgId(opts.db) }),
+  );
+  app.post('/api/orgs', async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { name?: string };
+    if (!b.name?.trim()) return c.json({ error: 'name required' }, 400);
+    return c.json(createOrg(opts.db, b.name));
+  });
+  app.patch('/api/orgs/:id', async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { name?: string };
+    if (!b.name?.trim()) return c.json({ error: 'name required' }, 400);
+    const org = renameOrg(opts.db, c.req.param('id'), b.name);
+    if (!org) return c.json({ error: 'not found' }, 404);
+    return c.json(org);
+  });
+  app.delete('/api/orgs/:id', (c) => {
+    const res = deleteOrg(opts.db, c.req.param('id'));
+    return c.json(res, res.ok ? 200 : res.error === 'not found' ? 404 : 400);
+  });
+  app.post('/api/orgs/current', async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { orgId?: string };
+    if (!b.orgId || !setCurrentOrgId(opts.db, b.orgId)) {
+      return c.json({ ok: false, error: 'unknown org' }, 400);
+    }
+    return c.json({ ok: true, currentOrgId: b.orgId });
+  });
+  app.get('/api/system/storage', (c) => c.json(describeStorage()));
 
   // ──── Sprint M: goals (constellations) ──────────────────────
   app.get('/api/goals', (c) => c.json(listGoals(opts.db)));
@@ -876,6 +1184,33 @@ export function createHttpApp(opts: {
     return c.json({ ok });
   });
 
+  // Task thread (P1): the task's durable run history + conversation. GET lists
+  // every entry (system/worker/verifier lifecycle + human comments); POST
+  // appends a human comment. Origin-gated like the other mutating routes.
+  app.get('/api/plans/:planId/tasks/:taskId/thread', (c) => {
+    const taskId = c.req.param('taskId');
+    if (!getPlanTask(opts.db, taskId)) return c.json({ error: 'not found' }, 404);
+    return c.json(listThreadEntries(opts.db, taskId));
+  });
+
+  app.post('/api/plans/:planId/tasks/:taskId/thread', async (c) => {
+    const taskId = c.req.param('taskId');
+    const task = getPlanTask(opts.db, taskId);
+    if (!task) return c.json({ error: 'not found' }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as { body?: string };
+    const text = body.body?.trim();
+    if (!text) return c.json({ error: 'body is required' }, 400);
+    const entry = appendThreadEntry(opts.db, {
+      taskId,
+      planId: task.planId,
+      kind: 'comment',
+      author: 'human',
+      body: text,
+    });
+    opts.router.broadcastThreadEntry(entry);
+    return c.json(entry);
+  });
+
   // v2 Maestro — Phase 1 planner endpoints. `from-goal` runs a planner session
   // (via the orchestrator's SessionRunner), parses + validates its JSON into a
   // draft plan, and parks it at awaiting_approval; `approve` advances it to
@@ -923,6 +1258,37 @@ export function createHttpApp(opts: {
   app.post('/api/plans/:id/abort', (c) => {
     const res = opts.orchestrator.abortPlan(c.req.param('id'));
     return c.json(res, res.ok ? 200 : 404);
+  });
+
+  // Comment-on-passage → follow-up task (P1 #4). A review comment on a file/diff
+  // becomes a new worker task on the same plan; a settled plan is reopened to run
+  // it (re-gated in the orchestrator). Origin-gated like the other mutators.
+  app.post('/api/plans/:id/follow-up', (c) => {
+    return (async () => {
+      const id = c.req.param('id');
+      const body = (await c.req.json().catch(() => ({}))) as {
+        body?: string;
+        file?: string;
+        hunk?: string;
+        sourceTaskId?: string;
+        title?: string;
+      };
+      if (!body.body || !body.body.trim()) {
+        return c.json({ ok: false, error: 'comment body is required' }, 400);
+      }
+      const res = opts.orchestrator.addFollowUpTask(id, {
+        body: body.body,
+        file: body.file,
+        hunk: body.hunk,
+        sourceTaskId: body.sourceTaskId,
+        title: body.title,
+      });
+      if (res.run) kickAdvance(id);
+      // 200 on success (incl. queued), 402 when adding it needs Pro to run,
+      // 404 for an unknown plan.
+      const status = res.ok ? 200 : res.error === 'plan not found' ? 404 : 400;
+      return c.json(res, status);
+    })();
   });
 
   // Resume a paused plan (budget pause / abort). Re-gated in the orchestrator.

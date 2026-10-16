@@ -11,6 +11,7 @@ import type {
   ScheduledTask,
   Session,
   Skill,
+  TaskThreadEntry,
   ToolCall,
 } from './types.js';
 
@@ -53,6 +54,14 @@ export type ServerMessage =
       costUsd: number;
       budgetUsd: number;
     }
+  | {
+      type: 'plan_budget_alert';
+      planId: string;
+      spentUsd: number;
+      budgetUsd: number;
+      /** Fraction of the cap spent (≈0.8 at the warn threshold). */
+      pct: number;
+    }
   | { type: 'schedule_upsert'; schedule: ScheduledTask }
   | { type: 'schedule_remove'; scheduleId: string }
   | { type: 'goal_upsert'; goal: Goal }
@@ -62,8 +71,10 @@ export type ServerMessage =
   | { type: 'plan_remove'; planId: string }
   | { type: 'plan_task_upsert'; task: PlanTask }
   | { type: 'plan_task_remove'; taskId: string }
+  | { type: 'thread_entry_append'; entry: TaskThreadEntry }
   | { type: 'advisor_upsert'; advisor: Advisor }
   | { type: 'skill_upsert'; skill: Skill }
+  | { type: 'skill_remove'; skillId: string }
   | { type: 'galaxy_imported'; manifest: GalaxyManifest }
   | {
       type: 'toast';

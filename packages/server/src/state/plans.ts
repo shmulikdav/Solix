@@ -2,6 +2,11 @@ import { nanoid } from 'nanoid';
 import type { Model, Plan, PlanStatus, PlanTask, PlanTaskStatus } from '@solix/shared';
 import type { DB } from '../db.js';
 import { now } from '../util.js';
+import {
+  deleteThreadEntriesForPlan,
+  deleteThreadEntriesForTask,
+} from './threads.js';
+import { DEFAULT_ORG_ID, getCurrentOrgId } from './orgs.js';
 
 // ── Plans ────────────────────────────────────────────────────────────────
 
@@ -15,6 +20,8 @@ interface PlanRow {
   cwd: string;
   budget_usd: number | null;
   base_ref: string | null;
+  budget_warned: number | null;
+  org_id: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -30,6 +37,8 @@ function rowToPlan(row: PlanRow): Plan {
     cwd: row.cwd,
     budgetUsd: row.budget_usd ?? undefined,
     baseRef: row.base_ref ?? undefined,
+    budgetWarned: row.budget_warned === 1,
+    orgId: row.org_id ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -45,14 +54,18 @@ export function createPlan(
     autoMode?: boolean;
     goalId?: string;
     budgetUsd?: number;
+    orgId?: string;
   },
 ): Plan {
   const id = nanoid(8);
   const ts = now();
+  // Stamp the owning org (default: whatever's current) so a Team edition can
+  // isolate plans. getCurrentOrgId self-heals to the default org.
+  const orgId = input.orgId ?? getCurrentOrgId(db);
   db.prepare(
     `INSERT INTO plans
-       (id, name, goal_prompt, status, auto_mode, goal_id, cwd, budget_usd, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, name, goal_prompt, status, auto_mode, goal_id, cwd, budget_usd, org_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     input.name,
@@ -62,6 +75,7 @@ export function createPlan(
     input.goalId ?? null,
     input.cwd,
     input.budgetUsd ?? null,
+    orgId,
     ts,
     ts,
   );
@@ -72,6 +86,22 @@ export function listPlans(db: DB): Plan[] {
   const rows = db
     .prepare('SELECT * FROM plans ORDER BY created_at DESC')
     .all() as PlanRow[];
+  return rows.map(rowToPlan);
+}
+
+/** Plans owned by one org (P3 #10). Rows with a NULL org_id (pre-migration) are
+ *  treated as belonging to the default org. */
+export function listPlansForOrg(db: DB, orgId: string): Plan[] {
+  const rows =
+    orgId === DEFAULT_ORG_ID
+      ? (db
+          .prepare(
+            'SELECT * FROM plans WHERE org_id = ? OR org_id IS NULL ORDER BY created_at DESC',
+          )
+          .all(orgId) as PlanRow[])
+      : (db
+          .prepare('SELECT * FROM plans WHERE org_id = ? ORDER BY created_at DESC')
+          .all(orgId) as PlanRow[]);
   return rows.map(rowToPlan);
 }
 
@@ -88,7 +118,14 @@ export function updatePlan(
   patch: Partial<
     Pick<
       Plan,
-      'name' | 'status' | 'autoMode' | 'goalId' | 'cwd' | 'budgetUsd' | 'baseRef'
+      | 'name'
+      | 'status'
+      | 'autoMode'
+      | 'goalId'
+      | 'cwd'
+      | 'budgetUsd'
+      | 'baseRef'
+      | 'budgetWarned'
     >
   >,
 ): Plan | null {
@@ -122,6 +159,10 @@ export function updatePlan(
     sets.push('base_ref = ?');
     vals.push(patch.baseRef ?? null);
   }
+  if (patch.budgetWarned !== undefined) {
+    sets.push('budget_warned = ?');
+    vals.push(patch.budgetWarned ? 1 : 0);
+  }
   if (sets.length === 0) return getPlan(db, id);
   sets.push('updated_at = ?');
   vals.push(now());
@@ -145,6 +186,7 @@ export function getPlanSpendUsd(db: DB, planId: string): number {
 }
 
 export function deletePlan(db: DB, id: string): boolean {
+  deleteThreadEntriesForPlan(db, id);
   db.prepare('DELETE FROM plan_tasks WHERE plan_id = ?').run(id);
   const res = db.prepare('DELETE FROM plans WHERE id = ?').run(id);
   return res.changes > 0;
@@ -173,6 +215,7 @@ interface PlanTaskRow {
   last_error: string | null;
   result_summary: string | null;
   order_index: number;
+  delegation_depth: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -205,6 +248,7 @@ function rowToPlanTask(row: PlanTaskRow): PlanTask {
     lastError: row.last_error ?? undefined,
     resultSummary: row.result_summary ?? undefined,
     orderIndex: row.order_index,
+    delegationDepth: row.delegation_depth ?? 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -226,6 +270,7 @@ export function createPlanTask(
     budgetUsd?: number;
     maxAttempts?: number;
     orderIndex?: number;
+    delegationDepth?: number;
   },
 ): PlanTask {
   const id = nanoid(8);
@@ -234,8 +279,9 @@ export function createPlanTask(
     `INSERT INTO plan_tasks
        (id, plan_id, title, prompt, acceptance_criteria, status, depends_on_json,
         assigned_advisor_role, cwd, model, runtime, budget_usd, session_id, mission_id,
-        verifier_session_id, attempts, max_attempts, order_index, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 0, ?, ?, ?, ?)`,
+        verifier_session_id, attempts, max_attempts, order_index, delegation_depth,
+        created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 0, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     input.planId,
@@ -251,6 +297,7 @@ export function createPlanTask(
     input.budgetUsd ?? null,
     input.maxAttempts ?? 3,
     input.orderIndex ?? 0,
+    input.delegationDepth ?? 0,
     ts,
     ts,
   );
@@ -346,6 +393,7 @@ export function updatePlanTask(
 }
 
 export function deletePlanTask(db: DB, id: string): boolean {
+  deleteThreadEntriesForTask(db, id);
   const res = db.prepare('DELETE FROM plan_tasks WHERE id = ?').run(id);
   return res.changes > 0;
 }

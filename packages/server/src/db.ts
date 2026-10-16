@@ -67,6 +67,26 @@ CREATE TABLE IF NOT EXISTS skills (
   updated_at INTEGER NOT NULL
 );
 
+-- P3 #9 — skill authoring: version history + saved test inputs for user skills.
+CREATE TABLE IF NOT EXISTS skill_versions (
+  id TEXT PRIMARY KEY,
+  skill_id TEXT NOT NULL,
+  ordinal INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  body TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_skill_versions_skill ON skill_versions(skill_id);
+CREATE TABLE IF NOT EXISTS skill_tests (
+  id TEXT PRIMARY KEY,
+  skill_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  input TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_skill_tests_skill ON skill_tests(skill_id);
+
 CREATE TABLE IF NOT EXISTS galaxy_imports (
   id TEXT PRIMARY KEY,
   source_url TEXT,
@@ -139,12 +159,37 @@ CREATE TABLE IF NOT EXISTS scheduled_tasks (
   next_run_at INTEGER NOT NULL
 );
 
+-- P1 #5 — per-routine run history (every firing: interval tick, webhook, manual).
+CREATE TABLE IF NOT EXISTS schedule_runs (
+  id TEXT PRIMARY KEY,
+  schedule_id TEXT NOT NULL,
+  trigger TEXT NOT NULL,
+  status TEXT NOT NULL,
+  detail TEXT,
+  fired_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_schedule_runs_schedule ON schedule_runs(schedule_id);
+CREATE INDEX IF NOT EXISTS idx_schedule_runs_fired ON schedule_runs(fired_at);
+
 CREATE TABLE IF NOT EXISTS goals (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
   description TEXT,
   color TEXT NOT NULL,
   created_at INTEGER NOT NULL
+);
+
+-- P3 #10 — multi-org tenancy. A default org is seeded at boot; plans/goals are
+-- stamped with an org_id so a Team edition can isolate them. app_settings is a
+-- tiny key/value store (holds the current org, among other things).
+CREATE TABLE IF NOT EXISTS orgs (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
 );
 
 -- v2 Maestro orchestrator: a Plan is a goal decomposed into a DAG of tasks.
@@ -186,6 +231,24 @@ CREATE TABLE IF NOT EXISTS plan_tasks (
 CREATE INDEX IF NOT EXISTS idx_plan_tasks_plan ON plan_tasks(plan_id);
 CREATE INDEX IF NOT EXISTS idx_plan_tasks_status ON plan_tasks(status);
 
+-- v2 Maestro (P1) — per-task thread: a chronological timeline of lifecycle
+-- events (dispatch, worker result, verdict, retry/escalation) interleaved with
+-- human comments. kind/author are open enums (no CHECK — same rationale as the
+-- status columns above). Append-only; cleaned up when its task/plan is deleted.
+CREATE TABLE IF NOT EXISTS task_thread_entries (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES plan_tasks(id),
+  plan_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  author TEXT NOT NULL,
+  body TEXT NOT NULL,
+  attempt INTEGER,
+  payload_json TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_thread_task ON task_thread_entries(task_id);
+CREATE INDEX IF NOT EXISTS idx_thread_plan ON task_thread_entries(plan_id);
+
 -- v2 Maestro — tool_calls hot paths (reaper). (The sessions.plan_id /
 -- plan_task_id indexes are created in applySchema() AFTER ensureColumn adds
 -- those columns — they don't exist in the base sessions table.)
@@ -215,6 +278,19 @@ CREATE TABLE IF NOT EXISTS connection_grants (
 CREATE INDEX IF NOT EXISTS idx_secrets_connection ON secrets(connection_id);
 CREATE INDEX IF NOT EXISTS idx_grants_connection ON connection_grants(connection_id);
 CREATE INDEX IF NOT EXISTS idx_grants_scope ON connection_grants(scope);
+
+-- P3 #11 — chat notifiers: Slack/Telegram destinations Solix posts events to.
+-- The provider config (webhook URL / bot token) is AES-GCM encrypted at rest,
+-- never returned over the API — same discipline as secrets.
+CREATE TABLE IF NOT EXISTS notifiers (
+  id TEXT PRIMARY KEY,
+  provider TEXT NOT NULL,
+  name TEXT NOT NULL,
+  config_enc TEXT NOT NULL,
+  events_json TEXT NOT NULL DEFAULT '[]',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL
+);
 `;
 
 export type DB = Database.Database;
@@ -351,6 +427,11 @@ function applySchema(db: DB): void {
   ensureColumn(db, 'missions', 'goal_id', 'goal_id TEXT');
   ensureColumn(db, 'scheduled_tasks', 'cwd', 'cwd TEXT');
   ensureColumn(db, 'scheduled_tasks', 'name', 'name TEXT');
+  // P1 #5 — richer routine triggers: webhook/manual kinds, a per-routine owner,
+  // and a capability token for webhook fire URLs.
+  ensureColumn(db, 'scheduled_tasks', 'trigger', "trigger TEXT NOT NULL DEFAULT 'interval'");
+  ensureColumn(db, 'scheduled_tasks', 'owner', 'owner TEXT');
+  ensureColumn(db, 'scheduled_tasks', 'token', 'token TEXT');
   // v2 Maestro — plan back-links on dispatched sessions.
   ensureColumn(db, 'sessions', 'plan_id', 'plan_id TEXT');
   ensureColumn(db, 'sessions', 'plan_task_id', 'plan_task_id TEXT');
@@ -367,6 +448,9 @@ function applySchema(db: DB): void {
   ensureColumn(db, 'plan_tasks', 'result_summary', 'result_summary TEXT');
   // Per-task agent runtime (multi-runtime dispatch).
   ensureColumn(db, 'plan_tasks', 'runtime', "runtime TEXT");
+  // P2 #8 — delegation depth (0 for original plan tasks; worker-proposed
+  // subtasks inherit parent depth + 1, capped by the orchestrator).
+  ensureColumn(db, 'plan_tasks', 'delegation_depth', 'delegation_depth INTEGER NOT NULL DEFAULT 0');
   // Build-studio (Phase 5): user-created projects are durable + owned by Solix,
   // distinct from auto-observed ones; `template` records how to scaffold/preview.
   ensureColumn(db, 'projects', 'managed', 'managed INTEGER NOT NULL DEFAULT 0');
@@ -374,6 +458,12 @@ function applySchema(db: DB): void {
   // Git baseline captured when a plan starts running — the review surface diffs
   // the working tree against it to show everything the fleet changed.
   ensureColumn(db, 'plans', 'base_ref', 'base_ref TEXT');
+  // P2 #6 — one-time soft budget heads-up flag (~80% of the cap).
+  ensureColumn(db, 'plans', 'budget_warned', 'budget_warned INTEGER NOT NULL DEFAULT 0');
+  // P3 #10 — multi-org: tag plans + goals with their owning org (nullable →
+  // treated as the default org for pre-existing rows).
+  ensureColumn(db, 'plans', 'org_id', 'org_id TEXT');
+  ensureColumn(db, 'goals', 'org_id', 'org_id TEXT');
   // Indexes on the plan back-link columns — must run AFTER ensureColumn has
   // added the columns to the sessions table (they aren't in the base schema).
   db.exec(

@@ -5,6 +5,55 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+**Maestro P1: tasks you can track, feedback that becomes work, routines that fire on demand.**
+
+Builds on the v1.12.0 Maestro preview. All additive; the Pro tier stays dormant.
+
+### Added
+- **Rich task threads.** Every plan task now keeps a chronological thread —
+  dispatched → worker result → verified / retry / escalated / aborted —
+  interleaved with your own comments. Expand a task in the Plan panel to read
+  its full run history and leave a note. (worker/verifier output is stored and
+  rendered as untrusted data.)
+- **Comment-on-passage → follow-up tasks.** In the review diff, comment on a
+  changed file and "Fix it" turns the note into a new worker task on the same
+  plan, which re-runs to address exactly that feedback — a tighter loop than
+  re-planning from scratch. The original diff baseline is kept so review stays
+  cumulative; lineage is recorded on both tasks' threads.
+- **Richer routine triggers.** Routines gain a trigger kind (interval, as
+  before; **webhook** — fire via an inbound POST to a per-routine capability
+  URL; **manual** — fire on demand), an optional owner, and a recorded run
+  history. New `solix schedules fire` / `solix schedules runs`, and
+  `schedules add --trigger webhook|manual --owner <who>`.
+- **Budget threshold alerts.** A plan now warns once at ~80% of its budget cap
+  (toast + background notification + an amber line on the plan) before the hard
+  pause at 100%, so the ceiling never arrives as a surprise.
+- **Ready-made team templates.** One-click advisor + skill + routine bundles for
+  common goals (ship-fast build team, quality & security gate, launch & devrel,
+  architecture & data). Install from the Galaxy panel's new Teams tab or
+  `solix teams install <id>`; missing pieces are skipped with a warning.
+- **Agent delegation (propose-and-verify).** A worker that genuinely needs to may
+  propose subtasks; the orchestrator parses them strictly, enforces a depth cap,
+  a per-proposal count cap, and the same task-count gate, then appends and
+  dispatches them as verified tasks depending on the completed parent. The worker
+  never dispatches directly — the orchestrator stays the sole, deterministic
+  dispatcher, so containment is preserved.
+- **Skill authoring.** Create, edit, version, restore, and dry-run your own skills
+  in-app — stored under `~/.solix/skills` and discovered like the bundled ones.
+  Bundled skills stay read-only. New "✎ Skill" authoring surface and a model-free
+  compose preview.
+- **Chat connectors.** Post fleet events (plan done/failed, task escalated, budget
+  alert) to Slack or Telegram; credentials are encrypted at rest and never
+  returned. With the webhook routine triggers, you can drive *and* monitor Solix
+  from your phone. Managed from the Connections panel's Notifications section.
+- **Multi-org tenancy.** Orgs isolate your plans and goals; switch the active org
+  from the top bar or `solix orgs`. Local SQLite remains the single, zero-telemetry
+  backend; a storage seam reports where a Team-edition Postgres/S3 backend would
+  plug in (`SOLIX_PG_URL` / `SOLIX_S3_BUCKET`) — those adapters are not wired in
+  this build.
+
 ## [1.12.0] — 2026-10-16
 
 **Maestro (preview): describe a goal, watch your agent fleet build it — 100% local.**

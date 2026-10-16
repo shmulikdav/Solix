@@ -4,10 +4,12 @@ import type {
   PlanReview,
   PlanTask,
   PlanTaskStatus,
+  TaskThreadEntry,
 } from '@solix/shared';
 import {
   selectPlansArray,
   selectPlanTasks,
+  selectTaskThread,
   useSolixStore,
 } from '../store/index.js';
 
@@ -403,6 +405,7 @@ const PLAN_STATUS_COLOR: Record<Plan['status'], string> = {
 
 function PlanCard({ plan }: { plan: Plan }): JSX.Element {
   const tasks = useSolixStore((s) => selectPlanTasks(s, plan.id));
+  const budgetAlert = useSolixStore((s) => s.planBudgetAlerts[plan.id]);
   const approvePlan = useSolixStore((s) => s.approvePlan);
   const abortPlan = useSolixStore((s) => s.abortPlan);
   const resumePlan = useSolixStore((s) => s.resumePlan);
@@ -493,6 +496,14 @@ function PlanCard({ plan }: { plan: Plan }): JSX.Element {
           {plan.status.replace('_', ' ')}
         </span>
       </div>
+
+      {budgetAlert && plan.status !== 'paused' && (
+        <div className="mt-2 text-[10px] text-solix-warn border border-solix-warn/40 bg-solix-warn/10 rounded px-2 py-1">
+          ⚠ Budget {Math.round(budgetAlert.pct * 100)}% used — $
+          {budgetAlert.spentUsd.toFixed(2)} of ${budgetAlert.budgetUsd.toFixed(2)}.
+          The plan pauses at the cap.
+        </div>
+      )}
 
       {tasks.length > 0 && (
         <ol className="mt-2 space-y-1">
@@ -663,36 +674,12 @@ function PlanReviewSection({ planId }: { planId: string }): JSX.Element {
             <>
               <ul className="space-y-0.5">
                 {review.files.map((f) => (
-                  <li
+                  <FileReviewRow
                     key={f.path}
-                    className="flex items-center gap-2 text-[11px] font-mono"
-                  >
-                    <span
-                      className={
-                        f.status === 'added'
-                          ? 'text-solix-ok'
-                          : f.status === 'deleted'
-                            ? 'text-solix-danger'
-                            : 'text-amber-300'
-                      }
-                      title={f.status}
-                    >
-                      {f.status === 'added'
-                        ? 'A'
-                        : f.status === 'deleted'
-                          ? 'D'
-                          : 'M'}
-                    </span>
-                    <span className="text-slate-300 truncate flex-1">
-                      {f.path}
-                    </span>
-                    {f.additions > 0 && (
-                      <span className="text-solix-ok">+{f.additions}</span>
-                    )}
-                    {f.deletions > 0 && (
-                      <span className="text-solix-danger">−{f.deletions}</span>
-                    )}
-                  </li>
+                    planId={planId}
+                    file={f}
+                    hunk={sliceFileDiff(review.diff, f.path)}
+                  />
                 ))}
               </ul>
               <DiffView diff={review.diff} truncated={review.truncated} />
@@ -701,6 +688,113 @@ function PlanReviewSection({ planId }: { planId: string }): JSX.Element {
         </div>
       )}
     </div>
+  );
+}
+
+/** Best-effort slice of a single file's section out of a combined unified diff,
+ *  so a comment on that file carries just the relevant hunk as context. */
+function sliceFileDiff(diff: string, path: string): string | undefined {
+  if (!diff) return undefined;
+  const parts = diff.split(/\n(?=diff --git )/);
+  const hit = parts.find((p) => p.includes(` a/${path}`) || p.includes(` b/${path}`) || p.includes(path));
+  return hit?.trim() || undefined;
+}
+
+/** One changed-file row with an inline "comment → follow-up task" affordance
+ *  (comment-on-passage, P1 #4). Posting turns the note into a worker task that
+ *  re-runs the plan to address it. */
+function FileReviewRow({
+  planId,
+  file,
+  hunk,
+}: {
+  planId: string;
+  file: PlanReview['files'][number];
+  hunk?: string;
+}): JSX.Element {
+  const addFollowUp = useSolixStore((s) => s.addFollowUp);
+  const [open, setOpen] = useState(false);
+  const [body, setBody] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const onSubmit = async (): Promise<void> => {
+    const text = body.trim();
+    if (!text || busy) return;
+    setBusy(true);
+    setNote(null);
+    const res = await addFollowUp(planId, { body: text, file: file.path, hunk });
+    setBusy(false);
+    if (res.ok && !res.upsell) {
+      setBody('');
+      setOpen(false);
+      setNote({ ok: true, text: 'Follow-up task queued — the plan will address it.' });
+    } else if (res.upsell) {
+      setNote({ ok: false, text: res.error ?? 'Re-running this plan needs Pro.' });
+    } else {
+      setNote({ ok: false, text: res.error ?? 'Could not add the follow-up.' });
+    }
+  };
+
+  return (
+    <li className="text-[11px] font-mono">
+      <div className="flex items-center gap-2">
+        <span
+          className={
+            file.status === 'added'
+              ? 'text-solix-ok'
+              : file.status === 'deleted'
+                ? 'text-solix-danger'
+                : 'text-amber-300'
+          }
+          title={file.status}
+        >
+          {file.status === 'added' ? 'A' : file.status === 'deleted' ? 'D' : 'M'}
+        </span>
+        <span className="text-slate-300 truncate flex-1">{file.path}</span>
+        {file.additions > 0 && (
+          <span className="text-solix-ok">+{file.additions}</span>
+        )}
+        {file.deletions > 0 && (
+          <span className="text-solix-danger">−{file.deletions}</span>
+        )}
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className="shrink-0 text-slate-500 hover:text-amber-200"
+          title="Comment on this file → follow-up task"
+          aria-label="Comment on this file"
+        >
+          🗨
+        </button>
+      </div>
+      {open && (
+        <div className="mt-1 flex gap-1.5 font-sans">
+          <input
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void onSubmit();
+            }}
+            placeholder={`What should change in ${file.path.split('/').pop()}?`}
+            className="flex-1 text-[11px] bg-black/40 border border-solix-border rounded p-1.5 text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-400"
+          />
+          <button
+            onClick={() => void onSubmit()}
+            disabled={busy || !body.trim()}
+            className="px-2.5 rounded bg-amber-500/20 border border-amber-400/60 text-amber-100 text-[11px] hover:bg-amber-500/30 disabled:opacity-40"
+          >
+            {busy ? '…' : 'Fix it'}
+          </button>
+        </div>
+      )}
+      {note && (
+        <div
+          className={`mt-1 text-[10px] font-sans ${note.ok ? 'text-solix-ok' : 'text-amber-300'}`}
+        >
+          {note.text}
+        </div>
+      )}
+    </li>
   );
 }
 
@@ -760,16 +854,39 @@ function TaskRow({ task }: { task: PlanTask }): JSX.Element {
   // mid-retry (failed) so the operator sees *why* without opening a session.
   const showError =
     task.lastError && (task.status === 'escalated' || task.status === 'failed');
+  const thread = useSolixStore((s) => selectTaskThread(s, task.id));
+  const [open, setOpen] = useState(false);
   return (
     <li className="text-xs">
       <div className="flex items-center gap-2">
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className="text-slate-500 hover:text-slate-200 shrink-0 w-3 text-center"
+          title={open ? 'Hide thread' : 'Show thread'}
+          aria-label={open ? 'Hide thread' : 'Show thread'}
+        >
+          {open ? '▾' : '▸'}
+        </button>
         <span
           className={`inline-block w-2 h-2 rounded-full shrink-0 ${
             TASK_STATUS_COLOR[task.status] ?? 'bg-slate-600'
           }`}
           title={task.status}
         />
-        <span className="text-slate-200 truncate flex-1">{task.title}</span>
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className="text-slate-200 truncate flex-1 text-left hover:text-white"
+        >
+          {task.title}
+        </button>
+        {thread.length > 0 && (
+          <span
+            className="text-[9px] text-slate-500 shrink-0"
+            title={`${thread.length} thread ${thread.length === 1 ? 'entry' : 'entries'}`}
+          >
+            💬{thread.length}
+          </span>
+        )}
         {task.attempts > 1 && (
           <span
             className="text-[9px] text-slate-500 shrink-0"
@@ -792,11 +909,122 @@ function TaskRow({ task }: { task: PlanTask }): JSX.Element {
           </span>
         )}
       </div>
-      {showError && (
-        <div className="mt-0.5 ml-4 text-[10px] text-solix-danger/80 line-clamp-2">
+      {showError && !open && (
+        <div className="mt-0.5 ml-5 text-[10px] text-solix-danger/80 line-clamp-2">
           {task.lastError}
         </div>
       )}
+      {open && <TaskThread task={task} />}
+    </li>
+  );
+}
+
+const THREAD_KIND_META: Record<
+  string,
+  { icon: string; color: string; label: string }
+> = {
+  dispatched: { icon: '→', color: 'text-solix-accent', label: 'Dispatched' },
+  worker_result: { icon: '⚙', color: 'text-slate-300', label: 'Worker' },
+  completed: { icon: '✓', color: 'text-solix-ok', label: 'Verified' },
+  retry: { icon: '↻', color: 'text-solix-warn', label: 'Retry' },
+  escalated: { icon: '⚠', color: 'text-solix-danger', label: 'Escalated' },
+  aborted: { icon: '■', color: 'text-slate-400', label: 'Aborted' },
+  comment: { icon: '🗨', color: 'text-amber-200', label: 'You' },
+  follow_up: { icon: '＋', color: 'text-amber-300', label: 'Follow-up' },
+  delegated: { icon: '⑂', color: 'text-cyan-300', label: 'Delegated' },
+};
+
+/** The task's run history + conversation — lifecycle entries interleaved with
+ *  human comments. Loaded on expand; live-appended over the WS. */
+function TaskThread({ task }: { task: PlanTask }): JSX.Element {
+  const thread = useSolixStore((s) => selectTaskThread(s, task.id));
+  const fetchTaskThread = useSolixStore((s) => s.fetchTaskThread);
+  const postTaskComment = useSolixStore((s) => s.postTaskComment);
+  const [comment, setComment] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void fetchTaskThread(task.planId, task.id);
+  }, [task.planId, task.id, fetchTaskThread]);
+
+  const onSend = async (): Promise<void> => {
+    const text = comment.trim();
+    if (!text || sending) return;
+    setSending(true);
+    setError(null);
+    const res = await postTaskComment(task.planId, task.id, text);
+    setSending(false);
+    if (res.ok) setComment('');
+    else setError(res.error ?? 'Could not post the comment.');
+  };
+
+  return (
+    <div className="mt-1 ml-5 rounded border border-solix-border/60 bg-black/20 p-2 space-y-2">
+      {thread.length === 0 ? (
+        <div className="text-[10px] text-slate-500 italic">
+          No activity yet. Dispatch events and your comments will show here.
+        </div>
+      ) : (
+        <ol className="space-y-1.5">
+          {thread.map((e) => (
+            <ThreadEntryRow key={e.id} entry={e} />
+          ))}
+        </ol>
+      )}
+      <div className="flex gap-1.5">
+        <input
+          value={comment}
+          onChange={(ev) => setComment(ev.target.value)}
+          onKeyDown={(ev) => {
+            if (ev.key === 'Enter') void onSend();
+          }}
+          placeholder="Add a comment…"
+          className="flex-1 text-[11px] bg-black/40 border border-solix-border rounded p-1.5 text-slate-100 placeholder-slate-600 focus:outline-none focus:border-solix-accent"
+        />
+        <button
+          onClick={() => void onSend()}
+          disabled={sending || !comment.trim()}
+          className="px-2.5 rounded bg-amber-500/20 border border-amber-400/60 text-amber-100 text-[11px] hover:bg-amber-500/30 disabled:opacity-40"
+        >
+          {sending ? '…' : 'Post'}
+        </button>
+      </div>
+      {error && <div className="text-[10px] text-solix-danger">{error}</div>}
+    </div>
+  );
+}
+
+function ThreadEntryRow({ entry }: { entry: TaskThreadEntry }): JSX.Element {
+  const meta = THREAD_KIND_META[entry.kind] ?? {
+    icon: '·',
+    color: 'text-slate-400',
+    label: entry.kind,
+  };
+  const when = new Date(entry.createdAt).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const cost =
+    typeof entry.payload?.costUsd === 'number'
+      ? `$${(entry.payload.costUsd as number).toFixed(3)}`
+      : null;
+  return (
+    <li className="flex gap-2">
+      <span className={`shrink-0 ${meta.color}`} title={meta.label}>
+        {meta.icon}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5 text-[9px] text-slate-500">
+          <span className={meta.color}>{meta.label}</span>
+          {entry.attempt != null && <span>· attempt {entry.attempt}</span>}
+          {cost && <span>· {cost}</span>}
+          <span>· {when}</span>
+        </div>
+        <div className="text-[11px] text-slate-300 whitespace-pre-wrap break-words line-clamp-6">
+          {entry.body}
+        </div>
+      </div>
     </li>
   );
 }

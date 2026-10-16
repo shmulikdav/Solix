@@ -713,6 +713,90 @@ describe('Orchestrator secret injection', () => {
   });
 });
 
+describe('Orchestrator budget threshold alert (P2 #6)', () => {
+  let db: DB;
+  beforeEach(() => {
+    db = resetDbForTests();
+  });
+
+  it('emits a one-time plan_budget_alert at ~80% without pausing', async () => {
+    const msgs: ServerMessage[] = [];
+    const orch = new Orchestrator({
+      db,
+      runner: new RoleFakeRunner({ plan: PLAN_JSON, verifierPass: true }),
+      broadcast: (m) => msgs.push(m),
+      getKnownAdvisorRoles: () => ['forge', 'argus', 'mira'],
+      knownModels: ['opus', 'sonnet', 'haiku', 'default'],
+      getMaestroPrompt: () => 'MAESTRO PROMPT',
+      fullAutoStatus: () => ({ ok: true, reasons: [] }),
+    });
+    const { planId } = await orch.createPlanFromGoal({
+      goal: 'g',
+      cwd: '/tmp/p',
+      budgetUsd: 10,
+    });
+    orch.approvePlan(planId!);
+    // Seed spend at 85% of the cap (keyed by plan_id) before any dispatch.
+    const project = ensureProject(db, '/tmp/p');
+    upsertSession(db, {
+      id: 'seed-spend',
+      pid: 0,
+      projectId: project.id,
+      cwd: '/tmp/p',
+      origin: 'internal',
+      model: 'default',
+      kind: 'user',
+      planId: planId!,
+    });
+    setSessionCost(db, 'seed-spend', 8.5);
+
+    await orch.advance(planId!);
+
+    const alerts = msgs.filter((m) => m.type === 'plan_budget_alert');
+    expect(alerts).toHaveLength(1); // fired once, not on every dispatch
+    const b = orch.getPlanWithTasks(planId!)!;
+    // Warned, persisted, but NOT paused — spend is under the hard cap.
+    expect(b.plan.budgetWarned).toBe(true);
+    expect(b.plan.status).toBe('completed');
+  });
+
+  it('skips the warning and goes straight to pause when spend jumps past the cap', async () => {
+    const msgs: ServerMessage[] = [];
+    const orch = new Orchestrator({
+      db,
+      runner: new RoleFakeRunner({ plan: PLAN_JSON, verifierPass: true }),
+      broadcast: (m) => msgs.push(m),
+      getKnownAdvisorRoles: () => ['forge', 'argus', 'mira'],
+      knownModels: ['opus', 'sonnet', 'haiku', 'default'],
+      getMaestroPrompt: () => 'MAESTRO PROMPT',
+      fullAutoStatus: () => ({ ok: true, reasons: [] }),
+    });
+    const { planId } = await orch.createPlanFromGoal({
+      goal: 'g',
+      cwd: '/tmp/p',
+      budgetUsd: 10,
+    });
+    orch.approvePlan(planId!);
+    const project = ensureProject(db, '/tmp/p');
+    upsertSession(db, {
+      id: 'seed-over',
+      pid: 0,
+      projectId: project.id,
+      cwd: '/tmp/p',
+      origin: 'internal',
+      model: 'default',
+      kind: 'user',
+      planId: planId!,
+    });
+    setSessionCost(db, 'seed-over', 12);
+
+    await orch.advance(planId!);
+
+    expect(msgs.filter((m) => m.type === 'plan_budget_alert')).toHaveLength(0);
+    expect(orch.getPlanWithTasks(planId!)!.plan.status).toBe('paused');
+  });
+});
+
 describe('Orchestrator multi-runtime dispatch', () => {
   let db: DB;
   beforeEach(() => {

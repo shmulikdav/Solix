@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { homedir } from 'node:os';
 import type { Skill, SkillSource } from '@solix/shared';
 import type { DB } from '../db.js';
+import { userSkillsDir } from '../paths.js';
 import { now } from '../util.js';
 
 interface SkillRow {
@@ -91,6 +92,7 @@ export function discoverSkills(db: DB): Skill[] {
   const sources: { dir: string; source: SkillSource }[] = [
     { dir: ANTHROPIC_SKILLS_DIR, source: 'anthropic' },
     { dir: SOLIX_SKILLS_DIR, source: 'solix' },
+    { dir: userSkillsDir(), source: 'user' },
   ];
 
   for (const { dir, source } of sources) {
@@ -158,6 +160,10 @@ export function recordSkillInstall(
 
 export function getSolixSkillsDir(): string {
   return SOLIX_SKILLS_DIR;
+}
+
+export function getUserSkillsDir(): string {
+  return userSkillsDir();
 }
 
 export function getAnthropicSkillsDir(): string {

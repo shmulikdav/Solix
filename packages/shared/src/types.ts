@@ -87,6 +87,27 @@ export interface Session {
   sessionRole?: SessionRole;
 }
 
+/** A tenant (P3 #10). A default org always exists; a Team edition can add more
+ *  to isolate plans and goals. */
+export interface Org {
+  id: string;
+  name: string;
+  createdAt: number;
+}
+
+/** What storage backend is active + what's configured (P3 #10). SQLite is the
+ *  implemented driver; Postgres/S3 are config-gated adapters. */
+export interface StorageStatus {
+  /** The driver actually serving reads/writes right now. */
+  active: 'sqlite';
+  /** A Postgres target is configured via SOLIX_PG_URL (adapter pending). */
+  postgresConfigured: boolean;
+  /** An S3 artifact target is configured via SOLIX_S3_BUCKET (adapter pending). */
+  s3Configured: boolean;
+  /** Human-readable note about the backend seam. */
+  note: string;
+}
+
 export type MissionStatus = 'active' | 'completed' | 'failed' | 'cancelled';
 
 export interface MissionMetrics {
@@ -128,6 +149,8 @@ export interface Goal {
   description?: string;
   /** Hex color used for the constellation lines + chips. */
   color: string;
+  /** Owning org/tenant (P3 #10). Absent → the default org. */
+  orgId?: string;
   createdAt: number;
 }
 
@@ -167,6 +190,8 @@ export interface Plan {
   autoMode: boolean;
   /** Optional constellation grouping this plan's sessions join. */
   goalId?: string;
+  /** Owning org/tenant (P3 #10). Absent → the default org. */
+  orgId?: string;
   /** Default working directory the plan's tasks run in. */
   cwd: string;
   /** Optional plan-wide budget cap (USD) across all tasks. */
@@ -174,6 +199,9 @@ export interface Plan {
   /** Git HEAD of `cwd` captured when the plan started running — the baseline
    *  the review surface diffs against to show everything the fleet changed. */
   baseRef?: string;
+  /** True once the soft budget heads-up has fired (~80% of the cap), so it
+   *  only warns once before the hard pause at 100% (P2 #6). */
+  budgetWarned?: boolean;
   createdAt: number;
   updatedAt: number;
 }
@@ -238,8 +266,59 @@ export interface PlanTask {
   resultSummary?: string;
   /** Stable ordering for display. */
   orderIndex: number;
+  /** How many delegation hops produced this task (0 = from the original plan).
+   *  A worker may propose subtasks (P2 #8); each inherits parent depth + 1, and
+   *  the orchestrator refuses to expand past a hard depth cap. */
+  delegationDepth?: number;
   createdAt: number;
   updatedAt: number;
+}
+
+// ── Task threads (P1) ──────────────────────────────────────────────────
+// Each PlanTask carries a thread: a chronological timeline of what happened
+// to it (dispatched, worker result, verifier verdict, retry/escalation
+// reasons) interleaved with human comments. It turns a task from a status
+// chip into a trackable unit with a full run history + conversation.
+
+/** Who authored a task-thread entry. */
+export type ThreadAuthor = 'system' | 'worker' | 'verifier' | 'human';
+
+/**
+ * Kind of task-thread entry. Open enum (rendered by category) — the server
+ * may add new kinds without a protocol bump, mirroring the status columns.
+ *  - dispatched: a worker attempt started
+ *  - worker_result: the worker finished (body = result summary)
+ *  - completed: the verifier accepted the task
+ *  - retry: an attempt was rejected and will be retried (body = reason)
+ *  - escalated: retries exhausted — needs a human (body = reason)
+ *  - aborted: an operator stopped the run
+ *  - comment: a human note on the task
+ *  - follow_up: a human comment promoted into a follow-up task (P1 #4)
+ */
+export type ThreadEntryKind =
+  | 'dispatched'
+  | 'worker_result'
+  | 'completed'
+  | 'retry'
+  | 'escalated'
+  | 'aborted'
+  | 'comment'
+  | 'follow_up'
+  | string;
+
+export interface TaskThreadEntry {
+  id: string;
+  taskId: string;
+  planId: string;
+  kind: ThreadEntryKind;
+  author: ThreadAuthor;
+  /** Free text / markdown. Worker and verifier bodies are untrusted output. */
+  body: string;
+  /** Which task attempt this entry belongs to, when it came from a dispatch. */
+  attempt?: number;
+  /** Optional structured extras (e.g. { sessionId, costUsd, followUpTaskId }). */
+  payload?: Record<string, unknown>;
+  createdAt: number;
 }
 
 /** A managed integration (API key bundle, or later an MCP server) that workers
@@ -256,6 +335,30 @@ export interface Connection {
   secretKeys: string[];
   /** Who may use it: advisor roles, plan ids, or '*' for every worker. */
   grants: string[];
+}
+
+// ── Chat notifiers (P3 #11) ────────────────────────────────────────────
+// A destination Solix posts fleet events to (Slack incoming webhook or a
+// Telegram bot). The provider credentials are encrypted at rest and never
+// returned over the API — only the non-secret shape is exposed.
+
+export type NotifierProvider = 'slack' | 'telegram';
+
+/** Fleet events a notifier can subscribe to. */
+export type NotifyEvent =
+  | 'plan_completed'
+  | 'plan_failed'
+  | 'task_escalated'
+  | 'budget_alert';
+
+export interface Notifier {
+  id: string;
+  provider: NotifierProvider;
+  name: string;
+  /** Which events this destination receives. */
+  events: NotifyEvent[];
+  enabled: boolean;
+  createdAt: number;
 }
 
 export type ToolCallStatus = 'running' | 'ok' | 'error';
@@ -286,6 +389,12 @@ export interface Project {
   template?: string;
 }
 
+/** How a routine fires (P1 #5):
+ *  - interval: on a cadence (the heartbeat scheduler ticks it)
+ *  - webhook: on an inbound POST to its capability URL (token-authenticated)
+ *  - manual: fire-only, run on demand from the UI/API */
+export type TriggerKind = 'interval' | 'webhook' | 'manual';
+
 export interface ScheduledTask {
   id: string;
   projectId: string;
@@ -295,11 +404,33 @@ export interface ScheduledTask {
   name?: string;
   prompt: string;
   /** Cadence string. Sprint M supports simple intervals: "30m", "2h", "1d".
-   * (Full cron is future work — see Sprint M plan.) */
+   * (Full cron is future work — see Sprint M plan.) Ignored for non-interval
+   * triggers. */
   cron: string;
   enabled: boolean;
   lastRunAt?: number;
   nextRunAt: number;
+  /** How this routine fires (default 'interval'). */
+  trigger?: TriggerKind;
+  /** Optional owner label (an advisor role, a person, a team). */
+  owner?: string;
+  /** Capability token for a webhook trigger — the secret in its fire URL
+   *  (POST /api/triggers/:token). Local-only; shown so the UI can build the
+   *  URL. Absent for interval/manual triggers. */
+  webhookToken?: string;
+}
+
+/** One recorded firing of a routine (P1 #5 run history). */
+export interface ScheduleRun {
+  id: string;
+  scheduleId: string;
+  /** Which trigger caused this run. */
+  trigger: TriggerKind | string;
+  /** Outcome: 'fired' (launched), 'skipped' (e.g. disabled), 'error'. */
+  status: 'fired' | 'skipped' | 'error' | string;
+  /** Short human-readable detail (prompt snippet, or an error message). */
+  detail?: string;
+  firedAt: number;
 }
 
 export interface ChatMessage {
@@ -333,6 +464,44 @@ export interface Advisor {
   pinnedSessionId?: string;
   requiredSkills: string[];
   texturePack?: string;
+}
+
+// ── Team templates (P2 #7) ─────────────────────────────────────────────
+// A curated, installable bundle of advisors + skills + routines for a goal,
+// so a user can stand up a ready-made "team" in one click. Built on the same
+// building blocks as galaxy import/export.
+
+export interface TeamTemplateRoutine {
+  name: string;
+  prompt: string;
+  /** Trigger kind for the routine (default 'interval'). */
+  trigger?: TriggerKind;
+  /** Cadence for interval routines (e.g. '1d'). Ignored otherwise. */
+  cadence?: string;
+}
+
+export interface TeamTemplate {
+  id: string;
+  name: string;
+  description: string;
+  /** The kind of goal this team is for — shown as the tagline. */
+  goal: string;
+  /** Advisor ids this team enables (e.g. 'forge', 'argus'). */
+  advisors: string[];
+  /** Skill ids/names this team installs into the target project. */
+  skills: string[];
+  /** Routines this team sets up in the target project. */
+  routines: TeamTemplateRoutine[];
+}
+
+/** What a team-template install actually applied (missing pieces → warnings). */
+export interface TeamInstallResult {
+  ok: boolean;
+  templateId: string;
+  advisorsEnabled: string[];
+  skillsInstalled: string[];
+  routinesCreated: string[];
+  warnings: string[];
 }
 
 export type SkillSource = 'anthropic' | 'solix' | 'user';

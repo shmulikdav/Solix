@@ -822,6 +822,15 @@ export class EventRouter {
   broadcastProjectUpsert(project: import('@solix/shared').Project): void {
     this.broadcaster.broadcast({ type: 'project_upsert', project });
   }
+  broadcastAdvisorUpsert(advisor: import('@solix/shared').Advisor): void {
+    this.broadcaster.broadcast({ type: 'advisor_upsert', advisor });
+  }
+  broadcastSkillUpsert(skill: import('@solix/shared').Skill): void {
+    this.broadcaster.broadcast({ type: 'skill_upsert', skill });
+  }
+  broadcastSkillRemove(skillId: string): void {
+    this.broadcaster.broadcast({ type: 'skill_remove', skillId });
+  }
   // v2 Maestro — broadcast helpers for plan/task CRUD driven by HTTP + the
   // orchestrator.
   broadcastPlanUpsert(plan: import('@solix/shared').Plan): void {
@@ -835,6 +844,11 @@ export class EventRouter {
   }
   broadcastPlanTaskRemove(taskId: string): void {
     this.broadcaster.broadcast({ type: 'plan_task_remove', taskId });
+  }
+  broadcastThreadEntry(
+    entry: import('@solix/shared').TaskThreadEntry,
+  ): void {
+    this.broadcaster.broadcast({ type: 'thread_entry_append', entry });
   }
 
   broadcastGalaxyImported(manifest: GalaxyManifest): void {

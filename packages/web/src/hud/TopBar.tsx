@@ -1,4 +1,5 @@
 import { useSolixStore, selectPlanets } from '../store/index.js';
+import { NEW_SKILL_ID } from '../panels/SkillPanel.js';
 
 interface TopBarProps {
   onOpenGalaxy?: () => void;
@@ -24,6 +25,20 @@ export function TopBar({
   const viewMode = useSolixStore((s) => s.viewMode);
   const playbackActive = useSolixStore((s) => s.playback.active);
   const exitPlayback = useSolixStore((s) => s.exitPlayback);
+  const selectSkill = useSolixStore((s) => s.selectSkill);
+  const orgs = useSolixStore((s) => s.orgs);
+  const currentOrgId = useSolixStore((s) => s.currentOrgId);
+  const setCurrentOrg = useSolixStore((s) => s.setCurrentOrg);
+  const createOrg = useSolixStore((s) => s.createOrg);
+
+  const onOrgChange = (value: string): void => {
+    if (value === '__new__') {
+      const name = window.prompt('New org name');
+      if (name?.trim()) void createOrg(name.trim());
+      return;
+    }
+    void setCurrentOrg(value);
+  };
 
   const counts = planets.reduce(
     (acc, s) => {
@@ -141,6 +156,28 @@ export function TopBar({
           >
             ⌬ Galaxy
           </button>
+        )}
+        <button
+          onClick={() => selectSkill(NEW_SKILL_ID)}
+          className="px-2 py-1 rounded bg-cyan-500/15 border border-cyan-400/40 text-cyan-200 hover:bg-cyan-500/25"
+          title="Author a new skill"
+        >
+          ✎ Skill
+        </button>
+        {orgs.length > 0 && (
+          <select
+            value={currentOrgId}
+            onChange={(e) => onOrgChange(e.target.value)}
+            title="Active org — scopes which plans you see"
+            className="px-2 py-1 rounded bg-slate-500/10 border border-slate-400/30 text-slate-200 hover:bg-slate-500/20 focus:outline-none"
+          >
+            {orgs.map((o) => (
+              <option key={o.id} value={o.id}>
+                ◭ {o.name}
+              </option>
+            ))}
+            <option value="__new__">＋ New org…</option>
+          </select>
         )}
         {onOpenHelp && (
           <button

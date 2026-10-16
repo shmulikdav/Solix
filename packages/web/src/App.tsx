@@ -90,6 +90,7 @@ export default function App(): JSX.Element {
 
   useEffect(() => {
     startWsClient();
+    void useSolixStore.getState().loadOrgs();
   }, []);
 
   useEffect(() => {
