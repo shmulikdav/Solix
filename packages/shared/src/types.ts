@@ -87,6 +87,27 @@ export interface Session {
   sessionRole?: SessionRole;
 }
 
+/** A tenant (P3 #10). A default org always exists; a Team edition can add more
+ *  to isolate plans and goals. */
+export interface Org {
+  id: string;
+  name: string;
+  createdAt: number;
+}
+
+/** What storage backend is active + what's configured (P3 #10). SQLite is the
+ *  implemented driver; Postgres/S3 are config-gated adapters. */
+export interface StorageStatus {
+  /** The driver actually serving reads/writes right now. */
+  active: 'sqlite';
+  /** A Postgres target is configured via SOLIX_PG_URL (adapter pending). */
+  postgresConfigured: boolean;
+  /** An S3 artifact target is configured via SOLIX_S3_BUCKET (adapter pending). */
+  s3Configured: boolean;
+  /** Human-readable note about the backend seam. */
+  note: string;
+}
+
 export type MissionStatus = 'active' | 'completed' | 'failed' | 'cancelled';
 
 export interface MissionMetrics {
@@ -128,6 +149,8 @@ export interface Goal {
   description?: string;
   /** Hex color used for the constellation lines + chips. */
   color: string;
+  /** Owning org/tenant (P3 #10). Absent → the default org. */
+  orgId?: string;
   createdAt: number;
 }
 
@@ -167,6 +190,8 @@ export interface Plan {
   autoMode: boolean;
   /** Optional constellation grouping this plan's sessions join. */
   goalId?: string;
+  /** Owning org/tenant (P3 #10). Absent → the default org. */
+  orgId?: string;
   /** Default working directory the plan's tasks run in. */
   cwd: string;
   /** Optional plan-wide budget cap (USD) across all tasks. */

@@ -40,6 +40,19 @@ Builds on the v1.12.0 Maestro preview. All additive; the Pro tier stays dormant.
   dispatches them as verified tasks depending on the completed parent. The worker
   never dispatches directly — the orchestrator stays the sole, deterministic
   dispatcher, so containment is preserved.
+- **Skill authoring.** Create, edit, version, restore, and dry-run your own skills
+  in-app — stored under `~/.solix/skills` and discovered like the bundled ones.
+  Bundled skills stay read-only. New "✎ Skill" authoring surface and a model-free
+  compose preview.
+- **Chat connectors.** Post fleet events (plan done/failed, task escalated, budget
+  alert) to Slack or Telegram; credentials are encrypted at rest and never
+  returned. With the webhook routine triggers, you can drive *and* monitor Solix
+  from your phone. Managed from the Connections panel's Notifications section.
+- **Multi-org tenancy.** Orgs isolate your plans and goals; switch the active org
+  from the top bar or `solix orgs`. Local SQLite remains the single, zero-telemetry
+  backend; a storage seam reports where a Team-edition Postgres/S3 backend would
+  plug in (`SOLIX_PG_URL` / `SOLIX_S3_BUCKET`) — those adapters are not wired in
+  this build.
 
 ## [1.12.0] — 2026-10-16
 

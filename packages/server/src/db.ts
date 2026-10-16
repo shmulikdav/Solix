@@ -179,6 +179,19 @@ CREATE TABLE IF NOT EXISTS goals (
   created_at INTEGER NOT NULL
 );
 
+-- P3 #10 — multi-org tenancy. A default org is seeded at boot; plans/goals are
+-- stamped with an org_id so a Team edition can isolate them. app_settings is a
+-- tiny key/value store (holds the current org, among other things).
+CREATE TABLE IF NOT EXISTS orgs (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
 -- v2 Maestro orchestrator: a Plan is a goal decomposed into a DAG of tasks.
 CREATE TABLE IF NOT EXISTS plans (
   id TEXT PRIMARY KEY,
@@ -447,6 +460,10 @@ function applySchema(db: DB): void {
   ensureColumn(db, 'plans', 'base_ref', 'base_ref TEXT');
   // P2 #6 — one-time soft budget heads-up flag (~80% of the cap).
   ensureColumn(db, 'plans', 'budget_warned', 'budget_warned INTEGER NOT NULL DEFAULT 0');
+  // P3 #10 — multi-org: tag plans + goals with their owning org (nullable →
+  // treated as the default org for pre-existing rows).
+  ensureColumn(db, 'plans', 'org_id', 'org_id TEXT');
+  ensureColumn(db, 'goals', 'org_id', 'org_id TEXT');
   // Indexes on the plan back-link columns — must run AFTER ensureColumn has
   // added the columns to the sessions table (they aren't in the base schema).
   db.exec(

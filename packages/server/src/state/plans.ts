@@ -6,6 +6,7 @@ import {
   deleteThreadEntriesForPlan,
   deleteThreadEntriesForTask,
 } from './threads.js';
+import { DEFAULT_ORG_ID, getCurrentOrgId } from './orgs.js';
 
 // ── Plans ────────────────────────────────────────────────────────────────
 
@@ -20,6 +21,7 @@ interface PlanRow {
   budget_usd: number | null;
   base_ref: string | null;
   budget_warned: number | null;
+  org_id: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -36,6 +38,7 @@ function rowToPlan(row: PlanRow): Plan {
     budgetUsd: row.budget_usd ?? undefined,
     baseRef: row.base_ref ?? undefined,
     budgetWarned: row.budget_warned === 1,
+    orgId: row.org_id ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -51,14 +54,18 @@ export function createPlan(
     autoMode?: boolean;
     goalId?: string;
     budgetUsd?: number;
+    orgId?: string;
   },
 ): Plan {
   const id = nanoid(8);
   const ts = now();
+  // Stamp the owning org (default: whatever's current) so a Team edition can
+  // isolate plans. getCurrentOrgId self-heals to the default org.
+  const orgId = input.orgId ?? getCurrentOrgId(db);
   db.prepare(
     `INSERT INTO plans
-       (id, name, goal_prompt, status, auto_mode, goal_id, cwd, budget_usd, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, name, goal_prompt, status, auto_mode, goal_id, cwd, budget_usd, org_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     input.name,
@@ -68,6 +75,7 @@ export function createPlan(
     input.goalId ?? null,
     input.cwd,
     input.budgetUsd ?? null,
+    orgId,
     ts,
     ts,
   );
@@ -78,6 +86,22 @@ export function listPlans(db: DB): Plan[] {
   const rows = db
     .prepare('SELECT * FROM plans ORDER BY created_at DESC')
     .all() as PlanRow[];
+  return rows.map(rowToPlan);
+}
+
+/** Plans owned by one org (P3 #10). Rows with a NULL org_id (pre-migration) are
+ *  treated as belonging to the default org. */
+export function listPlansForOrg(db: DB, orgId: string): Plan[] {
+  const rows =
+    orgId === DEFAULT_ORG_ID
+      ? (db
+          .prepare(
+            'SELECT * FROM plans WHERE org_id = ? OR org_id IS NULL ORDER BY created_at DESC',
+          )
+          .all(orgId) as PlanRow[])
+      : (db
+          .prepare('SELECT * FROM plans WHERE org_id = ? ORDER BY created_at DESC')
+          .all(orgId) as PlanRow[]);
   return rows.map(rowToPlan);
 }
 

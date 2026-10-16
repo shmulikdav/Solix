@@ -28,6 +28,7 @@ import {
 } from './state/schedules.js';
 import type { ScheduledTask, TriggerKind } from '@solix/shared';
 import { startNotificationDispatcher } from './state/notifiers.js';
+import { ensureDefaultOrg } from './state/orgs.js';
 import { now } from './util.js';
 
 // Models a plan task may be dispatched with (mirrors the New Task picker).
@@ -66,6 +67,7 @@ export async function createSolixServer(
   const db = getDb();
   seedAdvisors(db);
   discoverSkills(db);
+  ensureDefaultOrg(db); // P3 #10 — tenancy baseline
   // Stale `solix run` wrappers (from a previous server lifetime) leave
   // their .sock files behind. Clear them up front so the directory
   // doesn't grow unbounded across restarts. Also null any stored

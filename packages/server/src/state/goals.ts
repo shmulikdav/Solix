@@ -2,12 +2,14 @@ import { nanoid } from 'nanoid';
 import type { Goal } from '@solix/shared';
 import type { DB } from '../db.js';
 import { now } from '../util.js';
+import { DEFAULT_ORG_ID, getCurrentOrgId } from './orgs.js';
 
 interface GoalRow {
   id: string;
   name: string;
   description: string | null;
   color: string;
+  org_id: string | null;
   created_at: number;
 }
 
@@ -29,6 +31,7 @@ function rowToGoal(row: GoalRow): Goal {
     name: row.name,
     description: row.description ?? undefined,
     color: row.color,
+    orgId: row.org_id ?? undefined,
     createdAt: row.created_at,
   };
 }
@@ -42,22 +45,45 @@ function nextColor(db: DB): string {
 
 export function createGoal(
   db: DB,
-  input: { name: string; description?: string; color?: string },
+  input: { name: string; description?: string; color?: string; orgId?: string },
 ): Goal {
   const id = nanoid(8);
   const ts = now();
   const color = input.color ?? nextColor(db);
+  const orgId = input.orgId ?? getCurrentOrgId(db);
   db.prepare(
-    `INSERT INTO goals (id, name, description, color, created_at)
-     VALUES (?, ?, ?, ?, ?)`,
-  ).run(id, input.name, input.description ?? null, color, ts);
-  return { id, name: input.name, description: input.description, color, createdAt: ts };
+    `INSERT INTO goals (id, name, description, color, org_id, created_at)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+  ).run(id, input.name, input.description ?? null, color, orgId, ts);
+  return {
+    id,
+    name: input.name,
+    description: input.description,
+    color,
+    orgId,
+    createdAt: ts,
+  };
 }
 
 export function listGoals(db: DB): Goal[] {
   const rows = db
     .prepare('SELECT * FROM goals ORDER BY created_at ASC')
     .all() as GoalRow[];
+  return rows.map(rowToGoal);
+}
+
+/** Goals owned by one org (P3 #10). NULL org_id rows count as the default org. */
+export function listGoalsForOrg(db: DB, orgId: string): Goal[] {
+  const rows =
+    orgId === DEFAULT_ORG_ID
+      ? (db
+          .prepare(
+            'SELECT * FROM goals WHERE org_id = ? OR org_id IS NULL ORDER BY created_at ASC',
+          )
+          .all(orgId) as GoalRow[])
+      : (db
+          .prepare('SELECT * FROM goals WHERE org_id = ? ORDER BY created_at ASC')
+          .all(orgId) as GoalRow[]);
   return rows.map(rowToGoal);
 }
 

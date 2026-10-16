@@ -35,6 +35,7 @@ import {
 } from './schedule.js';
 import { addGoalCmd, listGoalsCmd, removeGoalCmd } from './goals.js';
 import { installTeamCmd, listTeamsCmd } from './teams.js';
+import { listOrgsCmd, newOrgCmd, useOrgCmd } from './orgs.js';
 import { activateLicenseCmd, licenseStatusCmd } from './license.js';
 import { connectCmd, listConnectionsCmd } from './connections.js';
 import { start } from './start.js';
@@ -309,6 +310,31 @@ teams
   .option('--cwd <dir>', 'project directory (default: current dir)')
   .action(async (id: string, opts: { cwd?: string }) => {
     await installTeamCmd(id, opts);
+  });
+
+const orgs = program
+  .command('orgs')
+  .description('Manage orgs/tenants (scopes plans + goals)');
+
+orgs
+  .command('list', { isDefault: true })
+  .description('List orgs + storage backend status')
+  .action(async () => {
+    await listOrgsCmd();
+  });
+
+orgs
+  .command('new <name>')
+  .description('Create an org')
+  .action(async (name: string) => {
+    await newOrgCmd(name);
+  });
+
+orgs
+  .command('use <id>')
+  .description('Switch the active org')
+  .action(async (id: string) => {
+    await useOrgCmd(id);
   });
 
 const goals = program

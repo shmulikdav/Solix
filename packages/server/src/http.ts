@@ -81,6 +81,15 @@ import {
 } from './state/schedules.js';
 import { createGoal, deleteGoal, listGoals } from './state/goals.js';
 import {
+  createOrg,
+  deleteOrg,
+  describeStorage,
+  getCurrentOrgId,
+  listOrgs,
+  renameOrg,
+  setCurrentOrgId,
+} from './state/orgs.js';
+import {
   createPlan,
   createPlanTask,
   deletePlan,
@@ -950,6 +959,35 @@ export function createHttpApp(opts: {
     }
     return c.json(result);
   });
+
+  // ──── P3 #10: multi-org tenancy + storage backend status ─────
+  app.get('/api/orgs', (c) =>
+    c.json({ orgs: listOrgs(opts.db), currentOrgId: getCurrentOrgId(opts.db) }),
+  );
+  app.post('/api/orgs', async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { name?: string };
+    if (!b.name?.trim()) return c.json({ error: 'name required' }, 400);
+    return c.json(createOrg(opts.db, b.name));
+  });
+  app.patch('/api/orgs/:id', async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { name?: string };
+    if (!b.name?.trim()) return c.json({ error: 'name required' }, 400);
+    const org = renameOrg(opts.db, c.req.param('id'), b.name);
+    if (!org) return c.json({ error: 'not found' }, 404);
+    return c.json(org);
+  });
+  app.delete('/api/orgs/:id', (c) => {
+    const res = deleteOrg(opts.db, c.req.param('id'));
+    return c.json(res, res.ok ? 200 : res.error === 'not found' ? 404 : 400);
+  });
+  app.post('/api/orgs/current', async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { orgId?: string };
+    if (!b.orgId || !setCurrentOrgId(opts.db, b.orgId)) {
+      return c.json({ ok: false, error: 'unknown org' }, 400);
+    }
+    return c.json({ ok: true, currentOrgId: b.orgId });
+  });
+  app.get('/api/system/storage', (c) => c.json(describeStorage()));
 
   // ──── Sprint M: goals (constellations) ──────────────────────
   app.get('/api/goals', (c) => c.json(listGoals(opts.db)));

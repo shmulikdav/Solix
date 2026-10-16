@@ -5,6 +5,7 @@ import type {
   ClientMessage,
   Goal,
   Mission,
+  Org,
   Plan,
   PlanTask,
   Project,
@@ -197,6 +198,9 @@ interface SolixState {
   goals: Record<string, Goal>;
   plans: Record<string, Plan>;
   planTasks: Record<string, PlanTask>;
+  /** Orgs/tenants (P3 #10) + the active one. Loaded over HTTP, not the WS. */
+  orgs: Org[];
+  currentOrgId: string;
   /** Per-task thread (P1): lifecycle timeline + human comments, keyed by task
    *  id. Lazily loaded when a task is expanded; live-appended over the WS. */
   threadsByTaskId: Record<string, TaskThreadEntry[]>;
@@ -267,6 +271,11 @@ interface SolixState {
   activateLicense: (
     key: string,
   ) => Promise<{ ok: boolean; error?: string }>;
+  /** Orgs/tenancy (P3 #10). */
+  loadOrgs: () => Promise<void>;
+  createOrg: (name: string) => Promise<{ ok: boolean; error?: string }>;
+  setCurrentOrg: (orgId: string) => Promise<void>;
+  deleteOrg: (orgId: string) => Promise<{ ok: boolean; error?: string }>;
   /** Install a ready-made team template (advisors+skills+routines) into a
    *  project (P2 #7). */
   installTeamTemplate: (
@@ -385,6 +394,8 @@ export const useSolixStore = create<SolixState>((set, get) => ({
   goals: {},
   plans: {},
   planTasks: {},
+  orgs: [],
+  currentOrgId: 'org-default',
   threadsByTaskId: {},
   budgetAlerts: {},
   planBudgetAlerts: {},
@@ -845,6 +856,60 @@ export const useSolixStore = create<SolixState>((set, get) => ({
         upsell?: boolean;
       };
       return { ok: Boolean(data.ok), error: data.error, upsell: data.upsell };
+    } catch {
+      return { ok: false, error: 'Could not reach the server.' };
+    }
+  },
+
+  loadOrgs: async () => {
+    try {
+      const res = await fetch('/api/orgs');
+      const data = (await res.json()) as { orgs: Org[]; currentOrgId: string };
+      set({ orgs: data.orgs ?? [], currentOrgId: data.currentOrgId ?? 'org-default' });
+    } catch {
+      /* offline */
+    }
+  },
+
+  createOrg: async (name) => {
+    if (!name.trim()) return { ok: false, error: 'Name is empty.' };
+    try {
+      const res = await fetch('/api/orgs', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: name.trim() }),
+      });
+      if (!res.ok) return { ok: false, error: 'Create failed.' };
+      await get().loadOrgs();
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Could not reach the server.' };
+    }
+  },
+
+  setCurrentOrg: async (orgId) => {
+    // Optimistic — the server persists it; reload to confirm.
+    set({ currentOrgId: orgId });
+    try {
+      await fetch('/api/orgs/current', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ orgId }),
+      });
+    } catch {
+      /* offline; the optimistic value stands for this session */
+    }
+  },
+
+  deleteOrg: async (orgId) => {
+    try {
+      const res = await fetch(`/api/orgs/${encodeURIComponent(orgId)}`, {
+        method: 'DELETE',
+      });
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) return { ok: false, error: data.error ?? 'Delete failed.' };
+      await get().loadOrgs();
+      return { ok: true };
     } catch {
       return { ok: false, error: 'Could not reach the server.' };
     }
@@ -1389,8 +1454,18 @@ export function selectGoalsArray(state: SolixState): Goal[] {
 }
 
 // ── v2 Maestro selectors ───────────────────────────────────────────────
+const DEFAULT_ORG = 'org-default';
+
+/** A plan/goal with no orgId belongs to the default org (pre-migration rows). */
+function inCurrentOrg(orgId: string | undefined, currentOrgId: string): boolean {
+  return (orgId ?? DEFAULT_ORG) === currentOrgId;
+}
+
+/** Plans in the currently-selected org (P3 #10), newest first. */
 export function selectPlansArray(state: SolixState): Plan[] {
-  return Object.values(state.plans).sort((a, b) => b.createdAt - a.createdAt);
+  return Object.values(state.plans)
+    .filter((p) => inCurrentOrg(p.orgId, state.currentOrgId))
+    .sort((a, b) => b.createdAt - a.createdAt);
 }
 
 /** Tasks for one plan, in display order. */
