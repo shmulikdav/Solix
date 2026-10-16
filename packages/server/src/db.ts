@@ -409,6 +409,8 @@ function applySchema(db: DB): void {
   // Git baseline captured when a plan starts running — the review surface diffs
   // the working tree against it to show everything the fleet changed.
   ensureColumn(db, 'plans', 'base_ref', 'base_ref TEXT');
+  // P2 #6 — one-time soft budget heads-up flag (~80% of the cap).
+  ensureColumn(db, 'plans', 'budget_warned', 'budget_warned INTEGER NOT NULL DEFAULT 0');
   // Indexes on the plan back-link columns — must run AFTER ensureColumn has
   // added the columns to the sessions table (they aren't in the base schema).
   db.exec(

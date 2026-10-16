@@ -34,6 +34,7 @@ import {
   computeReadyTasks,
   decideRetryOrEscalate,
   isBudgetExceeded,
+  shouldWarnBudget,
 } from './scheduler.js';
 import type { SessionRunner } from './runner.js';
 
@@ -328,7 +329,27 @@ export class Orchestrator {
 
     // 4a. Budget gate (Ledger): pause before spending past the cap rather than
     //     after. Spend keys off sessions.plan_id so retried attempts count.
-    if (isBudgetExceeded(getPlanSpendUsd(db, planId), plan.budgetUsd)) {
+    const spent = getPlanSpendUsd(db, planId);
+    // Soft heads-up at ~80% (once) before the hard pause, so the operator sees
+    // the cap coming instead of a surprise stop.
+    if (shouldWarnBudget(spent, plan.budgetUsd, plan.budgetWarned ?? false)) {
+      const warned = updatePlan(db, planId, { budgetWarned: true });
+      if (warned) this.emitPlan(warned);
+      const budgetUsd = plan.budgetUsd!;
+      this.deps.broadcast({
+        type: 'plan_budget_alert',
+        planId,
+        spentUsd: spent,
+        budgetUsd,
+        pct: spent / budgetUsd,
+      });
+      this.deps.broadcast({
+        type: 'toast',
+        level: 'warn',
+        message: `"${plan.name}" has used $${spent.toFixed(2)} of its $${budgetUsd.toFixed(2)} budget.`,
+      });
+    }
+    if (isBudgetExceeded(spent, plan.budgetUsd)) {
       const paused = updatePlan(db, planId, { status: 'paused' });
       if (paused) this.emitPlan(paused);
       return;

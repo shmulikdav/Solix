@@ -41,6 +41,14 @@ export interface BudgetAlert {
   receivedAt: number;
 }
 
+export interface PlanBudgetAlert {
+  planId: string;
+  spentUsd: number;
+  budgetUsd: number;
+  pct: number;
+  receivedAt: number;
+}
+
 /**
  * Playback / time-scrubbing state.
  *
@@ -193,6 +201,8 @@ interface SolixState {
    *  id. Lazily loaded when a task is expanded; live-appended over the WS. */
   threadsByTaskId: Record<string, TaskThreadEntry[]>;
   budgetAlerts: Record<string, BudgetAlert>;
+  /** Soft budget heads-ups (~80% of a plan cap), keyed by plan id (P2 #6). */
+  planBudgetAlerts: Record<string, PlanBudgetAlert>;
   recentToolCalls: RecentToolCall[];
   pendingPermissions: Record<string, PendingPermission>;
   // Per-session chat log, in arrival order. Capped at 200 entries per session.
@@ -356,6 +366,7 @@ export const useSolixStore = create<SolixState>((set, get) => ({
   planTasks: {},
   threadsByTaskId: {},
   budgetAlerts: {},
+  planBudgetAlerts: {},
   chatBySessionId: {},
   recentToolCalls: [],
   pendingPermissions: {},
@@ -559,6 +570,26 @@ export const useSolixStore = create<SolixState>((set, get) => ({
         chime();
         break;
       }
+      case 'plan_budget_alert': {
+        const alert: PlanBudgetAlert = {
+          planId: msg.planId,
+          spentUsd: msg.spentUsd,
+          budgetUsd: msg.budgetUsd,
+          pct: msg.pct,
+          receivedAt: Date.now(),
+        };
+        set((s) => ({
+          planBudgetAlerts: { ...s.planBudgetAlerts, [msg.planId]: alert },
+        }));
+        const plan = get().plans[msg.planId];
+        void notify({
+          title: `${plan?.name ?? 'A plan'} is nearing its budget`,
+          body: `$${msg.spentUsd.toFixed(2)} / $${msg.budgetUsd.toFixed(2)} (${Math.round(msg.pct * 100)}%)`,
+          tag: `solix-plan-budget-${msg.planId}`,
+          whenHidden: true,
+        });
+        break;
+      }
       case 'schedule_upsert': {
         set((s) => ({
           schedules: { ...s.schedules, [msg.schedule.id]: msg.schedule },
@@ -606,10 +637,13 @@ export const useSolixStore = create<SolixState>((set, get) => ({
             if (t.planId !== msg.planId) nextTasks[id] = t;
             else delete nextThreads[id];
           }
+          const nextPlanAlerts = { ...s.planBudgetAlerts };
+          delete nextPlanAlerts[msg.planId];
           return {
             plans: nextPlans,
             planTasks: nextTasks,
             threadsByTaskId: nextThreads,
+            planBudgetAlerts: nextPlanAlerts,
           };
         });
         break;

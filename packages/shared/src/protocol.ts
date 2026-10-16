@@ -54,6 +54,14 @@ export type ServerMessage =
       costUsd: number;
       budgetUsd: number;
     }
+  | {
+      type: 'plan_budget_alert';
+      planId: string;
+      spentUsd: number;
+      budgetUsd: number;
+      /** Fraction of the cap spent (≈0.8 at the warn threshold). */
+      pct: number;
+    }
   | { type: 'schedule_upsert'; schedule: ScheduledTask }
   | { type: 'schedule_remove'; scheduleId: string }
   | { type: 'goal_upsert'; goal: Goal }

@@ -405,6 +405,7 @@ const PLAN_STATUS_COLOR: Record<Plan['status'], string> = {
 
 function PlanCard({ plan }: { plan: Plan }): JSX.Element {
   const tasks = useSolixStore((s) => selectPlanTasks(s, plan.id));
+  const budgetAlert = useSolixStore((s) => s.planBudgetAlerts[plan.id]);
   const approvePlan = useSolixStore((s) => s.approvePlan);
   const abortPlan = useSolixStore((s) => s.abortPlan);
   const resumePlan = useSolixStore((s) => s.resumePlan);
@@ -495,6 +496,14 @@ function PlanCard({ plan }: { plan: Plan }): JSX.Element {
           {plan.status.replace('_', ' ')}
         </span>
       </div>
+
+      {budgetAlert && plan.status !== 'paused' && (
+        <div className="mt-2 text-[10px] text-solix-warn border border-solix-warn/40 bg-solix-warn/10 rounded px-2 py-1">
+          ⚠ Budget {Math.round(budgetAlert.pct * 100)}% used — $
+          {budgetAlert.spentUsd.toFixed(2)} of ${budgetAlert.budgetUsd.toFixed(2)}.
+          The plan pauses at the cap.
+        </div>
+      )}
 
       {tasks.length > 0 && (
         <ol className="mt-2 space-y-1">

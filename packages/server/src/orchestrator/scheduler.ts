@@ -106,6 +106,27 @@ export function isBudgetExceeded(
   return budgetUsd != null && spentUsd >= budgetUsd;
 }
 
+/** Fraction of the budget cap at which a soft heads-up fires, before the hard
+ *  pause at 100% (P2 #6). */
+export const BUDGET_WARN_THRESHOLD = 0.8;
+
+/**
+ * Whether to emit a one-time budget heads-up: spend has crossed the warn
+ * threshold but is still under the hard cap, and we haven't warned yet. Keeps
+ * the "approaching budget" signal distinct from the hard pause so the operator
+ * sees it coming. A spend that jumps straight past the cap skips the warning
+ * (the pause covers it). Pure — the orchestrator owns persistence + broadcast.
+ */
+export function shouldWarnBudget(
+  spentUsd: number,
+  budgetUsd: number | undefined,
+  alreadyWarned: boolean,
+): boolean {
+  if (budgetUsd == null || budgetUsd <= 0 || alreadyWarned) return false;
+  const pct = spentUsd / budgetUsd;
+  return pct >= BUDGET_WARN_THRESHOLD && pct < 1;
+}
+
 /**
  * Validate a plan's task graph before it runs. Catches the failure modes an LLM
  * planner can emit: a dependency on an id that doesn't exist, a self-dependency,

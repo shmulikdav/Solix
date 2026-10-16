@@ -174,6 +174,9 @@ export interface Plan {
   /** Git HEAD of `cwd` captured when the plan started running — the baseline
    *  the review surface diffs against to show everything the fleet changed. */
   baseRef?: string;
+  /** True once the soft budget heads-up has fired (~80% of the cap), so it
+   *  only warns once before the hard pause at 100% (P2 #6). */
+  budgetWarned?: boolean;
   createdAt: number;
   updatedAt: number;
 }

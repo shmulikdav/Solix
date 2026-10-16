@@ -19,6 +19,7 @@ interface PlanRow {
   cwd: string;
   budget_usd: number | null;
   base_ref: string | null;
+  budget_warned: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -34,6 +35,7 @@ function rowToPlan(row: PlanRow): Plan {
     cwd: row.cwd,
     budgetUsd: row.budget_usd ?? undefined,
     baseRef: row.base_ref ?? undefined,
+    budgetWarned: row.budget_warned === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -92,7 +94,14 @@ export function updatePlan(
   patch: Partial<
     Pick<
       Plan,
-      'name' | 'status' | 'autoMode' | 'goalId' | 'cwd' | 'budgetUsd' | 'baseRef'
+      | 'name'
+      | 'status'
+      | 'autoMode'
+      | 'goalId'
+      | 'cwd'
+      | 'budgetUsd'
+      | 'baseRef'
+      | 'budgetWarned'
     >
   >,
 ): Plan | null {
@@ -125,6 +134,10 @@ export function updatePlan(
   if (patch.baseRef !== undefined) {
     sets.push('base_ref = ?');
     vals.push(patch.baseRef ?? null);
+  }
+  if (patch.budgetWarned !== undefined) {
+    sets.push('budget_warned = ?');
+    vals.push(patch.budgetWarned ? 1 : 0);
   }
   if (sets.length === 0) return getPlan(db, id);
   sets.push('updated_at = ?');
