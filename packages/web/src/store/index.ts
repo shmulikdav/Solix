@@ -12,6 +12,7 @@ import type {
   ServerMessage,
   Session,
   Skill,
+  TaskThreadEntry,
   TimelineEvent,
   ToolCall,
 } from '@solix/shared';
@@ -188,6 +189,9 @@ interface SolixState {
   goals: Record<string, Goal>;
   plans: Record<string, Plan>;
   planTasks: Record<string, PlanTask>;
+  /** Per-task thread (P1): lifecycle timeline + human comments, keyed by task
+   *  id. Lazily loaded when a task is expanded; live-appended over the WS. */
+  threadsByTaskId: Record<string, TaskThreadEntry[]>;
   budgetAlerts: Record<string, BudgetAlert>;
   recentToolCalls: RecentToolCall[];
   pendingPermissions: Record<string, PendingPermission>;
@@ -236,6 +240,14 @@ interface SolixState {
   resumePlan: (
     planId: string,
   ) => Promise<{ ok: boolean; error?: string; upsell?: boolean }>;
+  /** Load a task's thread (GET) into the store — call when a task is expanded. */
+  fetchTaskThread: (planId: string, taskId: string) => Promise<void>;
+  /** Append a human comment to a task's thread (POST). */
+  postTaskComment: (
+    planId: string,
+    taskId: string,
+    body: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
   activateLicense: (
     key: string,
   ) => Promise<{ ok: boolean; error?: string }>;
@@ -336,6 +348,7 @@ export const useSolixStore = create<SolixState>((set, get) => ({
   goals: {},
   plans: {},
   planTasks: {},
+  threadsByTaskId: {},
   budgetAlerts: {},
   chatBySessionId: {},
   recentToolCalls: [],
@@ -580,12 +593,18 @@ export const useSolixStore = create<SolixState>((set, get) => ({
         set((s) => {
           const nextPlans = { ...s.plans };
           delete nextPlans[msg.planId];
-          // Drop the plan's tasks too so nothing dangles.
+          // Drop the plan's tasks (and their threads) too so nothing dangles.
           const nextTasks: Record<string, PlanTask> = {};
+          const nextThreads = { ...s.threadsByTaskId };
           for (const [id, t] of Object.entries(s.planTasks)) {
             if (t.planId !== msg.planId) nextTasks[id] = t;
+            else delete nextThreads[id];
           }
-          return { plans: nextPlans, planTasks: nextTasks };
+          return {
+            plans: nextPlans,
+            planTasks: nextTasks,
+            threadsByTaskId: nextThreads,
+          };
         });
         break;
       }
@@ -599,7 +618,23 @@ export const useSolixStore = create<SolixState>((set, get) => ({
         set((s) => {
           const next = { ...s.planTasks };
           delete next[msg.taskId];
-          return { planTasks: next };
+          const threads = { ...s.threadsByTaskId };
+          delete threads[msg.taskId];
+          return { planTasks: next, threadsByTaskId: threads };
+        });
+        break;
+      }
+      case 'thread_entry_append': {
+        set((s) => {
+          const existing = s.threadsByTaskId[msg.entry.taskId] ?? [];
+          // De-dupe by id so an optimistic POST result + its WS echo don't double.
+          if (existing.some((e) => e.id === msg.entry.id)) return s;
+          return {
+            threadsByTaskId: {
+              ...s.threadsByTaskId,
+              [msg.entry.taskId]: [...existing, msg.entry],
+            },
+          };
         });
         break;
       }
@@ -770,6 +805,57 @@ export const useSolixStore = create<SolixState>((set, get) => ({
       });
     } catch {
       /* offline; the plan_upsert broadcast will reconcile if it lands */
+    }
+  },
+
+  fetchTaskThread: async (planId, taskId) => {
+    try {
+      const res = await fetch(
+        `/api/plans/${encodeURIComponent(planId)}/tasks/${encodeURIComponent(taskId)}/thread`,
+      );
+      if (!res.ok) return;
+      const entries = (await res.json()) as TaskThreadEntry[];
+      set((s) => ({
+        threadsByTaskId: { ...s.threadsByTaskId, [taskId]: entries },
+      }));
+    } catch {
+      /* offline; live appends will still populate as they arrive */
+    }
+  },
+
+  postTaskComment: async (planId, taskId, body) => {
+    const text = body.trim();
+    if (!text) return { ok: false, error: 'Comment is empty.' };
+    try {
+      const res = await fetch(
+        `/api/plans/${encodeURIComponent(planId)}/tasks/${encodeURIComponent(taskId)}/thread`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ body: text }),
+        },
+      );
+      const data = (await res.json().catch(() => ({}))) as
+        | TaskThreadEntry
+        | { error?: string };
+      if (!res.ok) {
+        return { ok: false, error: (data as { error?: string }).error ?? 'Failed.' };
+      }
+      // Merge the created entry immediately (the WS echo de-dupes by id).
+      const entry = data as TaskThreadEntry;
+      set((s) => {
+        const existing = s.threadsByTaskId[taskId] ?? [];
+        if (existing.some((e) => e.id === entry.id)) return s;
+        return {
+          threadsByTaskId: {
+            ...s.threadsByTaskId,
+            [taskId]: [...existing, entry],
+          },
+        };
+      });
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Could not reach the server.' };
     }
   },
 
@@ -1137,6 +1223,14 @@ export function selectPlanTasks(state: SolixState, planId: string): PlanTask[] {
   return Object.values(state.planTasks)
     .filter((t) => t.planId === planId)
     .sort((a, b) => a.orderIndex - b.orderIndex || a.createdAt - b.createdAt);
+}
+
+/** A task's thread entries (chronological), or an empty array if not loaded. */
+export function selectTaskThread(
+  state: SolixState,
+  taskId: string,
+): TaskThreadEntry[] {
+  return state.threadsByTaskId[taskId] ?? [];
 }
 
 /** The most recent plan that is still live (not completed/failed), if any. */

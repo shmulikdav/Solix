@@ -242,6 +242,53 @@ export interface PlanTask {
   updatedAt: number;
 }
 
+// ── Task threads (P1) ──────────────────────────────────────────────────
+// Each PlanTask carries a thread: a chronological timeline of what happened
+// to it (dispatched, worker result, verifier verdict, retry/escalation
+// reasons) interleaved with human comments. It turns a task from a status
+// chip into a trackable unit with a full run history + conversation.
+
+/** Who authored a task-thread entry. */
+export type ThreadAuthor = 'system' | 'worker' | 'verifier' | 'human';
+
+/**
+ * Kind of task-thread entry. Open enum (rendered by category) — the server
+ * may add new kinds without a protocol bump, mirroring the status columns.
+ *  - dispatched: a worker attempt started
+ *  - worker_result: the worker finished (body = result summary)
+ *  - completed: the verifier accepted the task
+ *  - retry: an attempt was rejected and will be retried (body = reason)
+ *  - escalated: retries exhausted — needs a human (body = reason)
+ *  - aborted: an operator stopped the run
+ *  - comment: a human note on the task
+ *  - follow_up: a human comment promoted into a follow-up task (P1 #4)
+ */
+export type ThreadEntryKind =
+  | 'dispatched'
+  | 'worker_result'
+  | 'completed'
+  | 'retry'
+  | 'escalated'
+  | 'aborted'
+  | 'comment'
+  | 'follow_up'
+  | string;
+
+export interface TaskThreadEntry {
+  id: string;
+  taskId: string;
+  planId: string;
+  kind: ThreadEntryKind;
+  author: ThreadAuthor;
+  /** Free text / markdown. Worker and verifier bodies are untrusted output. */
+  body: string;
+  /** Which task attempt this entry belongs to, when it came from a dispatch. */
+  attempt?: number;
+  /** Optional structured extras (e.g. { sessionId, costUsd, followUpTaskId }). */
+  payload?: Record<string, unknown>;
+  createdAt: number;
+}
+
 /** A managed integration (API key bundle, or later an MCP server) that workers
  *  can be granted scoped access to. Secret VALUES are never carried in this
  *  shape — only the key names, for display. */

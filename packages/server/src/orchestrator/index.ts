@@ -14,6 +14,7 @@ import {
 } from '../state/plans.js';
 import { ensureProject } from '../state/projects.js';
 import { gitHead } from '../state/git.js';
+import { appendThreadEntry } from '../state/threads.js';
 import { resolveWorkerEnv } from '../state/connections.js';
 import {
   setSessionCost,
@@ -108,6 +109,27 @@ export class Orchestrator {
 
   private emitTask(task: PlanTask): void {
     this.deps.broadcast({ type: 'plan_task_upsert', task });
+  }
+
+  /** Append an entry to a task's thread and broadcast it live. The thread is
+   *  the task's durable run history + conversation (P1). */
+  private thread(
+    task: PlanTask,
+    kind: import('@solix/shared').ThreadEntryKind,
+    author: import('@solix/shared').ThreadAuthor,
+    body: string,
+    extra?: { attempt?: number; payload?: Record<string, unknown> },
+  ): void {
+    const entry = appendThreadEntry(this.deps.db, {
+      taskId: task.id,
+      planId: task.planId,
+      kind,
+      author,
+      body,
+      attempt: extra?.attempt,
+      payload: extra?.payload,
+    });
+    this.deps.broadcast({ type: 'thread_entry_append', entry });
   }
 
   async createPlanFromGoal(input: CreatePlanInput): Promise<CreatePlanResult> {
@@ -434,6 +456,14 @@ export class Orchestrator {
     this.spawnPlanetRow(plan, task, workerId, 'worker', task.model, task.runtime);
     t = updatePlanTask(db, task.id, { sessionId: workerId });
     if (t) this.emitTask(t);
+    const runtimeLabel = task.runtime ?? 'claude';
+    this.thread(
+      task,
+      'dispatched',
+      'system',
+      `Attempt ${attempts} dispatched to a ${runtimeLabel} worker (${task.model ?? 'default'} model)${task.assignedAdvisorRole ? ` as ${task.assignedAdvisorRole}` : ''}.`,
+      { attempt: attempts, payload: { sessionId: workerId, runtime: runtimeLabel } },
+    );
 
     // Hub-mediated context: give this worker a short summary of what each
     // completed dependency produced (beyond the files on disk). It's another
@@ -485,6 +515,13 @@ export class Orchestrator {
       return;
     }
 
+    // Record what the worker produced on the task's thread (untrusted output —
+    // stored as data for the operator to read, never executed).
+    this.thread(task, 'worker_result', 'worker', run.output.slice(0, 4000), {
+      attempt: attempts,
+      payload: { sessionId: workerId, costUsd: run.costUsd ?? undefined },
+    });
+
     // Verify against the acceptance criteria (cheap model). Worker output is
     // untrusted → delimited; the verdict is strict (ambiguous never passes).
     t = updatePlanTask(db, task.id, { status: 'verifying' });
@@ -525,6 +562,13 @@ export class Orchestrator {
         resultSummary: run.output.slice(0, 2000),
       });
       if (done) this.emitTask(done);
+      this.thread(
+        task,
+        'completed',
+        'verifier',
+        verdict.reason || 'Accepted against the acceptance criteria.',
+        { attempt: attempts, payload: { sessionId: verifierId } },
+      );
     } else {
       this.handleTaskFailure(
         task.id,
@@ -547,6 +591,15 @@ export class Orchestrator {
       lastError: reason, // a retry embeds this; an escalation surfaces it
     });
     if (updated) this.emitTask(updated);
+    this.thread(
+      t,
+      next === 'pending' ? 'retry' : 'escalated',
+      'system',
+      next === 'pending'
+        ? `Attempt ${t.attempts} rejected — will retry (${t.attempts}/${t.maxAttempts}). Reason: ${reason}`
+        : `Rejected after ${t.attempts}/${t.maxAttempts} attempts — escalated for a human. Reason: ${reason}`,
+      { attempt: t.attempts },
+    );
   }
 
   /** An aborted attempt (kill-switch) returns the task to `pending` WITHOUT
@@ -560,6 +613,13 @@ export class Orchestrator {
       attempts: Math.max(0, t.attempts - 1),
     });
     if (updated) this.emitTask(updated);
+    this.thread(
+      t,
+      'aborted',
+      'human',
+      'Run aborted by the operator — attempt refunded; task returned to pending.',
+      { attempt: t.attempts },
+    );
   }
 
   /** Pre-create a worker/verifier session row so it shows as a planet and is

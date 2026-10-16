@@ -2,6 +2,10 @@ import { nanoid } from 'nanoid';
 import type { Model, Plan, PlanStatus, PlanTask, PlanTaskStatus } from '@solix/shared';
 import type { DB } from '../db.js';
 import { now } from '../util.js';
+import {
+  deleteThreadEntriesForPlan,
+  deleteThreadEntriesForTask,
+} from './threads.js';
 
 // ── Plans ────────────────────────────────────────────────────────────────
 
@@ -145,6 +149,7 @@ export function getPlanSpendUsd(db: DB, planId: string): number {
 }
 
 export function deletePlan(db: DB, id: string): boolean {
+  deleteThreadEntriesForPlan(db, id);
   db.prepare('DELETE FROM plan_tasks WHERE plan_id = ?').run(id);
   const res = db.prepare('DELETE FROM plans WHERE id = ?').run(id);
   return res.changes > 0;
@@ -346,6 +351,7 @@ export function updatePlanTask(
 }
 
 export function deletePlanTask(db: DB, id: string): boolean {
+  deleteThreadEntriesForTask(db, id);
   const res = db.prepare('DELETE FROM plan_tasks WHERE id = ?').run(id);
   return res.changes > 0;
 }

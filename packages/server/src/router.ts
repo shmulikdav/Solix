@@ -836,6 +836,11 @@ export class EventRouter {
   broadcastPlanTaskRemove(taskId: string): void {
     this.broadcaster.broadcast({ type: 'plan_task_remove', taskId });
   }
+  broadcastThreadEntry(
+    entry: import('@solix/shared').TaskThreadEntry,
+  ): void {
+    this.broadcaster.broadcast({ type: 'thread_entry_append', entry });
+  }
 
   broadcastGalaxyImported(manifest: GalaxyManifest): void {
     this.broadcaster.broadcast({ type: 'galaxy_imported', manifest });

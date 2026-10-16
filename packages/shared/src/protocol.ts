@@ -11,6 +11,7 @@ import type {
   ScheduledTask,
   Session,
   Skill,
+  TaskThreadEntry,
   ToolCall,
 } from './types.js';
 
@@ -62,6 +63,7 @@ export type ServerMessage =
   | { type: 'plan_remove'; planId: string }
   | { type: 'plan_task_upsert'; task: PlanTask }
   | { type: 'plan_task_remove'; taskId: string }
+  | { type: 'thread_entry_append'; entry: TaskThreadEntry }
   | { type: 'advisor_upsert'; advisor: Advisor }
   | { type: 'skill_upsert'; skill: Skill }
   | { type: 'galaxy_imported'; manifest: GalaxyManifest }

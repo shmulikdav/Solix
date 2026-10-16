@@ -4,10 +4,12 @@ import type {
   PlanReview,
   PlanTask,
   PlanTaskStatus,
+  TaskThreadEntry,
 } from '@solix/shared';
 import {
   selectPlansArray,
   selectPlanTasks,
+  selectTaskThread,
   useSolixStore,
 } from '../store/index.js';
 
@@ -760,16 +762,39 @@ function TaskRow({ task }: { task: PlanTask }): JSX.Element {
   // mid-retry (failed) so the operator sees *why* without opening a session.
   const showError =
     task.lastError && (task.status === 'escalated' || task.status === 'failed');
+  const thread = useSolixStore((s) => selectTaskThread(s, task.id));
+  const [open, setOpen] = useState(false);
   return (
     <li className="text-xs">
       <div className="flex items-center gap-2">
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className="text-slate-500 hover:text-slate-200 shrink-0 w-3 text-center"
+          title={open ? 'Hide thread' : 'Show thread'}
+          aria-label={open ? 'Hide thread' : 'Show thread'}
+        >
+          {open ? '▾' : '▸'}
+        </button>
         <span
           className={`inline-block w-2 h-2 rounded-full shrink-0 ${
             TASK_STATUS_COLOR[task.status] ?? 'bg-slate-600'
           }`}
           title={task.status}
         />
-        <span className="text-slate-200 truncate flex-1">{task.title}</span>
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className="text-slate-200 truncate flex-1 text-left hover:text-white"
+        >
+          {task.title}
+        </button>
+        {thread.length > 0 && (
+          <span
+            className="text-[9px] text-slate-500 shrink-0"
+            title={`${thread.length} thread ${thread.length === 1 ? 'entry' : 'entries'}`}
+          >
+            💬{thread.length}
+          </span>
+        )}
         {task.attempts > 1 && (
           <span
             className="text-[9px] text-slate-500 shrink-0"
@@ -792,11 +817,121 @@ function TaskRow({ task }: { task: PlanTask }): JSX.Element {
           </span>
         )}
       </div>
-      {showError && (
-        <div className="mt-0.5 ml-4 text-[10px] text-solix-danger/80 line-clamp-2">
+      {showError && !open && (
+        <div className="mt-0.5 ml-5 text-[10px] text-solix-danger/80 line-clamp-2">
           {task.lastError}
         </div>
       )}
+      {open && <TaskThread task={task} />}
+    </li>
+  );
+}
+
+const THREAD_KIND_META: Record<
+  string,
+  { icon: string; color: string; label: string }
+> = {
+  dispatched: { icon: '→', color: 'text-solix-accent', label: 'Dispatched' },
+  worker_result: { icon: '⚙', color: 'text-slate-300', label: 'Worker' },
+  completed: { icon: '✓', color: 'text-solix-ok', label: 'Verified' },
+  retry: { icon: '↻', color: 'text-solix-warn', label: 'Retry' },
+  escalated: { icon: '⚠', color: 'text-solix-danger', label: 'Escalated' },
+  aborted: { icon: '■', color: 'text-slate-400', label: 'Aborted' },
+  comment: { icon: '🗨', color: 'text-amber-200', label: 'You' },
+  follow_up: { icon: '＋', color: 'text-amber-300', label: 'Follow-up' },
+};
+
+/** The task's run history + conversation — lifecycle entries interleaved with
+ *  human comments. Loaded on expand; live-appended over the WS. */
+function TaskThread({ task }: { task: PlanTask }): JSX.Element {
+  const thread = useSolixStore((s) => selectTaskThread(s, task.id));
+  const fetchTaskThread = useSolixStore((s) => s.fetchTaskThread);
+  const postTaskComment = useSolixStore((s) => s.postTaskComment);
+  const [comment, setComment] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void fetchTaskThread(task.planId, task.id);
+  }, [task.planId, task.id, fetchTaskThread]);
+
+  const onSend = async (): Promise<void> => {
+    const text = comment.trim();
+    if (!text || sending) return;
+    setSending(true);
+    setError(null);
+    const res = await postTaskComment(task.planId, task.id, text);
+    setSending(false);
+    if (res.ok) setComment('');
+    else setError(res.error ?? 'Could not post the comment.');
+  };
+
+  return (
+    <div className="mt-1 ml-5 rounded border border-solix-border/60 bg-black/20 p-2 space-y-2">
+      {thread.length === 0 ? (
+        <div className="text-[10px] text-slate-500 italic">
+          No activity yet. Dispatch events and your comments will show here.
+        </div>
+      ) : (
+        <ol className="space-y-1.5">
+          {thread.map((e) => (
+            <ThreadEntryRow key={e.id} entry={e} />
+          ))}
+        </ol>
+      )}
+      <div className="flex gap-1.5">
+        <input
+          value={comment}
+          onChange={(ev) => setComment(ev.target.value)}
+          onKeyDown={(ev) => {
+            if (ev.key === 'Enter') void onSend();
+          }}
+          placeholder="Add a comment…"
+          className="flex-1 text-[11px] bg-black/40 border border-solix-border rounded p-1.5 text-slate-100 placeholder-slate-600 focus:outline-none focus:border-solix-accent"
+        />
+        <button
+          onClick={() => void onSend()}
+          disabled={sending || !comment.trim()}
+          className="px-2.5 rounded bg-amber-500/20 border border-amber-400/60 text-amber-100 text-[11px] hover:bg-amber-500/30 disabled:opacity-40"
+        >
+          {sending ? '…' : 'Post'}
+        </button>
+      </div>
+      {error && <div className="text-[10px] text-solix-danger">{error}</div>}
+    </div>
+  );
+}
+
+function ThreadEntryRow({ entry }: { entry: TaskThreadEntry }): JSX.Element {
+  const meta = THREAD_KIND_META[entry.kind] ?? {
+    icon: '·',
+    color: 'text-slate-400',
+    label: entry.kind,
+  };
+  const when = new Date(entry.createdAt).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  const cost =
+    typeof entry.payload?.costUsd === 'number'
+      ? `$${(entry.payload.costUsd as number).toFixed(3)}`
+      : null;
+  return (
+    <li className="flex gap-2">
+      <span className={`shrink-0 ${meta.color}`} title={meta.label}>
+        {meta.icon}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5 text-[9px] text-slate-500">
+          <span className={meta.color}>{meta.label}</span>
+          {entry.attempt != null && <span>· attempt {entry.attempt}</span>}
+          {cost && <span>· {cost}</span>}
+          <span>· {when}</span>
+        </div>
+        <div className="text-[11px] text-slate-300 whitespace-pre-wrap break-words line-clamp-6">
+          {entry.body}
+        </div>
+      </div>
     </li>
   );
 }

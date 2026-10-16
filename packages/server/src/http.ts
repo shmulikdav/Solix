@@ -82,11 +82,16 @@ import {
   deletePlan,
   deletePlanTask,
   getPlan,
+  getPlanTask,
   listPlans,
   listPlanTasks,
   updatePlan,
   updatePlanTask,
 } from './state/plans.js';
+import {
+  appendThreadEntry,
+  listThreadEntries,
+} from './state/threads.js';
 import { buildContextEnvelope } from './state/context.js';
 import {
   getSkill,
@@ -874,6 +879,33 @@ export function createHttpApp(opts: {
     const ok = deletePlanTask(opts.db, taskId);
     if (ok) opts.router.broadcastPlanTaskRemove(taskId);
     return c.json({ ok });
+  });
+
+  // Task thread (P1): the task's durable run history + conversation. GET lists
+  // every entry (system/worker/verifier lifecycle + human comments); POST
+  // appends a human comment. Origin-gated like the other mutating routes.
+  app.get('/api/plans/:planId/tasks/:taskId/thread', (c) => {
+    const taskId = c.req.param('taskId');
+    if (!getPlanTask(opts.db, taskId)) return c.json({ error: 'not found' }, 404);
+    return c.json(listThreadEntries(opts.db, taskId));
+  });
+
+  app.post('/api/plans/:planId/tasks/:taskId/thread', async (c) => {
+    const taskId = c.req.param('taskId');
+    const task = getPlanTask(opts.db, taskId);
+    if (!task) return c.json({ error: 'not found' }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as { body?: string };
+    const text = body.body?.trim();
+    if (!text) return c.json({ error: 'body is required' }, 400);
+    const entry = appendThreadEntry(opts.db, {
+      taskId,
+      planId: task.planId,
+      kind: 'comment',
+      author: 'human',
+      body: text,
+    });
+    opts.router.broadcastThreadEntry(entry);
+    return c.json(entry);
   });
 
   // v2 Maestro — Phase 1 planner endpoints. `from-goal` runs a planner session

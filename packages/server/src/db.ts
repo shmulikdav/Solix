@@ -186,6 +186,24 @@ CREATE TABLE IF NOT EXISTS plan_tasks (
 CREATE INDEX IF NOT EXISTS idx_plan_tasks_plan ON plan_tasks(plan_id);
 CREATE INDEX IF NOT EXISTS idx_plan_tasks_status ON plan_tasks(status);
 
+-- v2 Maestro (P1) — per-task thread: a chronological timeline of lifecycle
+-- events (dispatch, worker result, verdict, retry/escalation) interleaved with
+-- human comments. kind/author are open enums (no CHECK — same rationale as the
+-- status columns above). Append-only; cleaned up when its task/plan is deleted.
+CREATE TABLE IF NOT EXISTS task_thread_entries (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES plan_tasks(id),
+  plan_id TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  author TEXT NOT NULL,
+  body TEXT NOT NULL,
+  attempt INTEGER,
+  payload_json TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_thread_task ON task_thread_entries(task_id);
+CREATE INDEX IF NOT EXISTS idx_thread_plan ON task_thread_entries(plan_id);
+
 -- v2 Maestro — tool_calls hot paths (reaper). (The sessions.plan_id /
 -- plan_task_id indexes are created in applySchema() AFTER ensureColumn adds
 -- those columns — they don't exist in the base sessions table.)
