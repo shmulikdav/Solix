@@ -11,6 +11,10 @@
     "./create": {
       "types": "./src/create.ts",
       "import": "./src/create.ts"
+    },
+    "./licensing": {
+      "types": "./src/licensing.ts",
+      "import": "./src/licensing.ts"
     }
   },
   "scripts": {

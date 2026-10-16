@@ -332,6 +332,14 @@ export function ListView(): JSX.Element {
                                 advisor
                               </span>
                             )}
+                            {row.session.runtime === 'codex' && (
+                              <span
+                                className="text-[9px] uppercase tracking-wide text-emerald-300"
+                                title="OpenAI Codex session"
+                              >
+                                codex
+                              </span>
+                            )}
                             {row.session.origin === 'agentview' && (
                               <span
                                 className="text-[9px] uppercase tracking-wide text-cyan-300"

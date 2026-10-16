@@ -5,6 +5,8 @@ import type {
   Goal,
   Mission,
   Model,
+  Plan,
+  PlanTask,
   Project,
   ScheduledTask,
   Session,
@@ -22,6 +24,8 @@ export type ServerMessage =
       skills: Skill[];
       schedules: ScheduledTask[];
       goals: Goal[];
+      plans: Plan[];
+      planTasks: PlanTask[];
     }
   | { type: 'session_upsert'; session: Session }
   | { type: 'session_remove'; sessionId: string }
@@ -53,6 +57,11 @@ export type ServerMessage =
   | { type: 'schedule_remove'; scheduleId: string }
   | { type: 'goal_upsert'; goal: Goal }
   | { type: 'goal_remove'; goalId: string }
+  | { type: 'project_upsert'; project: Project }
+  | { type: 'plan_upsert'; plan: Plan }
+  | { type: 'plan_remove'; planId: string }
+  | { type: 'plan_task_upsert'; task: PlanTask }
+  | { type: 'plan_task_remove'; taskId: string }
   | { type: 'advisor_upsert'; advisor: Advisor }
   | { type: 'skill_upsert'; skill: Skill }
   | { type: 'galaxy_imported'; manifest: GalaxyManifest }

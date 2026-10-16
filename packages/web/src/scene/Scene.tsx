@@ -20,6 +20,7 @@ import { ShootingStars } from './ShootingStars.js';
 import { ClickRipple } from './ClickRipple.js';
 import { Heartbeats } from './Heartbeats.js';
 import { ConstellationLines } from './ConstellationLines.js';
+import { PlanDag } from './PlanDag.js';
 import { attachControls, detachControls } from './cameraControls.js';
 import { BackSide, type Mesh } from 'three';
 
@@ -90,6 +91,7 @@ export function Scene(): JSX.Element {
       <CometLayer />
       <ClickRipple />
       <ConstellationLines />
+      <PlanDag />
       <Heartbeats />
       <ProjectLabels />
       <ControlsBridge />

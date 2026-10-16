@@ -108,16 +108,37 @@ function ensureWorktree(opts: {
 
 const FAKE_CLAUDE = process.env.SOLIX_FAKE_CLAUDE === '1';
 
+/** Safe-by-default containment opt-out: a user can turn OFF the auto-enabled
+ *  worker gate with SOLIX_CONTAINMENT=0 or an explicit SOLIX_GATE_ENABLED=0. */
+export function containmentOptedOut(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.SOLIX_CONTAINMENT === '0' || env.SOLIX_GATE_ENABLED === '0';
+}
+
+/** The gate env to inject into a contained worker: the fail-closed tool-call
+ *  gate, unless the user opted out. Pure (env injected) so it's unit-testable. */
+export function containmentGateEnv(env: NodeJS.ProcessEnv = process.env): {
+  SOLIX_GATE_ENABLED?: string;
+  SOLIX_GATE_POLICY?: string;
+} {
+  if (containmentOptedOut(env)) return {};
+  return {
+    SOLIX_GATE_ENABLED: '1',
+    SOLIX_GATE_POLICY: env.SOLIX_GATE_POLICY ?? 'deny',
+  };
+}
+
 /**
- * Opt-in process isolation for Solix-launched agents (not externally-run
- * `claude`). Off by default — returns `undefined` so spawn inherits the full
- * ambient env exactly as before. When `SOLIX_ENV_SCRUB=1` (implied when a
- * sandbox wrapper is set), pass only an allowlisted env so unrelated host
- * secrets don't leak into agent subprocesses. Auth + the gate vars are always
- * preserved so `claude` and the agent's own hooks still work.
+ * Process env for Solix-launched agents. For a **contained** worker/verifier
+ * (`contain`), scrub to an allowlist AND — safe-by-default — inject the
+ * tool-call gate (`SOLIX_GATE_ENABLED=1` + fail-closed `SOLIX_GATE_POLICY=deny`)
+ * so the command denylist governs it out of the box, unless the user opted out.
+ * For non-contained launches it returns `undefined` (inherit ambient env) unless
+ * the global `SOLIX_ENV_SCRUB`/sandbox flags ask for a scrub. Auth + gate vars
+ * are always preserved so `claude` and its hooks still work.
  */
-function buildSpawnEnv(): NodeJS.ProcessEnv | undefined {
+function buildSpawnEnv(contain = false): NodeJS.ProcessEnv | undefined {
   const scrub =
+    contain ||
     process.env.SOLIX_ENV_SCRUB === '1' ||
     (process.env.SOLIX_SANDBOX_CMD ?? '').trim() !== '';
   if (!scrub) return undefined;
@@ -162,6 +183,10 @@ function buildSpawnEnv(): NodeJS.ProcessEnv | undefined {
       env[k] = process.env[k];
     }
   }
+  // Safe-by-default: a Solix-launched worker/verifier gets the gate + a
+  // fail-closed policy so the denylist governs it with zero config, unless the
+  // user deliberately opted out.
+  if (contain) Object.assign(env, containmentGateEnv());
   return env;
 }
 
@@ -181,6 +206,150 @@ function sandboxWrap(
   const parts = cmd.split(/\s+/);
   const bin = parts[0]!;
   return { file: bin, args: [...parts.slice(1), file, ...args] };
+}
+
+/**
+ * Probe (once, cached) which flags the installed `claude` supports, so `runOnce`
+ * degrades gracefully on older versions. `--session-id` (deterministic worker
+ * correlation → containment) and `--output-format` (accurate per-run cost) are
+ * both long-standing Claude Code flags, but we don't assume.
+ */
+let claudeCapsCache: { sessionId: boolean; jsonOutput: boolean } | null = null;
+function claudeCaps(): { sessionId: boolean; jsonOutput: boolean } {
+  if (claudeCapsCache) return claudeCapsCache;
+  let help = '';
+  try {
+    const r = spawnSync('claude', ['--help'], {
+      encoding: 'utf8',
+      timeout: 5000,
+    });
+    help = `${r.stdout ?? ''}${r.stderr ?? ''}`;
+  } catch {
+    /* claude missing → both false; runOnce falls back to plain --print */
+  }
+  claudeCapsCache = {
+    sessionId: help.includes('--session-id'),
+    jsonOutput: help.includes('--output-format'),
+  };
+  return claudeCapsCache;
+}
+
+/** Build the `claude` argv for a one-shot run. Pure (caps injected) so the
+ *  correlation/cost wiring — `--session-id`, `--output-format json` — is
+ *  unit-testable without spawning. Flags are gated on the probed capabilities. */
+export function buildPrintArgs(
+  opts: { model?: string; sessionId?: string; prompt: string },
+  caps: { sessionId: boolean; jsonOutput: boolean },
+): string[] {
+  const args = ['--print'];
+  if (caps.jsonOutput) args.push('--output-format', 'json');
+  if (opts.model && opts.model !== 'default') args.push('--model', opts.model);
+  if (opts.sessionId && caps.sessionId) {
+    args.push('--session-id', opts.sessionId);
+  }
+  args.push(opts.prompt);
+  return args;
+}
+
+/** Build the `codex exec` argv (Layer B: dispatch a Codex worker). Pure
+ *  (caps injected) so it's unit-testable without the Codex CLI. `--json`
+ *  gives structured output for cost parity. */
+export function buildCodexExecArgs(
+  opts: { model?: string; prompt: string },
+  caps: { json: boolean },
+): string[] {
+  const args = ['exec'];
+  if (caps.json) args.push('--json');
+  if (opts.model) args.push('--model', opts.model);
+  args.push(opts.prompt);
+  return args;
+}
+
+/** Probe (cached) whether the installed `codex` supports `exec --json`. */
+let codexCapsCache: { json: boolean } | null = null;
+function codexCaps(): { json: boolean } {
+  if (codexCapsCache) return codexCapsCache;
+  let help = '';
+  try {
+    const r = spawnSync('codex', ['exec', '--help'], {
+      encoding: 'utf8',
+      timeout: 5000,
+    });
+    help = `${r.stdout ?? ''}${r.stderr ?? ''}`;
+  } catch {
+    /* codex missing → no json; still spawns exec and falls back to raw stdout */
+  }
+  codexCapsCache = { json: help.includes('--json') };
+  return codexCapsCache;
+}
+
+/**
+ * Best-effort parse of `codex exec --json` output → assistant text + cost.
+ * Codex emits newline-delimited JSON events; we take the last assistant/result
+ * text and sum any token usage we can find. Returns null if nothing parses (the
+ * caller falls back to raw stdout). NEEDS REAL CODEX TO VALIDATE — the rollout
+ * schema is semi-stable, so this is intentionally lenient.
+ */
+export function parseCodexJsonResult(
+  stdout: string,
+): { result: string; isError: boolean; costUsd?: number } | null {
+  const lines = stdout
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith('{'));
+  if (lines.length === 0) return null;
+  let result = '';
+  let costUsd: number | undefined;
+  let isError = false;
+  for (const line of lines) {
+    let obj: Record<string, unknown>;
+    try {
+      obj = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (typeof obj.total_cost_usd === 'number') costUsd = obj.total_cost_usd;
+    if (obj.is_error === true) isError = true;
+    // Capture the latest assistant text we can find, across common shapes.
+    const text =
+      typeof obj.result === 'string'
+        ? obj.result
+        : typeof obj.text === 'string'
+          ? obj.text
+          : typeof (obj.message as Record<string, unknown>)?.content === 'string'
+            ? ((obj.message as Record<string, unknown>).content as string)
+            : '';
+    if (text) result = text;
+  }
+  if (!result && costUsd === undefined) return null;
+  return { result, isError, costUsd };
+}
+
+/** Parse `claude -p --output-format json` stdout → the assistant text + cost.
+ *  Returns null if it isn't the single-object result envelope we expect. */
+export function parseClaudeJsonResult(
+  stdout: string,
+): { result: string; isError: boolean; costUsd?: number } | null {
+  const trimmed = stdout.trim();
+  if (!trimmed.startsWith('{')) return null;
+  try {
+    const obj = JSON.parse(trimmed) as Record<string, unknown>;
+    if (typeof obj !== 'object' || obj === null) return null;
+    const result =
+      typeof obj.result === 'string'
+        ? obj.result
+        : typeof obj.text === 'string'
+          ? obj.text
+          : '';
+    return {
+      result,
+      isError: obj.is_error === true,
+      costUsd:
+        typeof obj.total_cost_usd === 'number' ? obj.total_cost_usd : undefined,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export class Launcher {
@@ -690,6 +859,155 @@ export class Launcher {
     });
 
     return { ok: true, sessionId: opts.sessionId };
+  }
+
+  /**
+   * Run a one-shot `claude --print` session to completion and resolve with its
+   * captured stdout. Used by the Maestro Orchestrator's SessionRunner seam
+   * (planner in Phase 1; workers/verifier later). Unlike `spawnPrint`, this
+   * awaits the exit and hands back the output instead of broadcasting a
+   * chat_delta. A missing binary / non-zero exit resolves `{ ok:false, error }`
+   * rather than throwing.
+   */
+  runOnce(opts: {
+    cwd: string;
+    prompt: string;
+    model?: Model;
+    signal?: AbortSignal;
+    /** Force env-scrub (Maestro workers/verifiers run contained by default,
+     *  not only when the global SOLIX_ENV_SCRUB/sandbox flags are set). */
+    contain?: boolean;
+    /** Deterministic session id → `claude --session-id <uuid>`, so the worker's
+     *  hooks/tool-calls land on the pre-created plan-linked planet row (enabling
+     *  containment + the fleet visualization). Must be a UUID. */
+    sessionId?: string;
+    /** Scoped secrets (granted connections) merged into the worker env. */
+    env?: Record<string, string>;
+    /** Agent runtime to run ('claude' default, 'codex'). */
+    runtime?: 'claude' | 'codex';
+  }): Promise<{ ok: boolean; output: string; error?: string; costUsd?: number }> {
+    return new Promise((resolve) => {
+      // Honor an already-aborted signal before spawning anything.
+      if (opts.signal?.aborted) {
+        resolve({ ok: false, output: '', error: 'aborted' });
+        return;
+      }
+      // Pick the runtime: Claude Code (default) or Codex. Each has its own
+      // binary, arg builder, and JSON-result parser; everything downstream
+      // (env, abort, cost tally) is shared.
+      const runtime = opts.runtime ?? 'claude';
+      let bin: string;
+      let args: string[];
+      let useJson: boolean;
+      let parseResult: (
+        stdout: string,
+      ) => { result: string; isError: boolean; costUsd?: number } | null;
+      if (runtime === 'codex') {
+        const cc = codexCaps();
+        bin = 'codex';
+        // task.model is usually a Claude alias; only forward an OpenAI/Codex id.
+        const codexModel = /gpt|codex/i.test(opts.model ?? '')
+          ? opts.model
+          : undefined;
+        args = buildCodexExecArgs({ model: codexModel, prompt: opts.prompt }, cc);
+        useJson = cc.json;
+        parseResult = parseCodexJsonResult;
+      } else {
+        const caps = claudeCaps();
+        bin = 'claude';
+        args = buildPrintArgs(
+          { model: opts.model, sessionId: opts.sessionId, prompt: opts.prompt },
+          caps,
+        );
+        useJson = caps.jsonOutput;
+        parseResult = parseClaudeJsonResult;
+      }
+      // Base (scrubbed for contained workers) env + the task's granted secrets.
+      const baseEnv = buildSpawnEnv(opts.contain);
+      const spawnEnv = opts.env
+        ? { ...(baseEnv ?? process.env), ...opts.env }
+        : baseEnv;
+      let child: ChildProcess;
+      try {
+        const spec = sandboxWrap(bin, args);
+        child = spawn(spec.file, spec.args, {
+          cwd: opts.cwd,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          detached: false,
+          env: spawnEnv,
+        });
+      } catch (err) {
+        resolve({
+          ok: false,
+          output: '',
+          error: `${bin} spawn failed: ${(err as Error).message}`,
+        });
+        return;
+      }
+      let stdout = '';
+      let stderr = '';
+      let aborted = false;
+      // Kill-switch: SIGTERM, then SIGKILL after a short grace if it lingers.
+      const onAbort = (): void => {
+        aborted = true;
+        try {
+          child.kill('SIGTERM');
+        } catch {
+          /* already gone */
+        }
+        const grace = setTimeout(() => {
+          try {
+            child.kill('SIGKILL');
+          } catch {
+            /* already gone */
+          }
+        }, 2000);
+        grace.unref?.();
+      };
+      if (opts.signal) {
+        if (opts.signal.aborted) onAbort();
+        else opts.signal.addEventListener('abort', onAbort, { once: true });
+      }
+      const cleanup = (): void =>
+        opts.signal?.removeEventListener('abort', onAbort);
+      child.stdout?.setEncoding('utf8').on('data', (c: string) => (stdout += c));
+      child.stderr?.setEncoding('utf8').on('data', (c: string) => (stderr += c));
+      child.on('error', (err) => {
+        cleanup();
+        resolve({ ok: false, output: stdout, error: err.message });
+      });
+      child.on('exit', (code) => {
+        cleanup();
+        if (aborted) {
+          resolve({ ok: false, output: stdout, error: 'aborted' });
+          return;
+        }
+        // With --output-format json, stdout is a result envelope carrying the
+        // assistant text + total_cost_usd. Parse it; fall back to raw stdout if
+        // the shape isn't what we expect (older CC / --verbose array form).
+        if (useJson) {
+          const parsed = parseResult(stdout);
+          if (parsed) {
+            resolve({
+              ok: code === 0 && !parsed.isError,
+              output: parsed.result,
+              costUsd: parsed.costUsd,
+              error: parsed.isError ? 'claude reported an error' : undefined,
+            });
+            return;
+          }
+        }
+        if (code === 0) {
+          resolve({ ok: true, output: stdout });
+        } else {
+          resolve({
+            ok: false,
+            output: stdout,
+            error: stderr.trim().slice(0, 300) || `${bin} exited with code ${code}`,
+          });
+        }
+      });
+    });
   }
 
   private launchSynthetic(opts: {

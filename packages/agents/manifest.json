@@ -2,6 +2,20 @@
   "version": 1,
   "advisors": [
     {
+      "id": "maestro",
+      "role": "conductor",
+      "codename": "Maestro",
+      "name": "Conductor",
+      "description": "Decomposes a goal into a dependency-ordered task plan for the orchestrator to dispatch and verify A-Z. The v2 build-studio conductor (Pro).",
+      "glyph": "✷",
+      "color": "#fde047",
+      "defaultModel": "opus",
+      "agentMd": "maestro.md",
+      "enabledByDefault": false,
+      "requiredSkills": [],
+      "texturePack": "sun"
+    },
+    {
       "id": "compass",
       "role": "pm",
       "codename": "Compass",

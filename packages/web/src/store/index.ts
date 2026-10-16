@@ -5,6 +5,8 @@ import type {
   ClientMessage,
   Goal,
   Mission,
+  Plan,
+  PlanTask,
   Project,
   ScheduledTask,
   ServerMessage,
@@ -184,6 +186,8 @@ interface SolixState {
   skills: Record<string, Skill>;
   schedules: Record<string, ScheduledTask>;
   goals: Record<string, Goal>;
+  plans: Record<string, Plan>;
+  planTasks: Record<string, PlanTask>;
   budgetAlerts: Record<string, BudgetAlert>;
   recentToolCalls: RecentToolCall[];
   pendingPermissions: Record<string, PendingPermission>;
@@ -193,6 +197,7 @@ interface SolixState {
   selectedAdvisorId: string | null;
   selectedSkillId: string | null;
   workspaceOpen: boolean;
+  planPanelOpen: boolean;
   motionEnabled: boolean;
   viewMode: 'galaxy' | 'list' | 'missions';
   playback: PlaybackState;
@@ -205,6 +210,39 @@ interface SolixState {
   selectSkill: (id: string | null) => void;
   openWorkspace: () => void;
   closeWorkspace: () => void;
+  openPlanPanel: () => void;
+  closePlanPanel: () => void;
+  /** v2 Maestro — POST a goal to the orchestrator; returns the created plan id
+   *  (draft → awaiting_approval) or validation errors. */
+  createPlanFromGoal: (
+    goal: string,
+    cwd: string,
+    opts?: {
+      name?: string;
+      autoMode?: boolean;
+      goalId?: string;
+      budgetUsd?: number;
+    },
+  ) => Promise<{
+    ok: boolean;
+    planId?: string;
+    errors?: string[];
+    warnings?: string[];
+  }>;
+  approvePlan: (
+    planId: string,
+  ) => Promise<{ ok: boolean; error?: string; upsell?: boolean }>;
+  abortPlan: (planId: string) => Promise<void>;
+  resumePlan: (
+    planId: string,
+  ) => Promise<{ ok: boolean; error?: string; upsell?: boolean }>;
+  activateLicense: (
+    key: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  createProject: (
+    name: string,
+    opts?: { path?: string; template?: string },
+  ) => Promise<{ ok: boolean; project?: Project; error?: string }>;
   dismissToast: (id: string) => void;
   resolvePermission: (requestId: string, approved: boolean) => void;
   invokeAdvisor: (advisorId: string, prompt?: string) => void;
@@ -296,6 +334,8 @@ export const useSolixStore = create<SolixState>((set, get) => ({
   skills: {},
   schedules: {},
   goals: {},
+  plans: {},
+  planTasks: {},
   budgetAlerts: {},
   chatBySessionId: {},
   recentToolCalls: [],
@@ -304,6 +344,7 @@ export const useSolixStore = create<SolixState>((set, get) => ({
   selectedAdvisorId: null,
   selectedSkillId: null,
   workspaceOpen: false,
+  planPanelOpen: false,
   motionEnabled: readMotionPref(),
   viewMode: readViewPref(),
   playback: EMPTY_PLAYBACK,
@@ -328,7 +369,21 @@ export const useSolixStore = create<SolixState>((set, get) => ({
         for (const sc of msg.schedules) schedules[sc.id] = sc;
         const goals: Record<string, Goal> = {};
         for (const g of msg.goals) goals[g.id] = g;
-        set({ projects, sessions, missions, advisors, skills, schedules, goals });
+        const plans: Record<string, Plan> = {};
+        for (const pl of msg.plans) plans[pl.id] = pl;
+        const planTasks: Record<string, PlanTask> = {};
+        for (const t of msg.planTasks) planTasks[t.id] = t;
+        set({
+          projects,
+          sessions,
+          missions,
+          advisors,
+          skills,
+          schedules,
+          goals,
+          plans,
+          planTasks,
+        });
         break;
       }
       case 'advisor_upsert': {
@@ -511,6 +566,43 @@ export const useSolixStore = create<SolixState>((set, get) => ({
         });
         break;
       }
+      case 'project_upsert': {
+        set((s) => ({
+          projects: { ...s.projects, [msg.project.id]: msg.project },
+        }));
+        break;
+      }
+      case 'plan_upsert': {
+        set((s) => ({ plans: { ...s.plans, [msg.plan.id]: msg.plan } }));
+        break;
+      }
+      case 'plan_remove': {
+        set((s) => {
+          const nextPlans = { ...s.plans };
+          delete nextPlans[msg.planId];
+          // Drop the plan's tasks too so nothing dangles.
+          const nextTasks: Record<string, PlanTask> = {};
+          for (const [id, t] of Object.entries(s.planTasks)) {
+            if (t.planId !== msg.planId) nextTasks[id] = t;
+          }
+          return { plans: nextPlans, planTasks: nextTasks };
+        });
+        break;
+      }
+      case 'plan_task_upsert': {
+        set((s) => ({
+          planTasks: { ...s.planTasks, [msg.task.id]: msg.task },
+        }));
+        break;
+      }
+      case 'plan_task_remove': {
+        set((s) => {
+          const next = { ...s.planTasks };
+          delete next[msg.taskId];
+          return { planTasks: next };
+        });
+        break;
+      }
       case 'chat_delta': {
         const entry: ChatEntry = { ...msg.delta, receivedAt: Date.now() };
         set((s) => {
@@ -551,6 +643,7 @@ export const useSolixStore = create<SolixState>((set, get) => ({
       selectedAdvisorId: id ? null : get().selectedAdvisorId,
       selectedSkillId: id ? null : get().selectedSkillId,
       workspaceOpen: id ? false : get().workspaceOpen,
+      planPanelOpen: id ? false : get().planPanelOpen,
     }),
 
   selectAdvisor: (id) =>
@@ -559,6 +652,7 @@ export const useSolixStore = create<SolixState>((set, get) => ({
       selectedSessionId: id ? null : get().selectedSessionId,
       selectedSkillId: id ? null : get().selectedSkillId,
       workspaceOpen: id ? false : get().workspaceOpen,
+      planPanelOpen: id ? false : get().planPanelOpen,
     }),
 
   selectSkill: (id) =>
@@ -567,6 +661,7 @@ export const useSolixStore = create<SolixState>((set, get) => ({
       selectedSessionId: id ? null : get().selectedSessionId,
       selectedAdvisorId: id ? null : get().selectedAdvisorId,
       workspaceOpen: id ? false : get().workspaceOpen,
+      planPanelOpen: id ? false : get().planPanelOpen,
     }),
 
   // The sun opens Mission Control; keep it mutually exclusive with the
@@ -574,12 +669,133 @@ export const useSolixStore = create<SolixState>((set, get) => ({
   openWorkspace: () =>
     set({
       workspaceOpen: true,
+      planPanelOpen: false,
       selectedSessionId: null,
       selectedAdvisorId: null,
       selectedSkillId: null,
     }),
 
   closeWorkspace: () => set({ workspaceOpen: false }),
+
+  openPlanPanel: () =>
+    set({
+      planPanelOpen: true,
+      workspaceOpen: false,
+      selectedSessionId: null,
+      selectedAdvisorId: null,
+      selectedSkillId: null,
+    }),
+
+  closePlanPanel: () => set({ planPanelOpen: false }),
+
+  createPlanFromGoal: async (goal, cwd, opts) => {
+    try {
+      const res = await fetch('/api/plans/from-goal', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ goal, cwd, ...opts }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        planId?: string;
+        errors?: string[];
+        warnings?: string[];
+      };
+      return {
+        ok: Boolean(data.ok),
+        planId: data.planId,
+        errors: data.errors,
+        warnings: data.warnings,
+      };
+    } catch (err) {
+      return { ok: false, errors: [(err as Error).message] };
+    }
+  },
+
+  approvePlan: async (planId) => {
+    try {
+      const res = await fetch(
+        `/api/plans/${encodeURIComponent(planId)}/approve`,
+        { method: 'POST' },
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        upsell?: boolean;
+      };
+      return { ok: Boolean(data.ok), error: data.error, upsell: data.upsell };
+    } catch {
+      return { ok: false, error: 'Could not reach the server.' };
+    }
+  },
+
+  resumePlan: async (planId) => {
+    try {
+      const res = await fetch(
+        `/api/plans/${encodeURIComponent(planId)}/resume`,
+        { method: 'POST' },
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        upsell?: boolean;
+      };
+      return { ok: Boolean(data.ok), error: data.error, upsell: data.upsell };
+    } catch {
+      return { ok: false, error: 'Could not reach the server.' };
+    }
+  },
+
+  activateLicense: async (key) => {
+    try {
+      const res = await fetch('/api/license/activate', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ key }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+      };
+      return { ok: Boolean(data.ok), error: data.error };
+    } catch {
+      return { ok: false, error: 'Could not reach the server.' };
+    }
+  },
+
+  abortPlan: async (planId) => {
+    try {
+      await fetch(`/api/plans/${encodeURIComponent(planId)}/abort`, {
+        method: 'POST',
+      });
+    } catch {
+      /* offline; the plan_upsert broadcast will reconcile if it lands */
+    }
+  },
+
+  createProject: async (name, opts) => {
+    try {
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name, ...opts }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        project?: Project;
+        error?: string;
+      };
+      // The project_upsert broadcast also lands it in the store; setting it here
+      // avoids a flicker if the socket round-trip is slow.
+      if (data.ok && data.project) {
+        const project = data.project;
+        set((s) => ({ projects: { ...s.projects, [project.id]: project } }));
+      }
+      return { ok: Boolean(data.ok), project: data.project, error: data.error };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  },
 
   dismissToast: (id) =>
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
@@ -909,6 +1125,27 @@ export function selectEnabledSchedules(state: SolixState): ScheduledTask[] {
 
 export function selectGoalsArray(state: SolixState): Goal[] {
   return Object.values(state.goals);
+}
+
+// ── v2 Maestro selectors ───────────────────────────────────────────────
+export function selectPlansArray(state: SolixState): Plan[] {
+  return Object.values(state.plans).sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/** Tasks for one plan, in display order. */
+export function selectPlanTasks(state: SolixState, planId: string): PlanTask[] {
+  return Object.values(state.planTasks)
+    .filter((t) => t.planId === planId)
+    .sort((a, b) => a.orderIndex - b.orderIndex || a.createdAt - b.createdAt);
+}
+
+/** The most recent plan that is still live (not completed/failed), if any. */
+export function selectActivePlan(state: SolixState): Plan | null {
+  return (
+    selectPlansArray(state).find(
+      (p) => p.status !== 'completed' && p.status !== 'failed',
+    ) ?? null
+  );
 }
 
 /**

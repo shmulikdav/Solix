@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { dirname, extname, join, resolve } from 'node:path';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { dirname, extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
@@ -27,7 +27,27 @@ import { cors } from 'hono/cors';
 import type { HookEvent } from '@solix/shared';
 import type { DB } from './db.js';
 import type { EventRouter } from './router.js';
-import { listProjects } from './state/projects.js';
+import type { Orchestrator } from './orchestrator/index.js';
+import {
+  createManagedProject,
+  listProjects,
+} from './state/projects.js';
+import {
+  createConnection,
+  deleteConnection,
+  deleteSecret,
+  getConnection,
+  grantConnection,
+  listConnections,
+  revokeGrant,
+  setSecret,
+} from './state/connections.js';
+import { defaultProjectsDir, scaffoldProject } from './state/scaffold.js';
+import { buildPlanReview } from './state/git.js';
+import { normalizeCodexEvent } from './codex.js';
+import { fullAutoContainmentStatus } from './containment.js';
+import { activateLicense, getEntitlement } from './licensing.js';
+import { previewTargetPath, slugifyProjectName } from './util.js';
 import {
   getSession,
   listSessionsForProject,
@@ -56,6 +76,17 @@ import {
   setScheduleEnabled,
 } from './state/schedules.js';
 import { createGoal, deleteGoal, listGoals } from './state/goals.js';
+import {
+  createPlan,
+  createPlanTask,
+  deletePlan,
+  deletePlanTask,
+  getPlan,
+  listPlans,
+  listPlanTasks,
+  updatePlan,
+  updatePlanTask,
+} from './state/plans.js';
 import { buildContextEnvelope } from './state/context.js';
 import {
   getSkill,
@@ -79,6 +110,7 @@ import type { GalaxyManifest } from '@solix/shared';
 export function createHttpApp(opts: {
   db: DB;
   router: EventRouter;
+  orchestrator: Orchestrator;
   token?: string | null;
   /** Product version to report from /api/health. The CLI injects its own
    * package version; absent when the server is embedded directly. */
@@ -124,7 +156,7 @@ export function createHttpApp(opts: {
   // this doesn't touch the UI. No token configured → no enforcement.
   if (opts.token) {
     const expected = opts.token;
-    const paths = ['/events', '/events/permission'];
+    const paths = ['/events', '/events/permission', '/events/codex'];
     for (const p of paths) {
       app.use(p, async (c, next) => {
         if (c.req.header('x-solix-token') !== expected) {
@@ -160,6 +192,21 @@ export function createHttpApp(opts: {
     return c.json({ ok: true });
   });
 
+  // Multi-runtime: Codex hooks POST their raw stdin JSON here; we normalize it
+  // to the agent-agnostic HookEvent envelope and feed the same router, so Codex
+  // sessions appear as planets alongside Claude Code.
+  app.post('/events/codex', async (c) => {
+    let raw: unknown;
+    try {
+      raw = await c.req.json();
+    } catch {
+      return c.json({ ok: true });
+    }
+    const event = normalizeCodexEvent(raw);
+    if (event) opts.router.handleHookEvent(event);
+    return c.json({ ok: true });
+  });
+
   // Blocking human-in-the-loop gate. A PreToolUse hook (when SOLIX_GATE_ENABLED)
   // POSTs here and holds the connection until a human answers in the browser
   // (or the server-side timeout fires). We answer { decision } so the hook can
@@ -182,7 +229,121 @@ export function createHttpApp(opts: {
     return c.json({ decision });
   });
 
+  // Whether full-auto (no approval gate) is safe to offer right now — the UI
+  // uses this to enable/disable the toggle and explain what's missing.
+  app.get('/api/system/containment', (c) =>
+    c.json(fullAutoContainmentStatus()),
+  );
+
+  // Current Pro entitlement for the UI badge/upsell. Trimmed to tier/reason +
+  // a minimal license summary — purchaser PII is never sent to the browser.
+  app.get('/api/system/entitlement', (c) => {
+    const e = getEntitlement();
+    return c.json({
+      tier: e.tier,
+      reason: e.reason,
+      edition: e.license?.edition,
+      updatesUntil: e.license?.updatesUntil,
+    });
+  });
+
+  // Activate a license key: verify offline, persist to ~/.solix/license (0600),
+  // and reload so the running server picks it up without a restart.
+  app.post('/api/license/activate', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { key?: string };
+    if (!body.key || !body.key.trim()) {
+      return c.json({ ok: false, error: 'key is required' }, 400);
+    }
+    const res = activateLicense(body.key);
+    // Trim the response — don't echo purchaser PII back to the browser (mirrors
+    // the /entitlement endpoint).
+    if (res.ok && res.license) {
+      const { licenseId, edition, kind, expiresAt, updatesUntil } = res.license;
+      return c.json({
+        ok: true,
+        license: { licenseId, edition, kind, expiresAt, updatesUntil },
+      });
+    }
+    return c.json({ ok: false, error: res.error }, 422);
+  });
+
   app.get('/api/projects', (c) => c.json(listProjects(opts.db)));
+
+  // ──── Connections & secrets (scoped credential store) ────────
+  // Secret VALUES are write-only: set/rotate via POST, never returned.
+  app.get('/api/connections', (c) => c.json(listConnections(opts.db)));
+  app.post('/api/connections', async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as {
+      name?: string;
+      kind?: 'env' | 'mcp';
+    };
+    if (!b.name?.trim()) return c.json({ error: 'name required' }, 400);
+    const conn = createConnection(opts.db, {
+      name: b.name.trim(),
+      kind: b.kind === 'mcp' ? 'mcp' : 'env',
+    });
+    return c.json(conn);
+  });
+  app.delete('/api/connections/:id', (c) =>
+    c.json({ ok: deleteConnection(opts.db, c.req.param('id')) }),
+  );
+  app.post('/api/connections/:id/secrets', async (c) => {
+    const id = c.req.param('id');
+    if (!getConnection(opts.db, id)) return c.json({ error: 'not found' }, 404);
+    const b = (await c.req.json().catch(() => ({}))) as {
+      key?: string;
+      value?: string;
+    };
+    if (!b.key?.trim() || typeof b.value !== 'string') {
+      return c.json({ error: 'key and value required' }, 400);
+    }
+    setSecret(opts.db, id, b.key.trim(), b.value);
+    return c.json(getConnection(opts.db, id)); // key names only, no values
+  });
+  app.delete('/api/connections/:id/secrets/:key', (c) => {
+    deleteSecret(opts.db, c.req.param('id'), c.req.param('key'));
+    return c.json(getConnection(opts.db, c.req.param('id')));
+  });
+  app.post('/api/connections/:id/grants', async (c) => {
+    const id = c.req.param('id');
+    if (!getConnection(opts.db, id)) return c.json({ error: 'not found' }, 404);
+    const b = (await c.req.json().catch(() => ({}))) as { scope?: string };
+    if (!b.scope?.trim()) return c.json({ error: 'scope required' }, 400);
+    grantConnection(opts.db, id, b.scope.trim());
+    return c.json(getConnection(opts.db, id));
+  });
+  app.delete('/api/connections/:id/grants/:scope', (c) => {
+    revokeGrant(opts.db, c.req.param('id'), c.req.param('scope'));
+    return c.json(getConnection(opts.db, c.req.param('id')));
+  });
+
+  // Build-studio: create a durable, user-owned project — scaffold a directory,
+  // git-init it, register it managed. Maestro then builds into `project.cwd`.
+  app.post('/api/projects', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      name?: string;
+      path?: string;
+      template?: string;
+    };
+    const name = body.name?.trim();
+    if (!name) return c.json({ ok: false, error: 'name is required' }, 400);
+
+    const cwd = body.path?.trim()
+      ? resolve(body.path.trim())
+      : join(defaultProjectsDir(), slugifyProjectName(name));
+
+    const scaffold = scaffoldProject({ cwd, name, template: body.template });
+    if (!scaffold.ok) {
+      return c.json({ ok: false, error: scaffold.error }, 422);
+    }
+    const project = createManagedProject(opts.db, {
+      cwd,
+      name,
+      template: body.template,
+    });
+    opts.router.broadcastProjectUpsert(project);
+    return c.json({ ok: true, project });
+  });
 
   app.get('/api/projects/:id/sessions', (c) => {
     const id = c.req.param('id');
@@ -545,6 +706,290 @@ export function createHttpApp(opts: {
     if (ok) opts.router.broadcastGoalRemove(id);
     return c.json({ ok });
   });
+
+  // ──── v2 Maestro: plans + plan tasks ────────────────────────
+  // Kick the dispatch loop in the background, swallowing (but logging) any
+  // rejection so a fire-and-forget advance can never become an unhandled
+  // rejection (process-fatal on modern Node).
+  const kickAdvance = (id: string): void => {
+    void opts.orchestrator
+      .advance(id)
+      .catch((err) => console.error('[orchestrator] advance failed', err));
+  };
+  app.get('/api/plans', (c) => c.json(listPlans(opts.db)));
+
+  app.get('/api/plans/:id', (c) => {
+    const plan = getPlan(opts.db, c.req.param('id'));
+    if (!plan) return c.json({ error: 'not found' }, 404);
+    return c.json({ plan, tasks: listPlanTasks(opts.db, plan.id) });
+  });
+
+  app.post('/api/plans', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      name?: string;
+      goalPrompt?: string;
+      cwd?: string;
+      status?: import('@solix/shared').PlanStatus;
+      autoMode?: boolean;
+      goalId?: string;
+      budgetUsd?: number;
+      tasks?: Array<{
+        title?: string;
+        prompt?: string;
+        acceptanceCriteria?: string;
+        dependsOn?: string[];
+        assignedAdvisorRole?: string;
+        cwd?: string;
+        model?: string;
+        budgetUsd?: number;
+        orderIndex?: number;
+      }>;
+    };
+    if (!body.name || !body.goalPrompt || !body.cwd) {
+      return c.json({ error: 'name, goalPrompt, cwd required' }, 400);
+    }
+    // Running is reachable ONLY through the gated approve/resume/autoMode paths —
+    // never by creating a plan already `running` (that would skip evaluateRunGate).
+    if (body.status && body.status !== 'draft' && body.status !== 'awaiting_approval') {
+      return c.json(
+        { error: 'a plan can only be created as draft/awaiting_approval; use /approve to run it' },
+        400,
+      );
+    }
+    const plan = createPlan(opts.db, {
+      name: body.name,
+      goalPrompt: body.goalPrompt,
+      cwd: body.cwd,
+      status: body.status,
+      autoMode: body.autoMode,
+      goalId: body.goalId,
+      budgetUsd: body.budgetUsd,
+    });
+    opts.router.broadcastPlanUpsert(plan);
+    const tasks = (body.tasks ?? [])
+      .filter((t) => t.title && t.prompt)
+      .map((t, i) => {
+        const task = createPlanTask(opts.db, {
+          planId: plan.id,
+          title: t.title!,
+          prompt: t.prompt!,
+          acceptanceCriteria: t.acceptanceCriteria,
+          dependsOn: t.dependsOn,
+          assignedAdvisorRole: t.assignedAdvisorRole,
+          cwd: t.cwd,
+          model: t.model,
+          budgetUsd: t.budgetUsd,
+          orderIndex: t.orderIndex ?? i,
+        });
+        opts.router.broadcastPlanTaskUpsert(task);
+        return task;
+      });
+    return c.json({ plan, tasks });
+  });
+
+  app.patch('/api/plans/:id', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as Partial<{
+      name: string;
+      status: import('@solix/shared').PlanStatus;
+      autoMode: boolean;
+      goalId: string;
+      cwd: string;
+      budgetUsd: number;
+    }>;
+    // `status`/`autoMode` are lifecycle-controlled by the gated endpoints
+    // (approve/resume/abort/from-goal) — a generic PATCH must not flip a plan to
+    // `running` and bypass evaluateRunGate. Strip them here.
+    const { status: _s, autoMode: _a, ...safe } = body;
+    const plan = updatePlan(opts.db, c.req.param('id'), safe);
+    if (!plan) return c.json({ error: 'not found' }, 404);
+    opts.router.broadcastPlanUpsert(plan);
+    return c.json(plan);
+  });
+
+  app.delete('/api/plans/:id', (c) => {
+    const id = c.req.param('id');
+    const tasks = listPlanTasks(opts.db, id);
+    const ok = deletePlan(opts.db, id);
+    if (ok) {
+      for (const t of tasks) opts.router.broadcastPlanTaskRemove(t.id);
+      opts.router.broadcastPlanRemove(id);
+    }
+    return c.json({ ok });
+  });
+
+  app.post('/api/plans/:id/tasks', async (c) => {
+    const planId = c.req.param('id');
+    if (!getPlan(opts.db, planId)) return c.json({ error: 'not found' }, 404);
+    const body = (await c.req.json().catch(() => ({}))) as {
+      title?: string;
+      prompt?: string;
+      acceptanceCriteria?: string;
+      dependsOn?: string[];
+      assignedAdvisorRole?: string;
+      cwd?: string;
+      model?: string;
+      budgetUsd?: number;
+      orderIndex?: number;
+    };
+    if (!body.title || !body.prompt) {
+      return c.json({ error: 'title, prompt required' }, 400);
+    }
+    const task = createPlanTask(opts.db, {
+      planId,
+      title: body.title,
+      prompt: body.prompt,
+      acceptanceCriteria: body.acceptanceCriteria,
+      dependsOn: body.dependsOn,
+      assignedAdvisorRole: body.assignedAdvisorRole,
+      cwd: body.cwd,
+      model: body.model,
+      budgetUsd: body.budgetUsd,
+      orderIndex: body.orderIndex,
+    });
+    opts.router.broadcastPlanTaskUpsert(task);
+    return c.json(task);
+  });
+
+  app.patch('/api/plans/:planId/tasks/:taskId', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as Partial<{
+      title: string;
+      prompt: string;
+      acceptanceCriteria: string;
+      status: import('@solix/shared').PlanTaskStatus;
+      dependsOn: string[];
+      assignedAdvisorRole: string;
+      cwd: string;
+      model: string;
+      budgetUsd: number;
+      orderIndex: number;
+    }>;
+    const task = updatePlanTask(opts.db, c.req.param('taskId'), body);
+    if (!task) return c.json({ error: 'not found' }, 404);
+    opts.router.broadcastPlanTaskUpsert(task);
+    return c.json(task);
+  });
+
+  app.delete('/api/plans/:planId/tasks/:taskId', (c) => {
+    const taskId = c.req.param('taskId');
+    const ok = deletePlanTask(opts.db, taskId);
+    if (ok) opts.router.broadcastPlanTaskRemove(taskId);
+    return c.json({ ok });
+  });
+
+  // v2 Maestro — Phase 1 planner endpoints. `from-goal` runs a planner session
+  // (via the orchestrator's SessionRunner), parses + validates its JSON into a
+  // draft plan, and parks it at awaiting_approval; `approve` advances it to
+  // running. (Dispatch is Phase 2.) Origin-gated like the other /api/* mutating
+  // routes; token-gating the trigger lands with Phase-2 execution.
+  app.post('/api/plans/from-goal', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as {
+      goal?: string;
+      cwd?: string;
+      name?: string;
+      autoMode?: boolean;
+      goalId?: string;
+      budgetUsd?: number;
+    };
+    if (!body.goal || !body.cwd) {
+      return c.json({ ok: false, errors: ['goal and cwd are required'] }, 400);
+    }
+    const res = await opts.orchestrator.createPlanFromGoal({
+      goal: body.goal,
+      cwd: body.cwd,
+      name: body.name,
+      autoMode: body.autoMode,
+      goalId: body.goalId,
+      budgetUsd: body.budgetUsd,
+    });
+    // A run only actually dispatches when the plan reached `running` (autoMode
+    // that survived the Pro + containment gates); advance() no-ops otherwise, so
+    // kicking it whenever the request succeeded is safe. Never let the
+    // fire-and-forget promise reject unhandled.
+    if (res.ok && res.planId) kickAdvance(res.planId);
+    return c.json(res, res.ok ? 200 : 422);
+  });
+
+  app.post('/api/plans/:id/approve', (c) => {
+    const id = c.req.param('id');
+    const res = opts.orchestrator.approvePlan(id);
+    // Approved → run the dispatch loop in the background (request returns now).
+    if (res.ok) kickAdvance(id);
+    // 402 when the run needs Pro (upsell), else 409 for a plain state conflict.
+    const status = res.ok ? 200 : res.upsell ? 402 : 409;
+    return c.json(res, status);
+  });
+
+  // Kill-switch: abort a plan's in-flight worker/verifier and pause it.
+  app.post('/api/plans/:id/abort', (c) => {
+    const res = opts.orchestrator.abortPlan(c.req.param('id'));
+    return c.json(res, res.ok ? 200 : 404);
+  });
+
+  // Resume a paused plan (budget pause / abort). Re-gated in the orchestrator.
+  app.post('/api/plans/:id/resume', (c) => {
+    const id = c.req.param('id');
+    const res = opts.orchestrator.resumePlan(id);
+    if (res.ok) kickAdvance(id);
+    const status = res.ok ? 200 : res.upsell ? 402 : 409;
+    return c.json(res, status);
+  });
+
+  // Build-studio review surface: what the fleet changed on disk since the plan
+  // started (git diff of plan.cwd vs the baseline captured at run start).
+  app.get('/api/plans/:id/review', (c) => {
+    const plan = getPlan(opts.db, c.req.param('id'));
+    if (!plan) return c.json({ ok: false, error: 'plan not found' }, 404);
+    return c.json(buildPlanReview(plan.cwd, plan.baseRef));
+  });
+
+  // Build-studio preview: serve the built result (static files) straight from
+  // the plan's working tree so the user can SEE what was built. Read-only GET,
+  // strictly confined to plan.cwd (path-traversal guarded). For static sites;
+  // running dev servers for node/python is deliberately out of scope for now.
+  const servePreview = (c: import('hono').Context): Response => {
+    const plan = getPlan(opts.db, c.req.param('id') ?? '');
+    if (!plan) return new Response('not found', { status: 404 });
+    const rest = c.req.param('rest') ?? '';
+    // Containment: the resolved path must stay inside the project (pure guard).
+    let target = previewTargetPath(plan.cwd, rest);
+    if (target == null) {
+      return new Response('forbidden', { status: 403 });
+    }
+    try {
+      if (existsSync(target) && statSync(target).isDirectory()) {
+        target = join(target, 'index.html');
+      }
+    } catch {
+      /* fall through to the not-found handling below */
+    }
+    if (!existsSync(target)) {
+      return new Response(
+        `<!doctype html><meta charset="utf-8"><body style="font-family:system-ui;background:#0b0e17;color:#cbd5e1;padding:3rem"><h2>Nothing to preview yet</h2><p>This project has no <code>index.html</code>. Preview supports static sites; run other stacks from a terminal.</p></body>`,
+        { headers: { 'Content-Type': 'text/html; charset=utf-8' } },
+      );
+    }
+    // Defense in depth: the lexical guard above can be defeated by an in-tree
+    // symlink (a worker could create `cwd/link -> /`), so resolve symlinks and
+    // re-check that the REAL target is still inside the REAL project root.
+    try {
+      const realRoot = realpathSync(resolve(plan.cwd));
+      const realTarget = realpathSync(target);
+      if (realTarget !== realRoot && !realTarget.startsWith(realRoot + sep)) {
+        return new Response('forbidden', { status: 403 });
+      }
+    } catch {
+      return new Response('forbidden', { status: 403 });
+    }
+    // Cap the served file size to keep the local server responsive.
+    if (statSync(target).size > 25 * 1024 * 1024) {
+      return new Response('file too large to preview', { status: 413 });
+    }
+    return new Response(readFileSync(target), {
+      headers: { 'Content-Type': mimeFor(target) },
+    });
+  };
+  app.get('/api/plans/:id/preview', servePreview);
+  app.get('/api/plans/:id/preview/:rest{.*}', servePreview);
 
   // Preflight check used by the NewTaskModal to warn before the user
   // clicks Launch. Cached for the process lifetime — installing claude

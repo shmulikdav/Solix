@@ -30,6 +30,7 @@ import {
 } from './state/advisors.js';
 import { buildContextEnvelope } from './state/context.js';
 import { recordAudit } from './state/audit.js';
+import { evaluateContainment } from './containment.js';
 import {
   bindWrapperToSession,
   claimWrapperForCwd,
@@ -157,6 +158,10 @@ export class EventRouter {
       advisorRole,
       worktreePath,
       wrapperSocketPath: wrapper?.socketPath,
+      runtime:
+        (event.payload as Record<string, unknown>).runtime === 'codex'
+          ? 'codex'
+          : 'claude',
     });
     // Once the session row exists we can record the wrapperId →
     // sessionId binding. On unregister we use it to clear the
@@ -173,8 +178,15 @@ export class EventRouter {
     }
     this.broadcaster.broadcast({ type: 'session_upsert', session: enriched });
     // Start tailing the session's transcript so the Chat tab streams in real
-    // time. Skipped for moons (subagents) — they share the parent's transcript.
-    if (!session.parentSessionId) {
+    // time. Skipped for moons (subagents) — they share the parent's transcript —
+    // and for Maestro workers/verifiers, whose cost the orchestrator records
+    // directly from the run result (avoids a double-count + a watcher leak).
+    const role = enriched.sessionRole;
+    if (
+      !session.parentSessionId &&
+      role !== 'worker' &&
+      role !== 'verifier'
+    ) {
       this.transcripts?.startWatching(sessionId, event.cwd);
     }
   }
@@ -214,6 +226,13 @@ export class EventRouter {
     const sessionId = this.extractSessionId(event);
     const session = getSession(this.db, sessionId);
     if (!session) return;
+
+    // Maestro workers/verifiers are owned by the orchestrator, which drives their
+    // lifecycle off the launcher process exit. Don't let the stop hook flip their
+    // status/mission (it would race terminateRow and leave planets stuck idle).
+    if (session.sessionRole === 'worker' || session.sessionRole === 'verifier') {
+      return;
+    }
 
     if (session.currentMissionId) {
       const mission = completeMission(
@@ -433,6 +452,44 @@ export class EventRouter {
         addTouchedFile(this.db, session.currentMissionId, args.file_path);
       }
       this.broadcaster.broadcast({ type: 'tool_call', toolCall });
+
+      // Containment (Sentinel): an autonomous worker/verifier tool call that
+      // hits the denylist or writes outside the project is HARD-denied here —
+      // before the human/full-auto path — so full-auto can't degrade to
+      // auto-allow. Non-contained roles fall through to the normal gate.
+      const containment = evaluateContainment({
+        role: session.sessionRole,
+        tool,
+        command: typeof args.command === 'string' ? args.command : undefined,
+        filePath: typeof args.file_path === 'string' ? args.file_path : undefined,
+        cwd: session.cwd,
+      });
+      if (containment.blocked) {
+        recordAudit(this.db, {
+          kind: 'permission_denied',
+          sessionId,
+          summary: `Containment blocked ${tool}: ${containment.reason}`,
+        });
+        this.broadcaster.broadcast({
+          type: 'toast',
+          level: 'warn',
+          message: `Containment blocked ${tool}: ${containment.reason}`,
+        });
+        const active = setSessionStatus(this.db, sessionId, 'active');
+        if (active)
+          this.broadcaster.broadcast({ type: 'session_upsert', session: active });
+        return Promise.resolve({ approved: false, timedOut: false });
+      }
+
+      // An autonomous worker/verifier has no human at the keyboard: a SAFE tool
+      // call (passed containment) auto-allows so the fleet can proceed. The
+      // denylist + cwd-confinement above is the boundary, not a per-step prompt.
+      if (
+        session.sessionRole === 'worker' ||
+        session.sessionRole === 'verifier'
+      ) {
+        return Promise.resolve({ approved: true, timedOut: false });
+      }
     }
 
     const requestId = nanoid();
@@ -761,6 +818,23 @@ export class EventRouter {
   }
   broadcastGoalRemove(goalId: string): void {
     this.broadcaster.broadcast({ type: 'goal_remove', goalId });
+  }
+  broadcastProjectUpsert(project: import('@solix/shared').Project): void {
+    this.broadcaster.broadcast({ type: 'project_upsert', project });
+  }
+  // v2 Maestro — broadcast helpers for plan/task CRUD driven by HTTP + the
+  // orchestrator.
+  broadcastPlanUpsert(plan: import('@solix/shared').Plan): void {
+    this.broadcaster.broadcast({ type: 'plan_upsert', plan });
+  }
+  broadcastPlanRemove(planId: string): void {
+    this.broadcaster.broadcast({ type: 'plan_remove', planId });
+  }
+  broadcastPlanTaskUpsert(task: import('@solix/shared').PlanTask): void {
+    this.broadcaster.broadcast({ type: 'plan_task_upsert', task });
+  }
+  broadcastPlanTaskRemove(taskId: string): void {
+    this.broadcaster.broadcast({ type: 'plan_task_remove', taskId });
   }
 
   broadcastGalaxyImported(manifest: GalaxyManifest): void {

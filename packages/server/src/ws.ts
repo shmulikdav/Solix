@@ -12,6 +12,7 @@ import { listAdvisors } from './state/advisors.js';
 import { listSkills } from './state/skills.js';
 import { listSchedules } from './state/schedules.js';
 import { listGoals } from './state/goals.js';
+import { listPlans, listPlanTasks } from './state/plans.js';
 import { isAllowedOrigin } from './origins.js';
 
 export interface WsContext {
@@ -60,6 +61,8 @@ export function attachWs(server: HttpServer, ctx: WsContext): WebSocketServer {
       skills: listSkills(ctx.db),
       schedules: listSchedules(ctx.db),
       goals: listGoals(ctx.db),
+      plans: listPlans(ctx.db),
+      planTasks: listPlanTasks(ctx.db),
     };
     ctx.broadcaster.send(ws, snapshot);
 

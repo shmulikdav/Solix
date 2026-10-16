@@ -18,7 +18,15 @@ export type Model = 'opus' | 'sonnet' | 'haiku' | 'default' | string;
  */
 export type SessionOrigin = 'external' | 'internal' | 'agentview';
 
+/** Which agent CLI/runtime a session is. Solix is multi-tool: Claude Code by
+ *  default, plus Codex (and more later). Drives the planet glyph + pricing. */
+export type AgentRuntime = 'claude' | 'codex';
+
 export type SessionKind = 'user' | 'advisor';
+
+/** v2 Maestro — a session's role within an orchestration plan. Absent for
+ *  ordinary (non-plan) sessions. */
+export type SessionRole = 'worker' | 'verifier' | 'planner';
 
 export interface Session {
   id: string;
@@ -31,6 +39,8 @@ export interface Session {
   model: Model;
   origin: SessionOrigin;
   kind: SessionKind;
+  /** The agent runtime behind this session ('claude' default, 'codex', …). */
+  runtime?: AgentRuntime;
   advisorRole?: string;
   parentSessionId?: string;
   contextUsagePct: number;
@@ -69,6 +79,12 @@ export interface Session {
   /** Goal this session's current mission rolls up to (Sprint M). Drives the
    * constellation grouping in the galaxy view. */
   currentGoalId?: string;
+  /** v2 Maestro — when the orchestrator dispatched this session for a plan
+   * task, the plan + task it belongs to and its role within the plan. Absent
+   * for ordinary sessions. */
+  planId?: string;
+  planTaskId?: string;
+  sessionRole?: SessionRole;
 }
 
 export type MissionStatus = 'active' | 'completed' | 'failed' | 'cancelled';
@@ -115,6 +131,133 @@ export interface Goal {
   createdAt: number;
 }
 
+// ── v2 Maestro orchestrator ────────────────────────────────────────────
+// A Plan is a high-level goal decomposed into a DAG of PlanTasks. The
+// server-side Orchestrator dispatches each ready task to its own worker
+// session (planet), verifies the result against acceptance criteria, and
+// drives the whole thing A-Z. Distinct from Goal (a flat constellation
+// label) and Mission (what one live session is doing right now).
+
+export type PlanStatus =
+  | 'draft' // planner is decomposing / not yet presented
+  | 'awaiting_approval' // shown to the human, waiting for one-click approve
+  | 'running' // approved; dispatching + verifying tasks
+  | 'paused' // human paused; no new dispatches
+  | 'completed' // every task completed
+  | 'failed'; // aborted or a task exhausted retries + escalation
+
+export type PlanTaskStatus =
+  | 'pending' // dependencies not yet satisfied
+  | 'ready' // dependencies met; eligible to dispatch
+  | 'dispatched' // a worker session is executing it
+  | 'verifying' // worker stopped; verifier is checking acceptance criteria
+  | 'completed' // verified done
+  | 'failed' // this attempt failed; orchestrator may retry (attempts < maxAttempts)
+  | 'escalated' // failed and out of retries — needs a human (durable, survives restart)
+  | 'blocked' // an upstream dependency failed/escalated
+  | 'skipped'; // human skipped it
+
+export interface Plan {
+  id: string;
+  name: string;
+  /** The original high-level goal the user handed Maestro. */
+  goalPrompt: string;
+  status: PlanStatus;
+  /** When true, skip the plan-approval gate and dispatch immediately. */
+  autoMode: boolean;
+  /** Optional constellation grouping this plan's sessions join. */
+  goalId?: string;
+  /** Default working directory the plan's tasks run in. */
+  cwd: string;
+  /** Optional plan-wide budget cap (USD) across all tasks. */
+  budgetUsd?: number;
+  /** Git HEAD of `cwd` captured when the plan started running — the baseline
+   *  the review surface diffs against to show everything the fleet changed. */
+  baseRef?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** One file the plan touched, for the review surface. */
+export interface PlanReviewFile {
+  path: string;
+  status: 'added' | 'modified' | 'deleted';
+  additions: number;
+  deletions: number;
+}
+
+/** What a plan changed on disk since it started (git diff vs `baseRef`). */
+export interface PlanReview {
+  ok: boolean;
+  error?: string;
+  /** True when `cwd` isn't a git repo (nothing to diff). */
+  notARepo?: boolean;
+  baseRef?: string;
+  files: PlanReviewFile[];
+  /** Unified diff text (tracked changes + synthesized new-file diffs). */
+  diff: string;
+  /** True when the diff was capped for size. */
+  truncated?: boolean;
+}
+
+export interface PlanTask {
+  id: string;
+  planId: string;
+  title: string;
+  /** The prompt handed to the worker session. */
+  prompt: string;
+  /** Human-readable, checkable criteria the verifier accepts the task against. */
+  acceptanceCriteria: string;
+  status: PlanTaskStatus;
+  /** Task ids that must be `completed` before this one dispatches (DAG edges). */
+  dependsOn: string[];
+  /** Advisor role to dispatch this task as (e.g. 'code-reviewer'). */
+  assignedAdvisorRole?: string;
+  cwd?: string;
+  model?: Model;
+  /** Which agent runtime runs this task's worker ('claude' default, 'codex'). */
+  runtime?: AgentRuntime;
+  budgetUsd?: number;
+  /** Set when dispatched — the worker session executing this task. */
+  sessionId?: string;
+  /** The worker's mission id. */
+  missionId?: string;
+  /** Set during verification — the verifier session. */
+  verifierSessionId?: string;
+  /** Times this task has been dispatched (for bounded retries). */
+  attempts: number;
+  /** Hard retry ceiling — on the (maxAttempts)th failure the task goes
+   * `escalated` (needs a human) instead of retrying. */
+  maxAttempts: number;
+  /** Why the previous attempt was rejected — fed back into the next attempt's
+   *  worker prompt so a retry corrects the specific failure. */
+  lastError?: string;
+  /** The worker's final output captured when the task completed — injected (as
+   *  untrusted context) into dependent tasks' prompts so they know what upstream
+   *  work produced, beyond the files on disk. */
+  resultSummary?: string;
+  /** Stable ordering for display. */
+  orderIndex: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** A managed integration (API key bundle, or later an MCP server) that workers
+ *  can be granted scoped access to. Secret VALUES are never carried in this
+ *  shape — only the key names, for display. */
+export type ConnectionKind = 'env' | 'mcp';
+
+export interface Connection {
+  id: string;
+  name: string;
+  kind: ConnectionKind;
+  createdAt: number;
+  /** The secret key NAMES stored for this connection (values never exposed). */
+  secretKeys: string[];
+  /** Who may use it: advisor roles, plan ids, or '*' for every worker. */
+  grants: string[];
+}
+
 export type ToolCallStatus = 'running' | 'ok' | 'error';
 
 export interface ToolCall {
@@ -134,6 +277,13 @@ export interface Project {
   name: string;
   firstSeenAt: number;
   lastActiveAt: number;
+  /** True when the user created this project inside Solix (the build-studio
+   *  flow) vs. it being auto-observed from a session's cwd. Managed projects
+   *  are durable — Solix owns them and Maestro builds into them. */
+  managed?: boolean;
+  /** The scaffold template it was created from ('empty' | 'node' | 'web' |
+   *  'python'); informs how the preview surface runs it. Managed only. */
+  template?: string;
 }
 
 export interface ScheduledTask {
