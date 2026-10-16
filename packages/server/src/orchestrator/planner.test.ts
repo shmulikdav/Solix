@@ -139,6 +139,17 @@ describe('parsePlannerOutput — allowlisting (untrusted output)', () => {
     expect(r.plan?.tasks[0]?.model).toBeUndefined();
     expect(r.warnings.some((w) => w.includes('gpt-9'))).toBe(true);
   });
+
+  it('keeps a known runtime and drops an unknown one', () => {
+    const p = structuredClone(validPlan);
+    (p.tasks[0] as Record<string, unknown>).runtime = 'codex';
+    (p.tasks[1] as Record<string, unknown>).runtime = 'rogue-runtime';
+    const r = parsePlannerOutput(JSON.stringify(p), OPTS);
+    expect(r.ok).toBe(true);
+    expect(r.plan?.tasks[0]?.runtime).toBe('codex');
+    expect(r.plan?.tasks[1]?.runtime).toBeUndefined();
+    expect(r.warnings.some((w) => w.includes('rogue-runtime'))).toBe(true);
+  });
 });
 
 describe('parseVerifierOutput', () => {

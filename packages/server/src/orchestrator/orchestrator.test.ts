@@ -712,3 +712,43 @@ describe('Orchestrator secret injection', () => {
     expect(runner.workerEnvs[1]).toEqual({});
   });
 });
+
+describe('Orchestrator multi-runtime dispatch', () => {
+  let db: DB;
+  beforeEach(() => {
+    db = resetDbForTests();
+  });
+
+  it('marks a codex-runtime task\'s worker planet as runtime=codex', async () => {
+    const CODEX_PLAN = JSON.stringify({
+      name: 'Codex build',
+      tasks: [
+        {
+          id: 't1',
+          title: 'Build',
+          prompt: 'do it',
+          acceptanceCriteria: 'done',
+          dependsOn: [],
+          runtime: 'codex',
+        },
+      ],
+    });
+    const orch = new Orchestrator({
+      db,
+      runner: new RoleFakeRunner({ plan: CODEX_PLAN, verifierPass: true }),
+      broadcast: () => {},
+      getKnownAdvisorRoles: () => ['forge', 'argus', 'mira'],
+      knownModels: ['opus', 'sonnet', 'haiku', 'default'],
+      getMaestroPrompt: () => 'MAESTRO PROMPT',
+      fullAutoStatus: () => ({ ok: true, reasons: [] }),
+    });
+    const { planId } = await orch.createPlanFromGoal({ goal: 'g', cwd: '/tmp/p' });
+    orch.approvePlan(planId!);
+    await orch.advance(planId!);
+
+    const task = orch.getPlanWithTasks(planId!)!.tasks[0]!;
+    expect(task.runtime).toBe('codex');
+    // Its worker planet was tagged as a Codex session.
+    expect(getSession(db, task.sessionId!)!.runtime).toBe('codex');
+  });
+});

@@ -215,6 +215,8 @@ export interface PlanTask {
   assignedAdvisorRole?: string;
   cwd?: string;
   model?: Model;
+  /** Which agent runtime runs this task's worker ('claude' default, 'codex'). */
+  runtime?: AgentRuntime;
   budgetUsd?: number;
   /** Set when dispatched — the worker session executing this task. */
   sessionId?: string;

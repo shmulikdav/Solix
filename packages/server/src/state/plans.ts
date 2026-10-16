@@ -163,6 +163,7 @@ interface PlanTaskRow {
   assigned_advisor_role: string | null;
   cwd: string | null;
   model: string | null;
+  runtime: string | null;
   budget_usd: number | null;
   session_id: string | null;
   mission_id: string | null;
@@ -194,6 +195,7 @@ function rowToPlanTask(row: PlanTaskRow): PlanTask {
     assignedAdvisorRole: row.assigned_advisor_role ?? undefined,
     cwd: row.cwd ?? undefined,
     model: (row.model as Model | null) ?? undefined,
+    runtime: (row.runtime as import('@solix/shared').AgentRuntime | null) ?? undefined,
     budgetUsd: row.budget_usd ?? undefined,
     sessionId: row.session_id ?? undefined,
     missionId: row.mission_id ?? undefined,
@@ -220,6 +222,7 @@ export function createPlanTask(
     assignedAdvisorRole?: string;
     cwd?: string;
     model?: Model;
+    runtime?: import('@solix/shared').AgentRuntime;
     budgetUsd?: number;
     maxAttempts?: number;
     orderIndex?: number;
@@ -230,9 +233,9 @@ export function createPlanTask(
   db.prepare(
     `INSERT INTO plan_tasks
        (id, plan_id, title, prompt, acceptance_criteria, status, depends_on_json,
-        assigned_advisor_role, cwd, model, budget_usd, session_id, mission_id,
+        assigned_advisor_role, cwd, model, runtime, budget_usd, session_id, mission_id,
         verifier_session_id, attempts, max_attempts, order_index, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 0, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 0, ?, ?, ?, ?)`,
   ).run(
     id,
     input.planId,
@@ -244,6 +247,7 @@ export function createPlanTask(
     input.assignedAdvisorRole ?? null,
     input.cwd ?? null,
     input.model ?? null,
+    input.runtime ?? null,
     input.budgetUsd ?? null,
     input.maxAttempts ?? 3,
     input.orderIndex ?? 0,

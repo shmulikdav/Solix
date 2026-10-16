@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildCodexExecArgs,
   buildPrintArgs,
   containmentGateEnv,
   parseClaudeJsonResult,
+  parseCodexJsonResult,
 } from './launcher.js';
 
 describe('containmentGateEnv (safe-by-default)', () => {
@@ -82,5 +84,34 @@ describe('parseClaudeJsonResult', () => {
     expect(parseClaudeJsonResult('[{"type":"message"}]')).toBeNull();
     expect(parseClaudeJsonResult('')).toBeNull();
     expect(parseClaudeJsonResult('{not json')).toBeNull();
+  });
+});
+
+describe('buildCodexExecArgs (Codex dispatch)', () => {
+  it('builds `exec --json` with a model', () => {
+    const a = buildCodexExecArgs({ model: 'gpt-5-codex', prompt: 'do it' }, { json: true });
+    expect(a[0]).toBe('exec');
+    expect(a).toContain('--json');
+    expect(a[a.indexOf('--model') + 1]).toBe('gpt-5-codex');
+    expect(a[a.length - 1]).toBe('do it');
+  });
+  it('omits --json when unsupported and --model when absent', () => {
+    expect(buildCodexExecArgs({ prompt: 'p' }, { json: false })).toEqual(['exec', 'p']);
+  });
+});
+
+describe('parseCodexJsonResult (best-effort)', () => {
+  it('takes the last assistant text + cost from NDJSON events', () => {
+    const out = [
+      '{"type":"item","text":"thinking"}',
+      '{"type":"item","text":"final answer"}',
+      '{"type":"turn.completed","total_cost_usd":0.02}',
+    ].join('\n');
+    const r = parseCodexJsonResult(out);
+    expect(r?.result).toBe('final answer');
+    expect(r?.costUsd).toBe(0.02);
+  });
+  it('returns null when nothing parses', () => {
+    expect(parseCodexJsonResult('plain text, not json')).toBeNull();
   });
 });

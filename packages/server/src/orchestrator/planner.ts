@@ -20,6 +20,7 @@ export interface ParsedTask {
   dependsOn: string[];
   assignedAdvisorRole?: string;
   model?: string;
+  runtime?: 'claude' | 'codex';
 }
 
 export interface ParsedPlan {
@@ -141,6 +142,13 @@ export function parsePlannerOutput(
       if (modelSet.has(m)) model = m;
       else warnings.push(`task "${id || i}": dropped unknown model "${m}"`);
     }
+    // Allowlist runtime — only the known agent runtimes.
+    let runtime: 'claude' | 'codex' | undefined;
+    if (isNonEmptyString(t.runtime)) {
+      const r = t.runtime.trim();
+      if (r === 'claude' || r === 'codex') runtime = r;
+      else warnings.push(`task "${id || i}": dropped unknown runtime "${r}"`);
+    }
 
     if (id) seenIds.add(id);
     if (id && title && prompt && acceptanceCriteria) {
@@ -152,6 +160,7 @@ export function parsePlannerOutput(
         dependsOn,
         assignedAdvisorRole,
         model,
+        runtime,
       });
     }
   });

@@ -191,6 +191,7 @@ export class Orchestrator {
         dependsOn: [], // remapped below, once all ids are known
         assignedAdvisorRole: t.assignedAdvisorRole,
         model: t.model,
+        runtime: t.runtime,
         orderIndex: i,
       });
       idMap.set(t.id, task.id);
@@ -430,7 +431,7 @@ export class Orchestrator {
     let t = updatePlanTask(db, task.id, { status: 'dispatched', attempts });
     if (t) this.emitTask(t);
     const workerId = randomUUID();
-    this.spawnPlanetRow(plan, task, workerId, 'worker', task.model);
+    this.spawnPlanetRow(plan, task, workerId, 'worker', task.model, task.runtime);
     t = updatePlanTask(db, task.id, { sessionId: workerId });
     if (t) this.emitTask(t);
 
@@ -459,6 +460,7 @@ export class Orchestrator {
       cwd,
       role: 'worker',
       model: task.model,
+      runtime: task.runtime,
       prompt: workerPrompt,
       sessionId: workerId,
       signal,
@@ -568,6 +570,7 @@ export class Orchestrator {
     sessionId: string,
     role: 'worker' | 'verifier',
     model: string | undefined,
+    runtime: import('@solix/shared').AgentRuntime = 'claude',
   ): void {
     const { db } = this.deps;
     const cwd = task.cwd ?? plan.cwd;
@@ -583,6 +586,7 @@ export class Orchestrator {
       planId: plan.id,
       planTaskId: task.id,
       sessionRole: role,
+      runtime,
     });
     const active = setSessionStatus(db, sessionId, 'active');
     if (active) this.deps.broadcast({ type: 'session_upsert', session: active });

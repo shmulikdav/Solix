@@ -365,6 +365,8 @@ function applySchema(db: DB): void {
   ensureColumn(db, 'plan_tasks', 'last_error', 'last_error TEXT');
   // A completed task's result summary, injected into dependent tasks' prompts.
   ensureColumn(db, 'plan_tasks', 'result_summary', 'result_summary TEXT');
+  // Per-task agent runtime (multi-runtime dispatch).
+  ensureColumn(db, 'plan_tasks', 'runtime', "runtime TEXT");
   // Build-studio (Phase 5): user-created projects are durable + owned by Solix,
   // distinct from auto-observed ones; `template` records how to scaffold/preview.
   ensureColumn(db, 'projects', 'managed', 'managed INTEGER NOT NULL DEFAULT 0');

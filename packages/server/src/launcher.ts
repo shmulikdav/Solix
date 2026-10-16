@@ -251,6 +251,80 @@ export function buildPrintArgs(
   return args;
 }
 
+/** Build the `codex exec` argv (Layer B: dispatch a Codex worker). Pure
+ *  (caps injected) so it's unit-testable without the Codex CLI. `--json`
+ *  gives structured output for cost parity. */
+export function buildCodexExecArgs(
+  opts: { model?: string; prompt: string },
+  caps: { json: boolean },
+): string[] {
+  const args = ['exec'];
+  if (caps.json) args.push('--json');
+  if (opts.model) args.push('--model', opts.model);
+  args.push(opts.prompt);
+  return args;
+}
+
+/** Probe (cached) whether the installed `codex` supports `exec --json`. */
+let codexCapsCache: { json: boolean } | null = null;
+function codexCaps(): { json: boolean } {
+  if (codexCapsCache) return codexCapsCache;
+  let help = '';
+  try {
+    const r = spawnSync('codex', ['exec', '--help'], {
+      encoding: 'utf8',
+      timeout: 5000,
+    });
+    help = `${r.stdout ?? ''}${r.stderr ?? ''}`;
+  } catch {
+    /* codex missing → no json; still spawns exec and falls back to raw stdout */
+  }
+  codexCapsCache = { json: help.includes('--json') };
+  return codexCapsCache;
+}
+
+/**
+ * Best-effort parse of `codex exec --json` output → assistant text + cost.
+ * Codex emits newline-delimited JSON events; we take the last assistant/result
+ * text and sum any token usage we can find. Returns null if nothing parses (the
+ * caller falls back to raw stdout). NEEDS REAL CODEX TO VALIDATE — the rollout
+ * schema is semi-stable, so this is intentionally lenient.
+ */
+export function parseCodexJsonResult(
+  stdout: string,
+): { result: string; isError: boolean; costUsd?: number } | null {
+  const lines = stdout
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith('{'));
+  if (lines.length === 0) return null;
+  let result = '';
+  let costUsd: number | undefined;
+  let isError = false;
+  for (const line of lines) {
+    let obj: Record<string, unknown>;
+    try {
+      obj = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (typeof obj.total_cost_usd === 'number') costUsd = obj.total_cost_usd;
+    if (obj.is_error === true) isError = true;
+    // Capture the latest assistant text we can find, across common shapes.
+    const text =
+      typeof obj.result === 'string'
+        ? obj.result
+        : typeof obj.text === 'string'
+          ? obj.text
+          : typeof (obj.message as Record<string, unknown>)?.content === 'string'
+            ? ((obj.message as Record<string, unknown>).content as string)
+            : '';
+    if (text) result = text;
+  }
+  if (!result && costUsd === undefined) return null;
+  return { result, isError, costUsd };
+}
+
 /** Parse `claude -p --output-format json` stdout → the assistant text + cost.
  *  Returns null if it isn't the single-object result envelope we expect. */
 export function parseClaudeJsonResult(
@@ -809,6 +883,8 @@ export class Launcher {
     sessionId?: string;
     /** Scoped secrets (granted connections) merged into the worker env. */
     env?: Record<string, string>;
+    /** Agent runtime to run ('claude' default, 'codex'). */
+    runtime?: 'claude' | 'codex';
   }): Promise<{ ok: boolean; output: string; error?: string; costUsd?: number }> {
     return new Promise((resolve) => {
       // Honor an already-aborted signal before spawning anything.
@@ -816,14 +892,36 @@ export class Launcher {
         resolve({ ok: false, output: '', error: 'aborted' });
         return;
       }
-      const caps = claudeCaps();
-      // Structured output → an accurate per-run cost (total_cost_usd) the
-      // orchestrator can tally BEFORE the next budget check (no watcher lag).
-      const args = buildPrintArgs(
-        { model: opts.model, sessionId: opts.sessionId, prompt: opts.prompt },
-        caps,
-      );
-      const useJson = caps.jsonOutput;
+      // Pick the runtime: Claude Code (default) or Codex. Each has its own
+      // binary, arg builder, and JSON-result parser; everything downstream
+      // (env, abort, cost tally) is shared.
+      const runtime = opts.runtime ?? 'claude';
+      let bin: string;
+      let args: string[];
+      let useJson: boolean;
+      let parseResult: (
+        stdout: string,
+      ) => { result: string; isError: boolean; costUsd?: number } | null;
+      if (runtime === 'codex') {
+        const cc = codexCaps();
+        bin = 'codex';
+        // task.model is usually a Claude alias; only forward an OpenAI/Codex id.
+        const codexModel = /gpt|codex/i.test(opts.model ?? '')
+          ? opts.model
+          : undefined;
+        args = buildCodexExecArgs({ model: codexModel, prompt: opts.prompt }, cc);
+        useJson = cc.json;
+        parseResult = parseCodexJsonResult;
+      } else {
+        const caps = claudeCaps();
+        bin = 'claude';
+        args = buildPrintArgs(
+          { model: opts.model, sessionId: opts.sessionId, prompt: opts.prompt },
+          caps,
+        );
+        useJson = caps.jsonOutput;
+        parseResult = parseClaudeJsonResult;
+      }
       // Base (scrubbed for contained workers) env + the task's granted secrets.
       const baseEnv = buildSpawnEnv(opts.contain);
       const spawnEnv = opts.env
@@ -831,7 +929,7 @@ export class Launcher {
         : baseEnv;
       let child: ChildProcess;
       try {
-        const spec = sandboxWrap('claude', args);
+        const spec = sandboxWrap(bin, args);
         child = spawn(spec.file, spec.args, {
           cwd: opts.cwd,
           stdio: ['ignore', 'pipe', 'pipe'],
@@ -842,7 +940,7 @@ export class Launcher {
         resolve({
           ok: false,
           output: '',
-          error: `claude spawn failed: ${(err as Error).message}`,
+          error: `${bin} spawn failed: ${(err as Error).message}`,
         });
         return;
       }
@@ -888,7 +986,7 @@ export class Launcher {
         // assistant text + total_cost_usd. Parse it; fall back to raw stdout if
         // the shape isn't what we expect (older CC / --verbose array form).
         if (useJson) {
-          const parsed = parseClaudeJsonResult(stdout);
+          const parsed = parseResult(stdout);
           if (parsed) {
             resolve({
               ok: code === 0 && !parsed.isError,
@@ -905,7 +1003,7 @@ export class Launcher {
           resolve({
             ok: false,
             output: stdout,
-            error: stderr.trim().slice(0, 300) || `claude exited with code ${code}`,
+            error: stderr.trim().slice(0, 300) || `${bin} exited with code ${code}`,
           });
         }
       });
