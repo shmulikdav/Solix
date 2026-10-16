@@ -265,6 +265,19 @@ CREATE TABLE IF NOT EXISTS connection_grants (
 CREATE INDEX IF NOT EXISTS idx_secrets_connection ON secrets(connection_id);
 CREATE INDEX IF NOT EXISTS idx_grants_connection ON connection_grants(connection_id);
 CREATE INDEX IF NOT EXISTS idx_grants_scope ON connection_grants(scope);
+
+-- P3 #11 — chat notifiers: Slack/Telegram destinations Solix posts events to.
+-- The provider config (webhook URL / bot token) is AES-GCM encrypted at rest,
+-- never returned over the API — same discipline as secrets.
+CREATE TABLE IF NOT EXISTS notifiers (
+  id TEXT PRIMARY KEY,
+  provider TEXT NOT NULL,
+  name TEXT NOT NULL,
+  config_enc TEXT NOT NULL,
+  events_json TEXT NOT NULL DEFAULT '[]',
+  enabled INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL
+);
 `;
 
 export type DB = Database.Database;

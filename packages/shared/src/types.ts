@@ -312,6 +312,30 @@ export interface Connection {
   grants: string[];
 }
 
+// ── Chat notifiers (P3 #11) ────────────────────────────────────────────
+// A destination Solix posts fleet events to (Slack incoming webhook or a
+// Telegram bot). The provider credentials are encrypted at rest and never
+// returned over the API — only the non-secret shape is exposed.
+
+export type NotifierProvider = 'slack' | 'telegram';
+
+/** Fleet events a notifier can subscribe to. */
+export type NotifyEvent =
+  | 'plan_completed'
+  | 'plan_failed'
+  | 'task_escalated'
+  | 'budget_alert';
+
+export interface Notifier {
+  id: string;
+  provider: NotifierProvider;
+  name: string;
+  /** Which events this destination receives. */
+  events: NotifyEvent[];
+  enabled: boolean;
+  createdAt: number;
+}
+
 export type ToolCallStatus = 'running' | 'ok' | 'error';
 
 export interface ToolCall {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { Connection } from '@solix/shared';
+import type { Connection, Notifier, NotifyEvent } from '@solix/shared';
 
 interface Props {
   open: boolean;
@@ -114,7 +114,180 @@ export function ConnectionsPanel({ open, onClose }: Props): JSX.Element | null {
             ))}
           </div>
         )}
+
+        <div className="border-t border-solix-border pt-4">
+          <NotifiersSection open={open} />
+        </div>
       </div>
+    </div>
+  );
+}
+
+const NOTIFY_EVENTS: { value: NotifyEvent; label: string }[] = [
+  { value: 'plan_completed', label: 'Plan completed' },
+  { value: 'plan_failed', label: 'Plan failed' },
+  { value: 'task_escalated', label: 'Task escalated' },
+  { value: 'budget_alert', label: 'Budget alert' },
+];
+
+/** Chat notifiers (P3 #11) — post fleet events to Slack/Telegram. Self-contained;
+ *  talks to /api/notifiers. Credentials are write-only (never returned). */
+function NotifiersSection({ open }: { open: boolean }): JSX.Element {
+  const [list, setList] = useState<Notifier[]>([]);
+  const [provider, setProvider] = useState<'slack' | 'telegram'>('slack');
+  const [name, setName] = useState('');
+  const [webhookUrl, setWebhookUrl] = useState('');
+  const [botToken, setBotToken] = useState('');
+  const [chatId, setChatId] = useState('');
+  const [events, setEvents] = useState<NotifyEvent[]>(['plan_completed', 'plan_failed']);
+  const [busy, setBusy] = useState(false);
+
+  const refresh = async (): Promise<void> => {
+    try {
+      const r = await fetch('/api/notifiers');
+      setList((await r.json()) as Notifier[]);
+    } catch {
+      /* offline */
+    }
+  };
+  useEffect(() => {
+    if (open) void refresh();
+  }, [open]);
+
+  const add = async (): Promise<void> => {
+    if (!name.trim() || busy) return;
+    const config =
+      provider === 'slack' ? { webhookUrl: webhookUrl.trim() } : { botToken: botToken.trim(), chatId: chatId.trim() };
+    setBusy(true);
+    await fetch('/api/notifiers', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ provider, name: name.trim(), config, events }),
+    }).catch(() => {});
+    setBusy(false);
+    setName('');
+    setWebhookUrl('');
+    setBotToken('');
+    setChatId('');
+    await refresh();
+  };
+
+  const toggle = async (n: Notifier): Promise<void> => {
+    await fetch(`/api/notifiers/${n.id}/toggle`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ enabled: !n.enabled }),
+    }).catch(() => {});
+    await refresh();
+  };
+  const remove = async (id: string): Promise<void> => {
+    await fetch(`/api/notifiers/${id}`, { method: 'DELETE' }).catch(() => {});
+    await refresh();
+  };
+  const test = async (id: string): Promise<void> => {
+    await fetch(`/api/notifiers/${id}/test`, { method: 'POST' }).catch(() => {});
+  };
+
+  const toggleEvent = (e: NotifyEvent): void =>
+    setEvents((prev) => (prev.includes(e) ? prev.filter((x) => x !== e) : [...prev, e]));
+
+  return (
+    <div className="space-y-3">
+      <div className="text-[10px] uppercase tracking-widest text-slate-500">
+        Notifications
+      </div>
+      <div className="text-[11px] text-slate-500 leading-snug">
+        Post fleet events to Slack or Telegram. Combined with webhook routines,
+        you can drive and monitor Solix from your phone.
+      </div>
+
+      <div className="rounded border border-solix-border bg-black/20 p-2 space-y-2">
+        <div className="flex gap-2">
+          <select
+            value={provider}
+            onChange={(e) => setProvider(e.target.value as 'slack' | 'telegram')}
+            className="text-xs bg-black/40 border border-solix-border rounded p-2 text-slate-200 focus:outline-none focus:border-solix-accent"
+          >
+            <option value="slack">Slack</option>
+            <option value="telegram">Telegram</option>
+          </select>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Name (e.g. Eng channel)"
+            className="flex-1 text-sm bg-black/40 border border-solix-border rounded p-2 text-slate-100 placeholder-slate-600 focus:outline-none focus:border-solix-accent"
+          />
+        </div>
+        {provider === 'slack' ? (
+          <input
+            value={webhookUrl}
+            onChange={(e) => setWebhookUrl(e.target.value)}
+            placeholder="Incoming webhook URL"
+            className="w-full text-xs font-mono bg-black/40 border border-solix-border rounded p-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-solix-accent"
+          />
+        ) : (
+          <div className="flex gap-2">
+            <input
+              value={botToken}
+              onChange={(e) => setBotToken(e.target.value)}
+              placeholder="Bot token"
+              className="flex-1 text-xs font-mono bg-black/40 border border-solix-border rounded p-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-solix-accent"
+            />
+            <input
+              value={chatId}
+              onChange={(e) => setChatId(e.target.value)}
+              placeholder="Chat id"
+              className="w-28 text-xs font-mono bg-black/40 border border-solix-border rounded p-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-solix-accent"
+            />
+          </div>
+        )}
+        <div className="flex flex-wrap gap-1.5">
+          {NOTIFY_EVENTS.map((e) => (
+            <button
+              key={e.value}
+              onClick={() => toggleEvent(e.value)}
+              className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                events.includes(e.value)
+                  ? 'border-solix-accent/60 text-solix-accent bg-solix-accent/10'
+                  : 'border-solix-border text-slate-400'
+              }`}
+            >
+              {e.label}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={() => void add()}
+          disabled={busy || !name.trim()}
+          className="w-full py-1.5 rounded bg-solix-accent/15 border border-solix-accent/50 text-solix-accent text-xs hover:bg-solix-accent/25 disabled:opacity-40"
+        >
+          Add notifier
+        </button>
+      </div>
+
+      {list.map((n) => (
+        <div
+          key={n.id}
+          className="rounded border border-solix-border bg-black/20 p-2 flex items-center gap-2 text-xs"
+        >
+          <span className="text-slate-500">{n.provider === 'slack' ? '💬' : '✈'}</span>
+          <div className="flex-1 min-w-0">
+            <div className="text-slate-200 truncate">{n.name}</div>
+            <div className="text-[10px] text-slate-500 truncate">
+              {n.events.join(', ') || 'no events'}
+            </div>
+          </div>
+          <button onClick={() => void test(n.id)} className="text-slate-400 hover:text-slate-100">
+            Test
+          </button>
+          <button onClick={() => void toggle(n)} className="text-slate-400 hover:text-slate-100">
+            {n.enabled ? 'On' : 'Off'}
+          </button>
+          <button onClick={() => void remove(n.id)} className="text-solix-danger/80 hover:text-solix-danger">
+            ✕
+          </button>
+        </div>
+      ))}
     </div>
   );
 }

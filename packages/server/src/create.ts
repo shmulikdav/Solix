@@ -27,6 +27,7 @@ import {
   recordScheduleRun,
 } from './state/schedules.js';
 import type { ScheduledTask, TriggerKind } from '@solix/shared';
+import { startNotificationDispatcher } from './state/notifiers.js';
 import { now } from './util.js';
 
 // Models a plan task may be dispatched with (mirrors the New Task picker).
@@ -231,12 +232,17 @@ export async function createSolixServer(
     }
   }, 30_000);
 
+  // P3 #11 — post fleet events (plan done/failed, escalations, budget) to any
+  // configured Slack/Telegram notifiers by tapping the broadcaster.
+  const stopNotifier = startNotificationDispatcher(db, broadcaster);
+
   return {
     port,
     hostname,
     close: () =>
       new Promise<void>((resolve) => {
         clearInterval(scheduleTimer);
+        stopNotifier();
         stopAgentViewBridge();
         transcripts.shutdownAll();
         launcher.shutdownAll();

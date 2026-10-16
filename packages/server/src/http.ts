@@ -121,6 +121,15 @@ import {
   listTeamTemplates,
 } from './state/teams.js';
 import {
+  createNotifier,
+  deleteNotifier,
+  deliverNotification,
+  getNotifier,
+  getNotifierConfig,
+  listNotifiers,
+  setNotifierEnabled,
+} from './state/notifiers.js';
+import {
   exportManifest,
   getVersion,
   importManifest,
@@ -348,6 +357,60 @@ export function createHttpApp(opts: {
   app.delete('/api/connections/:id/grants/:scope', (c) => {
     revokeGrant(opts.db, c.req.param('id'), c.req.param('scope'));
     return c.json(getConnection(opts.db, c.req.param('id')));
+  });
+
+  // ──── P3 #11: chat notifiers (Slack/Telegram) ───────────────
+  // Provider config is encrypted at rest and never returned — only the
+  // non-secret notifier shape is listed. Solix posts events to these.
+  app.get('/api/notifiers', (c) => c.json(listNotifiers(opts.db)));
+  app.post('/api/notifiers', async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as {
+      provider?: string;
+      name?: string;
+      config?: Record<string, unknown>;
+      events?: string[];
+    };
+    const provider = b.provider === 'telegram' ? 'telegram' : b.provider === 'slack' ? 'slack' : null;
+    if (!provider || !b.name?.trim() || !b.config) {
+      return c.json({ error: 'provider (slack|telegram), name, config required' }, 400);
+    }
+    // Minimal shape validation per provider (values stay server-side, encrypted).
+    const cfg = b.config as Record<string, string>;
+    if (provider === 'slack' && !cfg.webhookUrl) {
+      return c.json({ error: 'slack config needs webhookUrl' }, 400);
+    }
+    if (provider === 'telegram' && (!cfg.botToken || !cfg.chatId)) {
+      return c.json({ error: 'telegram config needs botToken and chatId' }, 400);
+    }
+    const notifier = createNotifier(opts.db, {
+      provider,
+      name: b.name.trim(),
+      config: cfg as never,
+      events: (b.events ?? []) as never,
+    });
+    return c.json(notifier);
+  });
+  app.post('/api/notifiers/:id/toggle', async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as { enabled?: boolean };
+    const n = setNotifierEnabled(opts.db, c.req.param('id'), Boolean(b.enabled));
+    if (!n) return c.json({ error: 'not found' }, 404);
+    return c.json(n);
+  });
+  app.delete('/api/notifiers/:id', (c) =>
+    c.json({ ok: deleteNotifier(opts.db, c.req.param('id')) }),
+  );
+  // Send a test message to verify a notifier is wired correctly.
+  app.post('/api/notifiers/:id/test', async (c) => {
+    const id = c.req.param('id');
+    const n = getNotifier(opts.db, id);
+    const config = getNotifierConfig(opts.db, id);
+    if (!n || !config) return c.json({ error: 'not found' }, 404);
+    const ok = await deliverNotification(
+      n.provider,
+      config,
+      `🔔 Test from Solix — "${n.name}" is wired up.`,
+    );
+    return c.json({ ok });
   });
 
   // Build-studio: create a durable, user-owned project — scaffold a directory,
