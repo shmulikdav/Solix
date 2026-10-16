@@ -3,7 +3,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
 import { nanoid } from 'nanoid';
-import type { Model } from '@solix/shared';
+import { costForUsage, type Model } from '@solix/shared';
 import type { DB } from './db.js';
 import type { Broadcaster } from './broadcaster.js';
 import { ensureProject } from './state/projects.js';
@@ -209,6 +209,21 @@ function sandboxWrap(
 }
 
 /**
+ * Resolve the agent binary to spawn. Overridable per runtime so a non-standard
+ * install (nvm shim, custom prefix, a wrapper script) works without PATH
+ * surgery — and so the end-to-end launcher test can drive the REAL spawn path
+ * against a stand-in binary instead of mocking it away.
+ */
+export function resolveAgentBin(runtime: 'claude' | 'codex' = 'claude'): string {
+  const override =
+    runtime === 'codex'
+      ? process.env.SOLIX_CODEX_BIN
+      : process.env.SOLIX_CLAUDE_BIN;
+  const trimmed = (override ?? '').trim();
+  return trimmed || runtime;
+}
+
+/**
  * Probe (once, cached) which flags the installed `claude` supports, so `runOnce`
  * degrades gracefully on older versions. `--session-id` (deterministic worker
  * correlation → containment) and `--output-format` (accurate per-run cost) are
@@ -219,7 +234,7 @@ function claudeCaps(): { sessionId: boolean; jsonOutput: boolean } {
   if (claudeCapsCache) return claudeCapsCache;
   let help = '';
   try {
-    const r = spawnSync('claude', ['--help'], {
+    const r = spawnSync(resolveAgentBin('claude'), ['--help'], {
       encoding: 'utf8',
       timeout: 5000,
     });
@@ -232,6 +247,15 @@ function claudeCaps(): { sessionId: boolean; jsonOutput: boolean } {
     jsonOutput: help.includes('--output-format'),
   };
   return claudeCapsCache;
+}
+
+/**
+ * Test-only: clear the cached capability probes so a suite can point
+ * SOLIX_CLAUDE_BIN/SOLIX_CODEX_BIN at a different binary and re-probe.
+ */
+export function resetAgentCapsForTests(): void {
+  claudeCapsCache = null;
+  codexCapsCache = null;
 }
 
 /** Build the `claude` argv for a one-shot run. Pure (caps injected) so the
@@ -271,7 +295,7 @@ function codexCaps(): { json: boolean } {
   if (codexCapsCache) return codexCapsCache;
   let help = '';
   try {
-    const r = spawnSync('codex', ['exec', '--help'], {
+    const r = spawnSync(resolveAgentBin('codex'), ['exec', '--help'], {
       encoding: 'utf8',
       timeout: 5000,
     });
@@ -290,8 +314,24 @@ function codexCaps(): { json: boolean } {
  * caller falls back to raw stdout). NEEDS REAL CODEX TO VALIDATE — the rollout
  * schema is semi-stable, so this is intentionally lenient.
  */
+/**
+ * Parse `codex exec --json` NDJSON → assistant text + cost.
+ *
+ * EXPERIMENTAL / UNVERIFIED: written against Codex's documented-at-the-time
+ * event stream, never run against the real binary (see README). It is therefore
+ * deliberately tolerant — it scans every JSON line, accepts several text and
+ * usage shapes, and ignores events it doesn't recognize, so a schema drift
+ * degrades to "no cost / no text" rather than throwing.
+ *
+ * Codex reports TOKEN USAGE, not a dollar figure, so unlike Claude Code there's
+ * no `total_cost_usd` to read: we price the usage locally via the shared
+ * pricing table. Without this, a Codex worker's spend was always undefined and
+ * contributed nothing to plan budgets — i.e. the budget cap silently did not
+ * apply to Codex tasks.
+ */
 export function parseCodexJsonResult(
   stdout: string,
+  model?: string,
 ): { result: string; isError: boolean; costUsd?: number } | null {
   const lines = stdout
     .split('\n')
@@ -300,6 +340,7 @@ export function parseCodexJsonResult(
   if (lines.length === 0) return null;
   let result = '';
   let costUsd: number | undefined;
+  let codexUsageCost: number | undefined;
   let isError = false;
   for (const line of lines) {
     let obj: Record<string, unknown>;
@@ -309,7 +350,52 @@ export function parseCodexJsonResult(
       continue;
     }
     if (typeof obj.total_cost_usd === 'number') costUsd = obj.total_cost_usd;
-    if (obj.is_error === true) isError = true;
+    // Codex reports usage instead of cost — price it locally. Accept the usage
+    // object at the top level or nested under a turn/completed envelope, in
+    // either snake_case or camelCase.
+    const usageRaw =
+      (obj.usage as Record<string, unknown> | undefined) ??
+      ((obj.turn as Record<string, unknown> | undefined)?.usage as
+        | Record<string, unknown>
+        | undefined) ??
+      ((obj.info as Record<string, unknown> | undefined)?.usage as
+        | Record<string, unknown>
+        | undefined);
+    if (usageRaw && costUsd === undefined) {
+      const num = (...keys: string[]): number => {
+        for (const k of keys) {
+          const v = usageRaw[k];
+          if (typeof v === 'number') return v;
+        }
+        return 0;
+      };
+      const usage = {
+        input_tokens: num('input_tokens', 'inputTokens', 'prompt_tokens'),
+        output_tokens: num('output_tokens', 'outputTokens', 'completion_tokens'),
+        cache_read_input_tokens: num(
+          'cache_read_input_tokens',
+          'cacheReadInputTokens',
+          'cached_input_tokens',
+        ),
+        cache_creation_input_tokens: num(
+          'cache_creation_input_tokens',
+          'cacheCreationInputTokens',
+        ),
+      };
+      if (usage.input_tokens || usage.output_tokens) {
+        codexUsageCost = costForUsage(model ?? 'gpt-5', usage);
+      }
+    }
+    // Error signals across plausible shapes.
+    if (
+      obj.is_error === true ||
+      obj.type === 'error' ||
+      typeof obj.error === 'string' ||
+      (typeof obj.error === 'object' && obj.error !== null)
+    ) {
+      isError = true;
+      if (typeof obj.error === 'string' && !result) result = obj.error;
+    }
     // Capture the latest assistant text we can find, across common shapes.
     const text =
       typeof obj.result === 'string'
@@ -321,8 +407,11 @@ export function parseCodexJsonResult(
             : '';
     if (text) result = text;
   }
-  if (!result && costUsd === undefined) return null;
-  return { result, isError, costUsd };
+  // Prefer an explicit cost if the stream ever provides one; else use the
+  // locally-priced token usage.
+  const finalCost = costUsd ?? codexUsageCost;
+  if (!result && finalCost === undefined && !isError) return null;
+  return { result, isError, costUsd: finalCost };
 }
 
 /** Parse `claude -p --output-format json` stdout → the assistant text + cost.
@@ -335,15 +424,33 @@ export function parseClaudeJsonResult(
   try {
     const obj = JSON.parse(trimmed) as Record<string, unknown>;
     if (typeof obj !== 'object' || obj === null) return null;
+    // Success is explicitly `subtype: 'success'`; the failure arms use
+    // error_max_turns / error_during_execution / error_max_budget_usd / … and
+    // that set is not closed, so treat any non-success subtype on a result
+    // envelope as a failure rather than enumerating known error values. (A
+    // build that sets an error subtype WITHOUT is_error would otherwise read
+    // as success.) Guarded on type==='result' so a stray non-result object
+    // isn't mis-flagged.
+    const subtype = typeof obj.subtype === 'string' ? obj.subtype : undefined;
+    const isError =
+      obj.is_error === true ||
+      (subtype?.startsWith('error') ?? false) ||
+      (obj.type === 'result' && subtype != null && subtype !== 'success');
+    // The failure arms carry `errors: string[]` and NO `result`, so fall back
+    // to them — otherwise a failed run surfaces with an empty reason and the
+    // retry prompt has nothing to correct against.
+    const errors = Array.isArray(obj.errors)
+      ? obj.errors.filter((e): e is string => typeof e === 'string')
+      : [];
     const result =
-      typeof obj.result === 'string'
+      typeof obj.result === 'string' && obj.result !== ''
         ? obj.result
-        : typeof obj.text === 'string'
+        : typeof obj.text === 'string' && obj.text !== ''
           ? obj.text
-          : '';
+          : errors.join('; ');
     return {
       result,
-      isError: obj.is_error === true,
+      isError,
       costUsd:
         typeof obj.total_cost_usd === 'number' ? obj.total_cost_usd : undefined,
     };
@@ -384,7 +491,7 @@ export class Launcher {
     }
 
     try {
-      const spawnSpec = sandboxWrap('claude', [
+      const spawnSpec = sandboxWrap(resolveAgentBin('claude'), [
         '--agent',
         advisor.id,
         '--no-tty',
@@ -654,7 +761,7 @@ export class Launcher {
 
     let child: ChildProcess;
     try {
-      const spawnSpec = sandboxWrap('claude', args);
+      const spawnSpec = sandboxWrap(resolveAgentBin('claude'), args);
       child = spawn(spawnSpec.file, spawnSpec.args, {
         cwd: opts.cwd,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -784,7 +891,7 @@ export class Launcher {
   }): { ok: boolean; sessionId?: string } {
     let child: ChildProcess;
     try {
-      const spawnSpec = sandboxWrap('claude', opts.args);
+      const spawnSpec = sandboxWrap(resolveAgentBin('claude'), opts.args);
       child = spawn(spawnSpec.file, spawnSpec.args, {
         cwd: opts.cwd,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -904,17 +1011,17 @@ export class Launcher {
       ) => { result: string; isError: boolean; costUsd?: number } | null;
       if (runtime === 'codex') {
         const cc = codexCaps();
-        bin = 'codex';
+        bin = resolveAgentBin('codex');
         // task.model is usually a Claude alias; only forward an OpenAI/Codex id.
         const codexModel = /gpt|codex/i.test(opts.model ?? '')
           ? opts.model
           : undefined;
         args = buildCodexExecArgs({ model: codexModel, prompt: opts.prompt }, cc);
         useJson = cc.json;
-        parseResult = parseCodexJsonResult;
+        parseResult = (out) => parseCodexJsonResult(out, codexModel ?? opts.model);
       } else {
         const caps = claudeCaps();
-        bin = 'claude';
+        bin = resolveAgentBin('claude');
         args = buildPrintArgs(
           { model: opts.model, sessionId: opts.sessionId, prompt: opts.prompt },
           caps,
@@ -992,7 +1099,11 @@ export class Launcher {
               ok: code === 0 && !parsed.isError,
               output: parsed.result,
               costUsd: parsed.costUsd,
-              error: parsed.isError ? 'claude reported an error' : undefined,
+              // Carry the model's own reason through, so the task thread and
+              // the retry prompt get something actionable.
+              error: parsed.isError
+                ? parsed.result || `${bin} reported an error`
+                : undefined,
             });
             return;
           }

@@ -38,7 +38,6 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX IF NOT EXISTS idx_sessions_project ON sessions(project_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
-CREATE INDEX IF NOT EXISTS idx_sessions_kind ON sessions(kind);
 
 CREATE TABLE IF NOT EXISTS advisors (
   id TEXT PRIMARY KEY,
@@ -388,7 +387,11 @@ function relaxLegacyOriginCheck(db: DB): void {
       db.exec(
         `CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status)`,
       );
-      db.exec(`CREATE INDEX IF NOT EXISTS idx_sessions_kind ON sessions(kind)`);
+      // NOT idx_sessions_kind here: this rebuild happens BEFORE ensureColumn
+      // adds `kind`, so on the very legacy DBs this migration exists to fix the
+      // index would throw, roll the whole transaction back, and leave the CHECK
+      // in place — silently, since the catch below only warns. applySchema
+      // creates that index after ensureColumn instead.
     })();
     console.log('[solix] migrated sessions.origin CHECK (Agent View enabled)');
   } catch (err) {
@@ -468,7 +471,12 @@ function applySchema(db: DB): void {
   // added the columns to the sessions table (they aren't in the base schema).
   db.exec(
     `CREATE INDEX IF NOT EXISTS idx_sessions_plan ON sessions(plan_id);
-     CREATE INDEX IF NOT EXISTS idx_sessions_plan_task ON sessions(plan_task_id);`,
+     CREATE INDEX IF NOT EXISTS idx_sessions_plan_task ON sessions(plan_task_id);
+     -- sessions.kind is also ensureColumn-added, so its index belongs here too:
+     -- creating it inside SCHEMA threw "no such column: kind" when upgrading a
+     -- pre-v2 database (the table already existed, so CREATE TABLE was a no-op
+     -- and the column hadn't been added yet).
+     CREATE INDEX IF NOT EXISTS idx_sessions_kind ON sessions(kind);`,
   );
 }
 

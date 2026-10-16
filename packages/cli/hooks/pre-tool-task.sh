@@ -11,7 +11,7 @@
 #
 # Fail policy (gate mode, when the server is unreachable or times out):
 #   SOLIX_GATE_POLICY=fail-open  (default) -> defer to Claude Code's own flow
-#   SOLIX_GATE_POLICY=fail-closed          -> deny
+#   SOLIX_GATE_POLICY=deny|fail-closed|closed -> deny (what Solix injects)
 SOLIX_HOST="${SOLIX_HOST:-127.0.0.1}"
 SOLIX_PORT="${SOLIX_PORT:-4242}"
 EVENT="pre_tool_task"
@@ -53,9 +53,15 @@ case "$DECISION" in
     exit 0
     ;;
   *)
-    if [ "$SOLIX_GATE_POLICY" = "fail-closed" ]; then
+    # Accept every fail-closed spelling. The launcher injects `deny`
+    # (containmentGateEnv), while this hook historically only matched
+    # `fail-closed` — so a Solix-launched worker silently FAILED OPEN on an
+    # unreachable/timed-out gate, which is the exact case the guarantee is for.
+    case "$SOLIX_GATE_POLICY" in
+      deny|fail-closed|closed)
       printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Solix gate unavailable (fail-closed)"}}'
-    fi
+        ;;
+    esac
     exit 0
     ;;
 esac

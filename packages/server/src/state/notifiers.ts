@@ -231,6 +231,29 @@ export async function deliverNotification(
  * notifier subscribed to that event. Returns an unsubscribe. `transport` is
  * injectable for tests.
  */
+export const MAX_DEDUPE_KEYS = 2000;
+
+/**
+ * Remember a dedupe key, bounded. A long-lived server would otherwise grow this
+ * set forever (one key per plan/task/alert, for the life of the process), which
+ * is a slow leak. Sets iterate in insertion order, so once the cap is hit we
+ * drop the oldest quarter — far older than any event still being deduped.
+ * Returns false when the key was already seen.
+ */
+export function rememberDedupeKey(seen: Set<string>, key: string): boolean {
+  if (seen.has(key)) return false;
+  seen.add(key);
+  if (seen.size > MAX_DEDUPE_KEYS) {
+    const drop = Math.floor(MAX_DEDUPE_KEYS / 4);
+    let i = 0;
+    for (const k of seen) {
+      seen.delete(k);
+      if (++i >= drop) break;
+    }
+  }
+  return true;
+}
+
 export function startNotificationDispatcher(
   db: DB,
   broadcaster: { tap: (fn: (m: ServerMessage) => void) => () => void },
@@ -240,8 +263,8 @@ export function startNotificationDispatcher(
   const planName = (id: string): string => getPlan(db, id)?.name ?? id;
   return broadcaster.tap((msg) => {
     const classified = classifyEvent(msg, planName);
-    if (!classified || seen.has(classified.dedupeKey)) return;
-    seen.add(classified.dedupeKey);
+    if (!classified) return;
+    if (!rememberDedupeKey(seen, classified.dedupeKey)) return;
     for (const n of listNotifiers(db)) {
       if (!n.enabled || !n.events.includes(classified.event)) continue;
       const config = getNotifierConfig(db, n.id);
