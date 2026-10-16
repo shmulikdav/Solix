@@ -234,6 +234,22 @@ export interface PlanTask {
   updatedAt: number;
 }
 
+/** A managed integration (API key bundle, or later an MCP server) that workers
+ *  can be granted scoped access to. Secret VALUES are never carried in this
+ *  shape — only the key names, for display. */
+export type ConnectionKind = 'env' | 'mcp';
+
+export interface Connection {
+  id: string;
+  name: string;
+  kind: ConnectionKind;
+  createdAt: number;
+  /** The secret key NAMES stored for this connection (values never exposed). */
+  secretKeys: string[];
+  /** Who may use it: advisor roles, plan ids, or '*' for every worker. */
+  grants: string[];
+}
+
 export type ToolCallStatus = 'running' | 'ok' | 'error';
 
 export interface ToolCall {

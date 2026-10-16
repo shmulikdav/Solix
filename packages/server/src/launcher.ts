@@ -807,6 +807,8 @@ export class Launcher {
      *  hooks/tool-calls land on the pre-created plan-linked planet row (enabling
      *  containment + the fleet visualization). Must be a UUID. */
     sessionId?: string;
+    /** Scoped secrets (granted connections) merged into the worker env. */
+    env?: Record<string, string>;
   }): Promise<{ ok: boolean; output: string; error?: string; costUsd?: number }> {
     return new Promise((resolve) => {
       // Honor an already-aborted signal before spawning anything.
@@ -822,6 +824,11 @@ export class Launcher {
         caps,
       );
       const useJson = caps.jsonOutput;
+      // Base (scrubbed for contained workers) env + the task's granted secrets.
+      const baseEnv = buildSpawnEnv(opts.contain);
+      const spawnEnv = opts.env
+        ? { ...(baseEnv ?? process.env), ...opts.env }
+        : baseEnv;
       let child: ChildProcess;
       try {
         const spec = sandboxWrap('claude', args);
@@ -829,7 +836,7 @@ export class Launcher {
           cwd: opts.cwd,
           stdio: ['ignore', 'pipe', 'pipe'],
           detached: false,
-          env: buildSpawnEnv(opts.contain),
+          env: spawnEnv,
         });
       } catch (err) {
         resolve({

@@ -3,6 +3,11 @@ import type { ServerMessage } from '@solix/shared';
 import { resetDbForTests, type DB } from '../db.js';
 import { ensureProject } from '../state/projects.js';
 import {
+  createConnection,
+  grantConnection,
+  setSecret,
+} from '../state/connections.js';
+import {
   createPlan,
   createPlanTask,
   updatePlan,
@@ -657,5 +662,53 @@ describe('Orchestrator dependency summaries', () => {
     const b = orch.getPlanWithTasks(planId!)!;
     const t1 = b.tasks.find((t) => t.title === 'Build form')!;
     expect(t1.resultSummary).toBe('BUILT_THE_LOGIN_FORM');
+  });
+});
+
+// Captures the env each worker runOnce received, to prove scoped-secret injection.
+class EnvCapturingRunner implements SessionRunner {
+  workerEnvs: Array<Record<string, string> | undefined> = [];
+  runOnce(o: RunOnceOpts): Promise<RunOnceResult> {
+    if (o.role === 'planner')
+      return Promise.resolve({ ok: true, output: PLAN_JSON });
+    if (o.role === 'verifier')
+      return Promise.resolve({
+        ok: true,
+        output: JSON.stringify({ pass: true, reason: 'ok' }),
+      });
+    this.workerEnvs.push(o.env);
+    return Promise.resolve({ ok: true, output: 'done' });
+  }
+}
+
+describe('Orchestrator secret injection', () => {
+  let db: DB;
+  beforeEach(() => {
+    db = resetDbForTests();
+  });
+
+  it('injects only the secrets granted to the task advisor', async () => {
+    // PLAN_JSON: t1 → advisor 'forge', t2 → 'argus'.
+    const conn = createConnection(db, { name: 'GitHub', kind: 'env' });
+    setSecret(db, conn.id, 'GITHUB_TOKEN', 'ghp_x');
+    grantConnection(db, conn.id, 'forge'); // only forge's tasks get it
+
+    const runner = new EnvCapturingRunner();
+    const orch = new Orchestrator({
+      db,
+      runner,
+      broadcast: () => {},
+      getKnownAdvisorRoles: () => ['forge', 'argus', 'mira'],
+      knownModels: ['opus', 'sonnet', 'haiku', 'default'],
+      getMaestroPrompt: () => 'MAESTRO PROMPT',
+      fullAutoStatus: () => ({ ok: true, reasons: [] }),
+    });
+    const { planId } = await orch.createPlanFromGoal({ goal: 'g', cwd: '/tmp/p' });
+    orch.approvePlan(planId!);
+    await orch.advance(planId!);
+
+    // t1 (forge) got the token; t2 (argus) did not.
+    expect(runner.workerEnvs[0]).toEqual({ GITHUB_TOKEN: 'ghp_x' });
+    expect(runner.workerEnvs[1]).toEqual({});
   });
 });

@@ -14,6 +14,7 @@ import {
 } from '../state/plans.js';
 import { ensureProject } from '../state/projects.js';
 import { gitHead } from '../state/git.js';
+import { resolveWorkerEnv } from '../state/connections.js';
 import {
   setSessionCost,
   setSessionStatus,
@@ -461,6 +462,11 @@ export class Orchestrator {
       prompt: workerPrompt,
       sessionId: workerId,
       signal,
+      // Least-privilege: only the secrets granted to this task's advisor/plan.
+      env: resolveWorkerEnv(db, {
+        advisorRole: task.assignedAdvisorRole,
+        planId: plan.id,
+      }),
     });
     // Record the run's cost on the plan-linked row BEFORE the next budget check
     // (avoids the transcript-watcher lag → no overshoot).

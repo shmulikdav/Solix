@@ -32,6 +32,16 @@ import {
   createManagedProject,
   listProjects,
 } from './state/projects.js';
+import {
+  createConnection,
+  deleteConnection,
+  deleteSecret,
+  getConnection,
+  grantConnection,
+  listConnections,
+  revokeGrant,
+  setSecret,
+} from './state/connections.js';
 import { defaultProjectsDir, scaffoldProject } from './state/scaffold.js';
 import { buildPlanReview } from './state/git.js';
 import { fullAutoContainmentStatus } from './containment.js';
@@ -242,6 +252,54 @@ export function createHttpApp(opts: {
   });
 
   app.get('/api/projects', (c) => c.json(listProjects(opts.db)));
+
+  // ──── Connections & secrets (scoped credential store) ────────
+  // Secret VALUES are write-only: set/rotate via POST, never returned.
+  app.get('/api/connections', (c) => c.json(listConnections(opts.db)));
+  app.post('/api/connections', async (c) => {
+    const b = (await c.req.json().catch(() => ({}))) as {
+      name?: string;
+      kind?: 'env' | 'mcp';
+    };
+    if (!b.name?.trim()) return c.json({ error: 'name required' }, 400);
+    const conn = createConnection(opts.db, {
+      name: b.name.trim(),
+      kind: b.kind === 'mcp' ? 'mcp' : 'env',
+    });
+    return c.json(conn);
+  });
+  app.delete('/api/connections/:id', (c) =>
+    c.json({ ok: deleteConnection(opts.db, c.req.param('id')) }),
+  );
+  app.post('/api/connections/:id/secrets', async (c) => {
+    const id = c.req.param('id');
+    if (!getConnection(opts.db, id)) return c.json({ error: 'not found' }, 404);
+    const b = (await c.req.json().catch(() => ({}))) as {
+      key?: string;
+      value?: string;
+    };
+    if (!b.key?.trim() || typeof b.value !== 'string') {
+      return c.json({ error: 'key and value required' }, 400);
+    }
+    setSecret(opts.db, id, b.key.trim(), b.value);
+    return c.json(getConnection(opts.db, id)); // key names only, no values
+  });
+  app.delete('/api/connections/:id/secrets/:key', (c) => {
+    deleteSecret(opts.db, c.req.param('id'), c.req.param('key'));
+    return c.json(getConnection(opts.db, c.req.param('id')));
+  });
+  app.post('/api/connections/:id/grants', async (c) => {
+    const id = c.req.param('id');
+    if (!getConnection(opts.db, id)) return c.json({ error: 'not found' }, 404);
+    const b = (await c.req.json().catch(() => ({}))) as { scope?: string };
+    if (!b.scope?.trim()) return c.json({ error: 'scope required' }, 400);
+    grantConnection(opts.db, id, b.scope.trim());
+    return c.json(getConnection(opts.db, id));
+  });
+  app.delete('/api/connections/:id/grants/:scope', (c) => {
+    revokeGrant(opts.db, c.req.param('id'), c.req.param('scope'));
+    return c.json(getConnection(opts.db, c.req.param('id')));
+  });
 
   // Build-studio: create a durable, user-owned project — scaffold a directory,
   // git-init it, register it managed. Maestro then builds into `project.cwd`.

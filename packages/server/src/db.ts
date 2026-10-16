@@ -191,6 +191,30 @@ CREATE INDEX IF NOT EXISTS idx_plan_tasks_status ON plan_tasks(status);
 -- those columns — they don't exist in the base sessions table.)
 CREATE INDEX IF NOT EXISTS idx_tool_calls_session ON tool_calls(session_id);
 CREATE INDEX IF NOT EXISTS idx_tool_calls_status ON tool_calls(status);
+
+-- Connections & secrets (scoped, encrypted credential store for workers).
+CREATE TABLE IF NOT EXISTS connections (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  kind TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS secrets (
+  id TEXT PRIMARY KEY,
+  connection_id TEXT NOT NULL REFERENCES connections(id),
+  key TEXT NOT NULL,
+  value_enc TEXT NOT NULL,
+  UNIQUE(connection_id, key)
+);
+CREATE TABLE IF NOT EXISTS connection_grants (
+  connection_id TEXT NOT NULL REFERENCES connections(id),
+  scope TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  UNIQUE(connection_id, scope)
+);
+CREATE INDEX IF NOT EXISTS idx_secrets_connection ON secrets(connection_id);
+CREATE INDEX IF NOT EXISTS idx_grants_connection ON connection_grants(connection_id);
+CREATE INDEX IF NOT EXISTS idx_grants_scope ON connection_grants(scope);
 `;
 
 export type DB = Database.Database;

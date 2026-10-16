@@ -27,6 +27,8 @@ export class LauncherSessionRunner implements SessionRunner {
       // Deterministic id → claude runs under it, so its hooks enrich the
       // pre-created plan-linked row (containment role lookup + visualization).
       sessionId: opts.sessionId,
+      // Scoped secrets (granted connections) for this worker.
+      env: opts.env,
     });
     return {
       ok: res.ok,

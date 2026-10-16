@@ -33,6 +33,7 @@ import {
 } from './schedule.js';
 import { addGoalCmd, listGoalsCmd, removeGoalCmd } from './goals.js';
 import { activateLicenseCmd, licenseStatusCmd } from './license.js';
+import { connectCmd, listConnectionsCmd } from './connections.js';
 import { start } from './start.js';
 import { uninstall } from './uninstall.js';
 
@@ -312,6 +313,33 @@ license
   .action(async (key: string) => {
     await activateLicenseCmd(key);
   });
+
+const collect = (v: string, acc: string[]): string[] => {
+  acc.push(v);
+  return acc;
+};
+
+program
+  .command('connections')
+  .description('List connections (scoped credential store for agents)')
+  .action(async () => {
+    await listConnectionsCmd();
+  });
+
+program
+  .command('connect <name>')
+  .description('Create a connection with secrets + grants')
+  .option('--kind <kind>', "'env' (default) or 'mcp'", 'env')
+  .option('--secret <KEY=VALUE>', 'a secret (repeatable)', collect, [])
+  .option('--grant <scope>', 'advisor role, plan id, or * (repeatable)', collect, [])
+  .action(
+    async (
+      name: string,
+      opts: { kind?: string; secret?: string[]; grant?: string[] },
+    ) => {
+      await connectCmd(name, opts);
+    },
+  );
 
 program.parseAsync(process.argv).catch((err) => {
   console.error(err);

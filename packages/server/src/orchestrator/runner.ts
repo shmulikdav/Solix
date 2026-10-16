@@ -20,6 +20,9 @@ export interface RunOnceOpts {
    *  child process and resolve `{ ok:false, error:'aborted' }` (Sentinel:
    *  containment needs a real kill, not a status flip). */
   signal?: AbortSignal;
+  /** Scoped secrets (from granted connections) to inject into the worker's env,
+   *  resolved at dispatch — least privilege, never the full host env. */
+  env?: Record<string, string>;
 }
 
 export interface RunOnceResult {
