@@ -7,6 +7,7 @@ interface TopBarProps {
   onOpenHelp?: () => void;
   onOpenCrew?: () => void;
   onOpenPlan?: () => void;
+  onOpenConnections?: () => void;
 }
 
 export function TopBar({
@@ -16,6 +17,7 @@ export function TopBar({
   onOpenHelp,
   onOpenCrew,
   onOpenPlan,
+  onOpenConnections,
 }: TopBarProps = {}): JSX.Element {
   const connected = useSolixStore((s) => s.connected);
   const planets = useSolixStore(selectPlanets);
@@ -120,6 +122,15 @@ export function TopBar({
             title="Maestro: describe a goal, get a plan you approve (P)"
           >
             ✷ Maestro
+          </button>
+        )}
+        {onOpenConnections && (
+          <button
+            onClick={onOpenConnections}
+            className="px-2 py-1 rounded bg-slate-500/15 border border-slate-400/40 text-slate-200 hover:bg-slate-500/25"
+            title="Connections: API keys & secrets granted to agents"
+          >
+            ⚷ Connections
           </button>
         )}
         {onOpenGalaxy && (
