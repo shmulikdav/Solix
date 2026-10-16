@@ -5,6 +5,29 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+**Maestro P1: tasks you can track, feedback that becomes work, routines that fire on demand.**
+
+Builds on the v1.12.0 Maestro preview. All additive; the Pro tier stays dormant.
+
+### Added
+- **Rich task threads.** Every plan task now keeps a chronological thread —
+  dispatched → worker result → verified / retry / escalated / aborted —
+  interleaved with your own comments. Expand a task in the Plan panel to read
+  its full run history and leave a note. (worker/verifier output is stored and
+  rendered as untrusted data.)
+- **Comment-on-passage → follow-up tasks.** In the review diff, comment on a
+  changed file and "Fix it" turns the note into a new worker task on the same
+  plan, which re-runs to address exactly that feedback — a tighter loop than
+  re-planning from scratch. The original diff baseline is kept so review stays
+  cumulative; lineage is recorded on both tasks' threads.
+- **Richer routine triggers.** Routines gain a trigger kind (interval, as
+  before; **webhook** — fire via an inbound POST to a per-routine capability
+  URL; **manual** — fire on demand), an optional owner, and a recorded run
+  history. New `solix schedules fire` / `solix schedules runs`, and
+  `schedules add --trigger webhook|manual --owner <who>`.
+
 ## [1.12.0] — 2026-10-16
 
 **Maestro (preview): describe a goal, watch your agent fleet build it — 100% local.**
