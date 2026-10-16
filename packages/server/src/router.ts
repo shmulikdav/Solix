@@ -822,6 +822,12 @@ export class EventRouter {
   broadcastProjectUpsert(project: import('@solix/shared').Project): void {
     this.broadcaster.broadcast({ type: 'project_upsert', project });
   }
+  broadcastAdvisorUpsert(advisor: import('@solix/shared').Advisor): void {
+    this.broadcaster.broadcast({ type: 'advisor_upsert', advisor });
+  }
+  broadcastSkillUpsert(skill: import('@solix/shared').Skill): void {
+    this.broadcaster.broadcast({ type: 'skill_upsert', skill });
+  }
   // v2 Maestro — broadcast helpers for plan/task CRUD driven by HTTP + the
   // orchestrator.
   broadcastPlanUpsert(plan: import('@solix/shared').Plan): void {

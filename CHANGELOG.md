@@ -27,6 +27,13 @@ Builds on the v1.12.0 Maestro preview. All additive; the Pro tier stays dormant.
   URL; **manual** — fire on demand), an optional owner, and a recorded run
   history. New `solix schedules fire` / `solix schedules runs`, and
   `schedules add --trigger webhook|manual --owner <who>`.
+- **Budget threshold alerts.** A plan now warns once at ~80% of its budget cap
+  (toast + background notification + an amber line on the plan) before the hard
+  pause at 100%, so the ceiling never arrives as a surprise.
+- **Ready-made team templates.** One-click advisor + skill + routine bundles for
+  common goals (ship-fast build team, quality & security gate, launch & devrel,
+  architecture & data). Install from the Galaxy panel's new Teams tab or
+  `solix teams install <id>`; missing pieces are skipped with a warning.
 
 ## [1.12.0] — 2026-10-16
 

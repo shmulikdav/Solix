@@ -267,6 +267,12 @@ interface SolixState {
   activateLicense: (
     key: string,
   ) => Promise<{ ok: boolean; error?: string }>;
+  /** Install a ready-made team template (advisors+skills+routines) into a
+   *  project (P2 #7). */
+  installTeamTemplate: (
+    templateId: string,
+    cwd: string,
+  ) => Promise<{ ok: boolean; warnings?: string[]; error?: string }>;
   createProject: (
     name: string,
     opts?: { path?: string; template?: string },
@@ -816,6 +822,27 @@ export const useSolixStore = create<SolixState>((set, get) => ({
         upsell?: boolean;
       };
       return { ok: Boolean(data.ok), error: data.error, upsell: data.upsell };
+    } catch {
+      return { ok: false, error: 'Could not reach the server.' };
+    }
+  },
+
+  installTeamTemplate: async (templateId, cwd) => {
+    if (!cwd.trim()) return { ok: false, error: 'Pick a project first.' };
+    try {
+      const res = await fetch(
+        `/api/teams/templates/${encodeURIComponent(templateId)}/install`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ cwd }),
+        },
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        warnings?: string[];
+      };
+      return { ok: Boolean(data.ok), warnings: data.warnings };
     } catch {
       return { ok: false, error: 'Could not reach the server.' };
     }

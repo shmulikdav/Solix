@@ -413,6 +413,44 @@ export interface Advisor {
   texturePack?: string;
 }
 
+// ── Team templates (P2 #7) ─────────────────────────────────────────────
+// A curated, installable bundle of advisors + skills + routines for a goal,
+// so a user can stand up a ready-made "team" in one click. Built on the same
+// building blocks as galaxy import/export.
+
+export interface TeamTemplateRoutine {
+  name: string;
+  prompt: string;
+  /** Trigger kind for the routine (default 'interval'). */
+  trigger?: TriggerKind;
+  /** Cadence for interval routines (e.g. '1d'). Ignored otherwise. */
+  cadence?: string;
+}
+
+export interface TeamTemplate {
+  id: string;
+  name: string;
+  description: string;
+  /** The kind of goal this team is for — shown as the tagline. */
+  goal: string;
+  /** Advisor ids this team enables (e.g. 'forge', 'argus'). */
+  advisors: string[];
+  /** Skill ids/names this team installs into the target project. */
+  skills: string[];
+  /** Routines this team sets up in the target project. */
+  routines: TeamTemplateRoutine[];
+}
+
+/** What a team-template install actually applied (missing pieces → warnings). */
+export interface TeamInstallResult {
+  ok: boolean;
+  templateId: string;
+  advisorsEnabled: string[];
+  skillsInstalled: string[];
+  routinesCreated: string[];
+  warnings: string[];
+}
+
 export type SkillSource = 'anthropic' | 'solix' | 'user';
 
 export interface Skill {

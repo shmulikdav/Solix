@@ -30,6 +30,7 @@ import type { EventRouter } from './router.js';
 import type { Orchestrator } from './orchestrator/index.js';
 import {
   createManagedProject,
+  ensureProject,
   listProjects,
 } from './state/projects.js';
 import {
@@ -102,6 +103,10 @@ import {
   readSkillManifest,
   recordSkillInstall,
 } from './state/skills.js';
+import {
+  installTeamTemplate,
+  listTeamTemplates,
+} from './state/teams.js';
 import {
   exportManifest,
   getVersion,
@@ -736,6 +741,41 @@ export function createHttpApp(opts: {
     }
     opts.fireSchedule(s, 'webhook');
     return c.json({ ok: true });
+  });
+
+  // ──── P2 #7: ready-made team templates ──────────────────────
+  // Curated advisor+skill+routine bundles. GET lists the catalog; install
+  // enables the advisors, installs the skills into a project, and creates the
+  // routines, broadcasting each change so the galaxy updates live.
+  app.get('/api/teams/templates', (c) => c.json(listTeamTemplates()));
+
+  app.post('/api/teams/templates/:id/install', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { cwd?: string };
+    if (!body.cwd || !body.cwd.trim()) {
+      return c.json({ ok: false, warnings: ['cwd is required'] }, 400);
+    }
+    const result = installTeamTemplate(opts.db, c.req.param('id'), {
+      cwd: body.cwd,
+    });
+    if (!result.ok) {
+      // Unknown template vs. a bad cwd both come back as a 400 with warnings.
+      return c.json(result, 400);
+    }
+    // Push every applied change so connected clients update without a refresh.
+    opts.router.broadcastProjectUpsert(ensureProject(opts.db, body.cwd.trim()));
+    for (const advisorId of result.advisorsEnabled) {
+      const a = getAdvisor(opts.db, advisorId);
+      if (a) opts.router.broadcastAdvisorUpsert(a);
+    }
+    for (const skillId of result.skillsInstalled) {
+      const s = getSkill(opts.db, skillId);
+      if (s) opts.router.broadcastSkillUpsert(s);
+    }
+    for (const scheduleId of result.routinesCreated) {
+      const sched = getSchedule(opts.db, scheduleId);
+      if (sched) opts.router.broadcastScheduleUpsert(sched);
+    }
+    return c.json(result);
   });
 
   // ──── Sprint M: goals (constellations) ──────────────────────

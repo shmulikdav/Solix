@@ -34,6 +34,7 @@ import {
   scheduleRunsCmd,
 } from './schedule.js';
 import { addGoalCmd, listGoalsCmd, removeGoalCmd } from './goals.js';
+import { installTeamCmd, listTeamsCmd } from './teams.js';
 import { activateLicenseCmd, licenseStatusCmd } from './license.js';
 import { connectCmd, listConnectionsCmd } from './connections.js';
 import { start } from './start.js';
@@ -289,6 +290,25 @@ schedules
   .description('Disable a schedule')
   .action(async (id: string) => {
     await disableScheduleCmd(id);
+  });
+
+const teams = program
+  .command('teams')
+  .description('Install ready-made advisor+skill+routine team templates');
+
+teams
+  .command('list', { isDefault: true })
+  .description('List available team templates')
+  .action(async () => {
+    await listTeamsCmd();
+  });
+
+teams
+  .command('install <id>')
+  .description('Install a team template into a project')
+  .option('--cwd <dir>', 'project directory (default: current dir)')
+  .action(async (id: string, opts: { cwd?: string }) => {
+    await installTeamCmd(id, opts);
   });
 
 const goals = program
