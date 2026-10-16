@@ -18,6 +18,7 @@ import {
   useSolixStore,
 } from '../store/index.js';
 import { AtmosphereRim } from './AtmosphereRim.js';
+import { ErrorBoundary } from '../ErrorBoundary.js';
 
 const RING_RADIUS = 3.3;
 const GHOST_RING_RADIUS = 4.3;
@@ -126,9 +127,18 @@ function AdvisorPlanet({
   return (
     <group ref={groupRef}>
       {pack ? (
-        <Suspense fallback={<ProceduralBody advisor={advisor} onClick={onClick} dimRef={dimRef} />}>
-          <TexturedBody advisor={advisor} pack={pack} onClick={onClick} dimRef={dimRef} />
-        </Suspense>
+        // ErrorBoundary OUTSIDE Suspense: Suspense absorbs the thrown promise
+        // while the texture loads, the boundary catches an actual load failure
+        // (missing/404/corrupt file) and falls back to the procedural look —
+        // which is what the scene always claimed to do.
+        <ErrorBoundary
+          label={`advisor texture (${advisor.texturePack ?? 'unknown'})`}
+          fallback={<ProceduralBody advisor={advisor} onClick={onClick} dimRef={dimRef} />}
+        >
+          <Suspense fallback={<ProceduralBody advisor={advisor} onClick={onClick} dimRef={dimRef} />}>
+            <TexturedBody advisor={advisor} pack={pack} onClick={onClick} dimRef={dimRef} />
+          </Suspense>
+        </ErrorBoundary>
       ) : (
         <ProceduralBody advisor={advisor} onClick={onClick} dimRef={dimRef} />
       )}

@@ -1,3 +1,4 @@
+import { ErrorBoundary } from '../ErrorBoundary.js';
 import { Suspense, useEffect, useRef, type ComponentRef } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, Stars, useTexture } from '@react-three/drei';
@@ -71,9 +72,14 @@ export function Scene(): JSX.Element {
         Falls back gracefully (Suspense boundary) to the procedural
         <Stars> below if the texture isn't on disk.
       */}
-      <Suspense fallback={<Stars radius={180} depth={80} count={6000} factor={4} saturation={0.4} fade speed={0} />}>
-        <MilkyWaySkybox />
-      </Suspense>
+      <ErrorBoundary
+        label="milky way skybox"
+        fallback={<Stars radius={180} depth={80} count={6000} factor={4} saturation={0.4} fade speed={0} />}
+      >
+        <Suspense fallback={<Stars radius={180} depth={80} count={6000} factor={4} saturation={0.4} fade speed={0} />}>
+          <MilkyWaySkybox />
+        </Suspense>
+      </ErrorBoundary>
       {/* Sprint K.5: nebula color in the deep distance so the void
           isn't flat-black; shooting stars for atmospheric motion. */}
       <Nebula />

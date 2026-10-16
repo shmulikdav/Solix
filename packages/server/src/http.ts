@@ -1405,6 +1405,16 @@ export function createHttpApp(opts: {
 
       const safe = url.pathname.replace(/\.\.+/g, '.');
       const candidate = join(webDist, safe === '/' ? 'index.html' : safe);
+      // A request for a FILE (anything with an extension) that doesn't exist is
+      // a missing asset, not a client-side route — 404 it instead of handing
+      // back index.html. Serving HTML under a .jpg/.js URL doesn't just hide
+      // the problem, it corrupts it: the browser tried to decode index.html as
+      // a texture, `useLoader` threw, and the whole app went blank. A clean 404
+      // degrades properly and makes the real fault obvious in devtools.
+      const looksLikeAsset = /\.[a-z0-9]+$/i.test(safe);
+      if (looksLikeAsset && !existsSync(candidate)) {
+        return c.notFound();
+      }
       let filePath = candidate;
       try {
         if (!existsSync(filePath) || statSync(filePath).isDirectory()) {

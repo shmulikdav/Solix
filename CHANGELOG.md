@@ -80,6 +80,36 @@ Builds on the v1.12.0 Maestro preview. All additive; the Pro tier stays dormant.
 - **Slow memory leak in chat notifications.** The dispatcher's dedupe set grew
   unbounded for the life of the process; it is now capped.
 
+### Fixed (browser verification pass)
+- **A missing texture blanked the entire UI.** The scene wrapped its textured
+  planets in `<Suspense>` with a procedural fallback — but Suspense only covers
+  the *pending* state, not failures. When a texture failed to load, `useLoader`
+  threw, the error sailed past Suspense, and with no error boundary anywhere in
+  the app React unmounted the whole tree: black page, no HUD, no panels, no way
+  back. Planet textures are fetched by a separate `prepare-assets` script and
+  deliberately not committed, so "missing texture" is an entirely normal state —
+  a fresh clone, a CI build, or a publish from a machine that never ran the
+  fetch script all hit it. Textured bodies (planets, sun, skybox) are now
+  wrapped in a real `ErrorBoundary` and degrade to the procedural look as always
+  intended, and the galaxy scene as a whole is boundaried so it can never take
+  the HUD down with it.
+- **Missing static assets returned index.html with HTTP 200.** The SPA catch-all
+  answered *any* unmatched path with the app shell, so a request for
+  `/textures/earth.jpg` got HTML — which the browser then tried to decode as an
+  image. That is what turned "file not found" into "corrupt texture" into the
+  crash above. Paths that look like files now 404 properly; client-side routes
+  still fall through to index.html.
+- **A texture-less bundle shipped silently.** `copy-static` now warns loudly when
+  the packaged web bundle contains no textures, naming the command to fix it.
+
+### Added
+- `pnpm smoke:browser` — a headless browser smoke check (`scripts/smoke-browser.mjs`)
+  that boots the UI in Chromium, fails on any uncaught error or unexpected
+  failed request, and walks the Maestro, Connections, Teams, Skill-authoring and
+  org-switcher surfaces. Complements `pnpm capture`, which must run headed on a
+  real GPU for presentable screenshots. Missing textures are reported as
+  *degradation*, not failure.
+
 ### Changed
 - `SOLIX_CLAUDE_BIN` / `SOLIX_CODEX_BIN` override the agent executable, for
   non-standard installs.

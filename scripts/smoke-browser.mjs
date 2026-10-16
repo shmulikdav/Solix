@@ -1,0 +1,225 @@
+#!/usr/bin/env node
+/**
+ * Headless browser smoke check for the Solix UI.
+ *
+ * Complements `capture-shots.mjs`: that one must run HEADED on a real GPU to
+ * produce pretty launch screenshots (headless renders the 3D view black). This
+ * one answers a different, cheaper question — does the app actually RUN in a
+ * browser? It catches the class of bug that typecheck and jsdom component tests
+ * both miss: a crash on mount, a bad hook dependency, a failed asset, a WebGL
+ * context that never initializes, a panel that throws when opened.
+ *
+ * Software WebGL (SwiftShader) is forced on, so the galaxy really does
+ * initialize — it just looks dark. We assert on errors and geometry, not pixels.
+ *
+ * Usage:
+ *   1. solix demo                       (seeds a synthetic galaxy)
+ *   2. node scripts/smoke-browser.mjs   (exit 0 = clean)
+ *
+ * Env: SOLIX_URL (default http://127.0.0.1:4242), SHOT_DIR (default ./.smoke),
+ *      CHROMIUM_PATH (explicit browser binary, for images that ship their own
+ *      Chromium whose build differs from the pinned Playwright version).
+ */
+import { chromium } from 'playwright';
+import { mkdir } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
+
+const BASE = process.env.SOLIX_URL ?? 'http://127.0.0.1:4242';
+const SHOT_DIR = resolve(process.env.SHOT_DIR ?? '.smoke');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Noise we do not want to fail the build over.
+const IGNORE = [
+  /favicon/i,
+  // Chromium echoes every failed request to the console WITHOUT the URL, so it
+  // can't be attributed to a specific asset. The `response` listener below
+  // already records each 4xx/5xx authoritatively *with* its URL and still fails
+  // the run for anything unexpected, so dropping this duplicate loses nothing.
+  /^Failed to load resource: the server responded with a status of \d+/,
+  /Download the React DevTools/i,
+  /WebGL.*deprecated/i,
+  /SwiftShader/i,
+  /Automatic fallback to software WebGL/i,
+  /GroupMarkerNotSet/i,
+];
+const ignorable = (t) => IGNORE.some((re) => re.test(t));
+
+// Missing planet textures are an EXPECTED, documented state: they're binary
+// assets fetched by `prepare-assets` and deliberately not committed, and the
+// scene is supposed to fall back to its procedural look. Report them as
+// degradation, not failure — but keep every other error fatal, so this stays a
+// real signal rather than a rubber stamp.
+const DEGRADED = [/\/textures\//];
+const degrading = (t) => DEGRADED.some((re) => re.test(t));
+
+const problems = [];
+const degraded = [];
+const steps = [];
+const note = (msg) => (degrading(msg) ? degraded : problems).push(msg);
+
+async function main() {
+  const health = await fetch(`${BASE}/api/health`).catch(() => null);
+  if (!health?.ok) {
+    console.error(`✗ no Solix server at ${BASE} — run \`solix demo\` first`);
+    process.exit(1);
+  }
+  await mkdir(SHOT_DIR, { recursive: true });
+
+  // Prefer an explicitly provided Chromium (CI images often ship one whose
+  // build number differs from the pinned Playwright, which otherwise demands a
+  // fresh download).
+  const executablePath =
+    process.env.CHROMIUM_PATH ||
+    ['/opt/pw-browsers/chromium-1194/chrome-linux/chrome'].find((p) =>
+      existsSync(p),
+    ) ||
+    undefined;
+
+  const browser = await chromium.launch({
+    ...(executablePath ? { executablePath } : {}),
+    args: [
+      '--enable-unsafe-swiftshader', // allow software WebGL in headless
+      '--use-gl=angle',
+      '--use-angle=swiftshader',
+      '--no-sandbox',
+    ],
+  });
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+
+  page.on('console', (m) => {
+    if (m.type() === 'error' && !ignorable(m.text())) {
+      note(`console.error: ${m.text()}`);
+    }
+  });
+  // A pageerror is ALWAYS fatal — an uncaught error blanks the app, which is
+  // exactly the regression this script exists to catch.
+  page.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
+  page.on('requestfailed', (r) => {
+    if (!ignorable(r.url())) {
+      note(`requestfailed: ${r.url()} (${r.failure()?.errorText})`);
+    }
+  });
+  page.on('response', (r) => {
+    if (r.status() >= 400 && !ignorable(r.url())) {
+      note(`http ${r.status()}: ${r.url()}`);
+    }
+  });
+
+  const step = async (name, fn) => {
+    try {
+      await fn();
+      steps.push(`✓ ${name}`);
+    } catch (err) {
+      problems.push(`${name}: ${err.message}`);
+      steps.push(`✗ ${name}`);
+    }
+  };
+
+  await page.goto(BASE, { waitUntil: 'networkidle', timeout: 30000 });
+  await sleep(3000); // let the scene + websocket settle
+
+  await step('app mounts (#root has content)', async () => {
+    const kids = await page.evaluate(
+      () => document.getElementById('root')?.childElementCount ?? 0,
+    );
+    if (kids === 0) throw new Error('#root is empty — the app did not mount');
+  });
+
+  await step('WebGL is available', async () => {
+    const ok = await page.evaluate(() => {
+      const c = document.createElement('canvas');
+      return !!(c.getContext('webgl2') || c.getContext('webgl'));
+    });
+    if (!ok) throw new Error('no WebGL context available');
+  });
+
+  await step('galaxy canvas is rendered with real geometry', async () => {
+    const box = await page.evaluate(() => {
+      const c = document.querySelector('canvas');
+      if (!c) return null;
+      const r = c.getBoundingClientRect();
+      return { w: Math.round(r.width), h: Math.round(r.height) };
+    });
+    if (!box) throw new Error('no <canvas> in the document');
+    if (box.w < 100 || box.h < 100) {
+      throw new Error(`canvas too small: ${box.w}x${box.h}`);
+    }
+  });
+
+  await step('websocket connected (live snapshot arrived)', async () => {
+    // The HUD only reports planets once the WS snapshot lands.
+    await page.waitForFunction(
+      () => /\d/.test(document.body.innerText) && document.body.innerText.length > 50,
+      { timeout: 15000 },
+    );
+  });
+
+  await page.screenshot({ path: `${SHOT_DIR}/01-galaxy.png` });
+
+  // ── The surfaces added this cycle ──
+  await step('Maestro plan panel opens (P)', async () => {
+    await page.keyboard.press('p');
+    await page.waitForSelector('text=Plan a build', { timeout: 10000 });
+    await page.screenshot({ path: `${SHOT_DIR}/02-maestro.png` });
+    await page.keyboard.press('Escape');
+  });
+
+  await step('Connections panel opens with the Notifications section', async () => {
+    await page.click('text=⚷ Connections');
+    await page.waitForSelector('text=Notifications', { timeout: 10000 });
+    await page.screenshot({ path: `${SHOT_DIR}/03-connections.png` });
+    await page.keyboard.press('Escape');
+  });
+
+  await step('Galaxy → Teams tab lists team templates', async () => {
+    await page.click('text=⌬ Galaxy');
+    await page.click('text=Teams');
+    await page.waitForSelector('text=Ship-fast build team', { timeout: 10000 });
+    await page.screenshot({ path: `${SHOT_DIR}/04-teams.png` });
+    await page.keyboard.press('Escape');
+  });
+
+  await step('Skill authoring form opens', async () => {
+    await page.click('text=✎ Skill');
+    await page.waitForSelector('text=Author a skill', { timeout: 10000 });
+    await page.screenshot({ path: `${SHOT_DIR}/05-skill.png` });
+    await page.keyboard.press('Escape');
+  });
+
+  await step('org switcher is present and shows the default org', async () => {
+    const value = await page.evaluate(() => {
+      const sel = document.querySelector('select[title*="Active org"]');
+      return sel ? sel.value : null;
+    });
+    if (value !== 'org-default') {
+      throw new Error(`org switcher missing or wrong value: ${value}`);
+    }
+  });
+
+  await page.screenshot({ path: `${SHOT_DIR}/06-final.png`, fullPage: false });
+  await browser.close();
+
+  console.log(steps.join('\n'));
+  if (degraded.length) {
+    const files = [...new Set(degraded.map((d) => d.match(/\/textures\/[\w.]+/)?.[0]))]
+      .filter(Boolean)
+      .join(', ');
+    console.log(
+      `\nℹ degraded (not a failure): ${degraded.length} texture message(s) — ${files}\n` +
+        `  The scene is rendering its procedural look. Run:\n` +
+        `    pnpm --filter @solix/web prepare-assets && pnpm -r build`,
+    );
+  }
+  if (problems.length) {
+    console.error(`\n✗ ${problems.length} problem(s):`);
+    for (const p of [...new Set(problems)]) console.error(`  - ${p}`);
+    process.exit(1);
+  }
+  console.log(`\n✓ browser smoke clean — shots in ${SHOT_DIR}`);
+}
+
+main().catch((e) => {
+  console.error('smoke crashed:', e);
+  process.exit(1);
+});
