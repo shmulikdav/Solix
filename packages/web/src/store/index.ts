@@ -248,6 +248,12 @@ interface SolixState {
     taskId: string,
     body: string,
   ) => Promise<{ ok: boolean; error?: string }>;
+  /** Comment-on-passage → follow-up task (POST). A review comment on a file/diff
+   *  becomes a new worker task on the plan, re-running it. */
+  addFollowUp: (
+    planId: string,
+    input: { body: string; file?: string; hunk?: string; sourceTaskId?: string },
+  ) => Promise<{ ok: boolean; taskId?: string; upsell?: boolean; error?: string }>;
   activateLicense: (
     key: string,
   ) => Promise<{ ok: boolean; error?: string }>;
@@ -854,6 +860,35 @@ export const useSolixStore = create<SolixState>((set, get) => ({
         };
       });
       return { ok: true };
+    } catch {
+      return { ok: false, error: 'Could not reach the server.' };
+    }
+  },
+
+  addFollowUp: async (planId, input) => {
+    const text = input.body.trim();
+    if (!text) return { ok: false, error: 'Comment is empty.' };
+    try {
+      const res = await fetch(
+        `/api/plans/${encodeURIComponent(planId)}/follow-up`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ...input, body: text }),
+        },
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        taskId?: string;
+        upsell?: boolean;
+        error?: string;
+      };
+      return {
+        ok: Boolean(data.ok),
+        taskId: data.taskId,
+        upsell: data.upsell,
+        error: data.error,
+      };
     } catch {
       return { ok: false, error: 'Could not reach the server.' };
     }

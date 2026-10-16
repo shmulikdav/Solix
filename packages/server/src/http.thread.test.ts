@@ -78,3 +78,54 @@ describe('task thread routes', () => {
     expect(post.status).toBe(404);
   });
 });
+
+describe('follow-up route (comment-on-passage)', () => {
+  let db: DB;
+  beforeEach(() => {
+    db = resetDbForTests();
+  });
+
+  it('adds a follow-up task to the plan', async () => {
+    const plan = createPlan(db, {
+      name: 'P',
+      goalPrompt: 'g',
+      cwd: '/tmp/p',
+      status: 'completed',
+    });
+    const app = makeApp(db);
+    const res = await app.request(`/api/plans/${plan.id}/follow-up`, {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ body: 'fix the header', file: 'index.html' }),
+    });
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as { ok: boolean; taskId?: string };
+    expect(data.ok).toBe(true);
+    const row = db
+      .prepare('SELECT title, prompt FROM plan_tasks WHERE id = ?')
+      .get(data.taskId) as { title: string; prompt: string };
+    expect(row.prompt).toContain('fix the header');
+    expect(row.prompt).toContain('index.html');
+  });
+
+  it('rejects an empty comment', async () => {
+    const plan = createPlan(db, { name: 'P', goalPrompt: 'g', cwd: '/tmp/p' });
+    const app = makeApp(db);
+    const res = await app.request(`/api/plans/${plan.id}/follow-up`, {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ body: '  ' }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('404s for an unknown plan', async () => {
+    const app = makeApp(db);
+    const res = await app.request(`/api/plans/nope/follow-up`, {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ body: 'x' }),
+    });
+    expect(res.status).toBe(404);
+  });
+});

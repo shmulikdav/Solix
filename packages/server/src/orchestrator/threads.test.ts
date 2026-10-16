@@ -93,3 +93,84 @@ describe('Orchestrator task-thread wiring', () => {
     expect(esc.body).toContain('because');
   });
 });
+
+describe('Orchestrator.addFollowUpTask (comment-on-passage)', () => {
+  let db: DB;
+  beforeEach(() => {
+    db = resetDbForTests();
+  });
+
+  it('appends a follow-up task to a completed plan, reopens it, and runs it', async () => {
+    const { orch } = build(db, true);
+    const { planId } = await orch.createPlanFromGoal({ goal: 'g', cwd: '/tmp/p' });
+    orch.approvePlan(planId!);
+    await orch.advance(planId!);
+    const before = orch.getPlanWithTasks(planId!)!;
+    expect(before.plan.status).toBe('completed');
+    const sourceTaskId = before.tasks[0]!.id;
+
+    const res = orch.addFollowUpTask(planId!, {
+      body: 'tighten the button copy',
+      file: 'src/app.ts',
+      hunk: '@@ -1 +1 @@\n-old\n+new',
+      sourceTaskId,
+    });
+    expect(res.ok).toBe(true);
+    expect(res.run).toBe(true);
+    // The plan reopened to run the new task.
+    expect(db.prepare('SELECT status FROM plans WHERE id=?').get(planId!)).toMatchObject(
+      { status: 'running' },
+    );
+
+    await orch.advance(planId!); // drive the follow-up to completion
+
+    const after = orch.getPlanWithTasks(planId!)!;
+    expect(after.plan.status).toBe('completed');
+    expect(after.tasks).toHaveLength(before.tasks.length + 1);
+    const follow = after.tasks.find((t) => t.id === res.taskId)!;
+    expect(follow.status).toBe('completed');
+    expect(follow.prompt).toContain('tighten the button copy');
+    expect(follow.prompt).toContain('src/app.ts');
+    // Lineage: a follow_up entry on the new task AND on the source task.
+    expect(listThreadEntries(db, res.taskId!).some((e) => e.kind === 'follow_up')).toBe(true);
+    const srcFollow = listThreadEntries(db, sourceTaskId).find((e) => e.kind === 'follow_up');
+    expect(srcFollow?.payload?.followUpTaskId).toBe(res.taskId);
+  });
+
+  it('upsells a Community user re-running a now-too-large plan, without running it', async () => {
+    const msgs: ServerMessage[] = [];
+    const orch = new Orchestrator({
+      db,
+      runner: new RoleRunner({ verifierPass: true }),
+      broadcast: (m) => msgs.push(m),
+      getKnownAdvisorRoles: () => ['forge'],
+      knownModels: ['opus', 'sonnet', 'haiku', 'default'],
+      getMaestroPrompt: () => 'MAESTRO',
+      fullAutoStatus: () => ({ ok: true, reasons: [] }),
+      getEntitlement: () => ({ tier: 'community', reason: 'x' }),
+    });
+    // SINGLE has 1 task; run it, then add follow-ups up to the free cap (3) and
+    // one past it. Community cap is ≤3 tasks total.
+    const { planId } = await orch.createPlanFromGoal({ goal: 'g', cwd: '/tmp/p' });
+    orch.approvePlan(planId!);
+    await orch.advance(planId!);
+    // 2nd + 3rd tasks still within the cap → run.
+    expect(orch.addFollowUpTask(planId!, { body: 'a' }).run).toBe(true);
+    await orch.advance(planId!);
+    expect(orch.addFollowUpTask(planId!, { body: 'b' }).run).toBe(true);
+    await orch.advance(planId!);
+    // 4th task exceeds the free cap → queued but upsold, plan not reopened.
+    const res = orch.addFollowUpTask(planId!, { body: 'c' });
+    expect(res.ok).toBe(true);
+    expect(res.run).toBeFalsy();
+    expect(res.upsell).toBe(true);
+    expect(db.prepare('SELECT status FROM plans WHERE id=?').get(planId!)).toMatchObject(
+      { status: 'completed' }, // stayed settled
+    );
+  });
+
+  it('errors on an unknown plan', () => {
+    const { orch } = build(db, true);
+    expect(orch.addFollowUpTask('nope', { body: 'x' }).ok).toBe(false);
+  });
+});

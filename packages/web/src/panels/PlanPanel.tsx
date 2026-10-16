@@ -665,36 +665,12 @@ function PlanReviewSection({ planId }: { planId: string }): JSX.Element {
             <>
               <ul className="space-y-0.5">
                 {review.files.map((f) => (
-                  <li
+                  <FileReviewRow
                     key={f.path}
-                    className="flex items-center gap-2 text-[11px] font-mono"
-                  >
-                    <span
-                      className={
-                        f.status === 'added'
-                          ? 'text-solix-ok'
-                          : f.status === 'deleted'
-                            ? 'text-solix-danger'
-                            : 'text-amber-300'
-                      }
-                      title={f.status}
-                    >
-                      {f.status === 'added'
-                        ? 'A'
-                        : f.status === 'deleted'
-                          ? 'D'
-                          : 'M'}
-                    </span>
-                    <span className="text-slate-300 truncate flex-1">
-                      {f.path}
-                    </span>
-                    {f.additions > 0 && (
-                      <span className="text-solix-ok">+{f.additions}</span>
-                    )}
-                    {f.deletions > 0 && (
-                      <span className="text-solix-danger">−{f.deletions}</span>
-                    )}
-                  </li>
+                    planId={planId}
+                    file={f}
+                    hunk={sliceFileDiff(review.diff, f.path)}
+                  />
                 ))}
               </ul>
               <DiffView diff={review.diff} truncated={review.truncated} />
@@ -703,6 +679,113 @@ function PlanReviewSection({ planId }: { planId: string }): JSX.Element {
         </div>
       )}
     </div>
+  );
+}
+
+/** Best-effort slice of a single file's section out of a combined unified diff,
+ *  so a comment on that file carries just the relevant hunk as context. */
+function sliceFileDiff(diff: string, path: string): string | undefined {
+  if (!diff) return undefined;
+  const parts = diff.split(/\n(?=diff --git )/);
+  const hit = parts.find((p) => p.includes(` a/${path}`) || p.includes(` b/${path}`) || p.includes(path));
+  return hit?.trim() || undefined;
+}
+
+/** One changed-file row with an inline "comment → follow-up task" affordance
+ *  (comment-on-passage, P1 #4). Posting turns the note into a worker task that
+ *  re-runs the plan to address it. */
+function FileReviewRow({
+  planId,
+  file,
+  hunk,
+}: {
+  planId: string;
+  file: PlanReview['files'][number];
+  hunk?: string;
+}): JSX.Element {
+  const addFollowUp = useSolixStore((s) => s.addFollowUp);
+  const [open, setOpen] = useState(false);
+  const [body, setBody] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const onSubmit = async (): Promise<void> => {
+    const text = body.trim();
+    if (!text || busy) return;
+    setBusy(true);
+    setNote(null);
+    const res = await addFollowUp(planId, { body: text, file: file.path, hunk });
+    setBusy(false);
+    if (res.ok && !res.upsell) {
+      setBody('');
+      setOpen(false);
+      setNote({ ok: true, text: 'Follow-up task queued — the plan will address it.' });
+    } else if (res.upsell) {
+      setNote({ ok: false, text: res.error ?? 'Re-running this plan needs Pro.' });
+    } else {
+      setNote({ ok: false, text: res.error ?? 'Could not add the follow-up.' });
+    }
+  };
+
+  return (
+    <li className="text-[11px] font-mono">
+      <div className="flex items-center gap-2">
+        <span
+          className={
+            file.status === 'added'
+              ? 'text-solix-ok'
+              : file.status === 'deleted'
+                ? 'text-solix-danger'
+                : 'text-amber-300'
+          }
+          title={file.status}
+        >
+          {file.status === 'added' ? 'A' : file.status === 'deleted' ? 'D' : 'M'}
+        </span>
+        <span className="text-slate-300 truncate flex-1">{file.path}</span>
+        {file.additions > 0 && (
+          <span className="text-solix-ok">+{file.additions}</span>
+        )}
+        {file.deletions > 0 && (
+          <span className="text-solix-danger">−{file.deletions}</span>
+        )}
+        <button
+          onClick={() => setOpen((v) => !v)}
+          className="shrink-0 text-slate-500 hover:text-amber-200"
+          title="Comment on this file → follow-up task"
+          aria-label="Comment on this file"
+        >
+          🗨
+        </button>
+      </div>
+      {open && (
+        <div className="mt-1 flex gap-1.5 font-sans">
+          <input
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void onSubmit();
+            }}
+            placeholder={`What should change in ${file.path.split('/').pop()}?`}
+            className="flex-1 text-[11px] bg-black/40 border border-solix-border rounded p-1.5 text-slate-100 placeholder-slate-600 focus:outline-none focus:border-amber-400"
+          />
+          <button
+            onClick={() => void onSubmit()}
+            disabled={busy || !body.trim()}
+            className="px-2.5 rounded bg-amber-500/20 border border-amber-400/60 text-amber-100 text-[11px] hover:bg-amber-500/30 disabled:opacity-40"
+          >
+            {busy ? '…' : 'Fix it'}
+          </button>
+        </div>
+      )}
+      {note && (
+        <div
+          className={`mt-1 text-[10px] font-sans ${note.ok ? 'text-solix-ok' : 'text-amber-300'}`}
+        >
+          {note.text}
+        </div>
+      )}
+    </li>
   );
 }
 

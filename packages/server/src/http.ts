@@ -957,6 +957,37 @@ export function createHttpApp(opts: {
     return c.json(res, res.ok ? 200 : 404);
   });
 
+  // Comment-on-passage → follow-up task (P1 #4). A review comment on a file/diff
+  // becomes a new worker task on the same plan; a settled plan is reopened to run
+  // it (re-gated in the orchestrator). Origin-gated like the other mutators.
+  app.post('/api/plans/:id/follow-up', (c) => {
+    return (async () => {
+      const id = c.req.param('id');
+      const body = (await c.req.json().catch(() => ({}))) as {
+        body?: string;
+        file?: string;
+        hunk?: string;
+        sourceTaskId?: string;
+        title?: string;
+      };
+      if (!body.body || !body.body.trim()) {
+        return c.json({ ok: false, error: 'comment body is required' }, 400);
+      }
+      const res = opts.orchestrator.addFollowUpTask(id, {
+        body: body.body,
+        file: body.file,
+        hunk: body.hunk,
+        sourceTaskId: body.sourceTaskId,
+        title: body.title,
+      });
+      if (res.run) kickAdvance(id);
+      // 200 on success (incl. queued), 402 when adding it needs Pro to run,
+      // 404 for an unknown plan.
+      const status = res.ok ? 200 : res.error === 'plan not found' ? 404 : 400;
+      return c.json(res, status);
+    })();
+  });
+
   // Resume a paused plan (budget pause / abort). Re-gated in the orchestrator.
   app.post('/api/plans/:id/resume', (c) => {
     const id = c.req.param('id');
