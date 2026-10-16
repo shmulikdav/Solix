@@ -5,153 +5,114 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-**Maestro P1: tasks you can track, feedback that becomes work, routines that fire on demand.**
-
-Builds on the v1.12.0 Maestro preview. All additive; the Pro tier stays dormant.
-
-### Added
-- **Rich task threads.** Every plan task now keeps a chronological thread —
-  dispatched → worker result → verified / retry / escalated / aborted —
-  interleaved with your own comments. Expand a task in the Plan panel to read
-  its full run history and leave a note. (worker/verifier output is stored and
-  rendered as untrusted data.)
-- **Comment-on-passage → follow-up tasks.** In the review diff, comment on a
-  changed file and "Fix it" turns the note into a new worker task on the same
-  plan, which re-runs to address exactly that feedback — a tighter loop than
-  re-planning from scratch. The original diff baseline is kept so review stays
-  cumulative; lineage is recorded on both tasks' threads.
-- **Richer routine triggers.** Routines gain a trigger kind (interval, as
-  before; **webhook** — fire via an inbound POST to a per-routine capability
-  URL; **manual** — fire on demand), an optional owner, and a recorded run
-  history. New `solix schedules fire` / `solix schedules runs`, and
-  `schedules add --trigger webhook|manual --owner <who>`.
-- **Budget threshold alerts.** A plan now warns once at ~80% of its budget cap
-  (toast + background notification + an amber line on the plan) before the hard
-  pause at 100%, so the ceiling never arrives as a surprise.
-- **Ready-made team templates.** One-click advisor + skill + routine bundles for
-  common goals (ship-fast build team, quality & security gate, launch & devrel,
-  architecture & data). Install from the Galaxy panel's new Teams tab or
-  `solix teams install <id>`; missing pieces are skipped with a warning.
-- **Agent delegation (propose-and-verify).** A worker that genuinely needs to may
-  propose subtasks; the orchestrator parses them strictly, enforces a depth cap,
-  a per-proposal count cap, and the same task-count gate, then appends and
-  dispatches them as verified tasks depending on the completed parent. The worker
-  never dispatches directly — the orchestrator stays the sole, deterministic
-  dispatcher, so containment is preserved.
-- **Skill authoring.** Create, edit, version, restore, and dry-run your own skills
-  in-app — stored under `~/.solix/skills` and discovered like the bundled ones.
-  Bundled skills stay read-only. New "✎ Skill" authoring surface and a model-free
-  compose preview.
-- **Chat connectors.** Post fleet events (plan done/failed, task escalated, budget
-  alert) to Slack or Telegram; credentials are encrypted at rest and never
-  returned. With the webhook routine triggers, you can drive *and* monitor Solix
-  from your phone. Managed from the Connections panel's Notifications section.
-- **Multi-org tenancy.** Orgs isolate your plans and goals; switch the active org
-  from the top bar or `solix orgs`. Local SQLite remains the single, zero-telemetry
-  backend; a storage seam reports where a Team-edition Postgres/S3 backend would
-  plug in (`SOLIX_PG_URL` / `SOLIX_S3_BUCKET`) — those adapters are not wired in
-  this build.
-
-### Fixed
-- **Upgrading an existing database could crash on boot.** `CREATE INDEX … ON
-  sessions(kind)` ran from the base schema while `kind` is added later by a
-  migration, so opening a pre-v2 `~/.solix/solix.db` threw `no such column:
-  kind`. Index creation now happens after the column is added.
-- **The Agent View migration silently did nothing.** The routine that relaxes the
-  legacy `sessions.origin` CHECK rebuilt the table and then recreated the same
-  `kind` index too early, so the rebuild threw, rolled back, and left the CHECK
-  in place — warning only to the log, on exactly the databases it exists to fix.
-- **The worker gate failed OPEN instead of closed.** The launcher injects
-  `SOLIX_GATE_POLICY=deny`, but the hooks only denied on the literal
-  `fail-closed`, so whenever the Solix server was unreachable or an approval
-  timed out, a contained worker's tool call was allowed through. The hooks now
-  accept every fail-closed spelling, and a cross-component contract test runs
-  the real hook scripts against the value the launcher actually injects.
-- **Plan budgets did not apply to Codex tasks.** Codex reports token usage rather
-  than a cost, so a Codex worker's spend was always undefined and never counted
-  toward a cap. Usage is now priced locally.
-- **A failed run surfaced with no reason.** The result parser read only `result`,
-  which the documented failure arms omit in favour of `errors[]`, so an
-  escalation reached the operator (and the retry prompt) with an empty
-  explanation. It now reads `errors[]`, and treats any non-`success` subtype as a
-  failure even when `is_error` is absent.
-- **Slow memory leak in chat notifications.** The dispatcher's dedupe set grew
-  unbounded for the life of the process; it is now capped.
-
-### Fixed (browser verification pass)
-- **A missing texture blanked the entire UI.** The scene wrapped its textured
-  planets in `<Suspense>` with a procedural fallback — but Suspense only covers
-  the *pending* state, not failures. When a texture failed to load, `useLoader`
-  threw, the error sailed past Suspense, and with no error boundary anywhere in
-  the app React unmounted the whole tree: black page, no HUD, no panels, no way
-  back. Planet textures are fetched by a separate `prepare-assets` script and
-  deliberately not committed, so "missing texture" is an entirely normal state —
-  a fresh clone, a CI build, or a publish from a machine that never ran the
-  fetch script all hit it. Textured bodies (planets, sun, skybox) are now
-  wrapped in a real `ErrorBoundary` and degrade to the procedural look as always
-  intended, and the galaxy scene as a whole is boundaried so it can never take
-  the HUD down with it.
-- **Missing static assets returned index.html with HTTP 200.** The SPA catch-all
-  answered *any* unmatched path with the app shell, so a request for
-  `/textures/earth.jpg` got HTML — which the browser then tried to decode as an
-  image. That is what turned "file not found" into "corrupt texture" into the
-  crash above. Paths that look like files now 404 properly; client-side routes
-  still fall through to index.html.
-- **A texture-less bundle shipped silently.** `copy-static` now warns loudly when
-  the packaged web bundle contains no textures, naming the command to fix it.
-
-### Changed
-- **Releases now ship textured.** `prepare-assets` runs on the publish path
-  (`prepublishOnly` and `pnpm release`) so a published build contains the planet
-  and sky textures instead of silently shipping the procedural look. It is
-  deliberately kept out of `pnpm build`: a network fetch in every compile would
-  break offline and CI builds, and the script is idempotent and exits 0 on
-  failure, so an offline publish still succeeds (untextured, with a loud
-  warning) rather than being blocked. README corrected — it previously claimed
-  this already happened automatically, which it did not.
-
-### Added
-- `pnpm smoke:browser` — a headless browser smoke check (`scripts/smoke-browser.mjs`)
-  that boots the UI in Chromium, fails on any uncaught error or unexpected
-  failed request, and walks the Maestro, Connections, Teams, Skill-authoring and
-  org-switcher surfaces. Complements `pnpm capture`, which must run headed on a
-  real GPU for presentable screenshots. Missing textures are reported as
-  *degradation*, not failure.
-
-### Changed
-- `SOLIX_CLAUDE_BIN` / `SOLIX_CODEX_BIN` override the agent executable, for
-  non-standard installs.
-- Codex support is documented as **experimental and unverified against the real
-  CLI** (`docs/multi-runtime.md`).
-
 ## [1.12.0] — 2026-10-16
 
-**Maestro (preview): describe a goal, watch your agent fleet build it — 100% local.**
+**Maestro: describe a goal, watch your agent fleet build it — 100% local.**
 
-Solix goes from observing agents to *orchestrating* them. All of v2 is additive;
-the paid tier ships dormant (free public beta — everything unlocked).
+Solix goes from *observing* agents to *orchestrating* them. Everything here is
+additive and backward-compatible; the paid tier ships dormant (free public beta
+— everything unlocked).
 
 ### Added
+
+**Orchestration**
 - **Maestro orchestrator.** Give a goal → a planner decomposes it into a task
-  plan you approve → Solix dispatches one Claude session per task (each its own
+  plan you approve → Solix dispatches one agent session per task (each its own
   planet), verifies each result against acceptance criteria, retries with
   feedback, and drives the build to done. New Plan panel (press `P` / ✷ Maestro)
   and dispatch beams in the galaxy.
 - **Build studio.** Create a project in-app (scaffold + `git init`), let Maestro
   build into it, review the real diff of what changed, preview the result, and
   iterate with a follow-up goal.
+- **Rich task threads.** Every task keeps a chronological thread — dispatched →
+  worker result → verified / retry / escalated / aborted — interleaved with your
+  own comments. Expand a task to read its full run history and leave a note.
+- **Comment-on-passage → follow-up tasks.** Comment on a changed file in the
+  review diff and "Fix it" turns the note into a worker task on the same plan,
+  which re-runs to address exactly that feedback.
+- **Agent delegation.** A worker that genuinely needs to may *propose* subtasks;
+  the orchestrator validates them against a depth cap, a count cap and the same
+  entitlement gate before dispatching. The worker never dispatches directly, so
+  the loop stays deterministic and contained.
+
+**Governance & cost**
 - **Governed autonomy.** A kill-switch, per-plan budget cap, and a
   safe-by-default command denylist (blocks `rm -rf /`, out-of-cwd writes, etc.)
   govern every worker with no setup; a per-run full-auto toggle for trusted flows.
+- **Budget threshold alerts.** A one-time heads-up at ~80% of a plan's cap before
+  the hard pause at 100%, so the ceiling never arrives as a surprise.
+- **Scoped connections & secrets.** Store API keys once and grant them per
+  advisor / per plan; a worker only ever sees what it was granted, injected at
+  dispatch. Values are write-only and encrypted at rest.
+
+**Automation & teams**
+- **Richer routine triggers.** Routines gain a trigger kind — **webhook** (fire
+  via an inbound POST to a per-routine capability URL) and **manual** (on
+  demand) alongside interval — plus an owner and recorded run history.
+  `solix schedules fire` / `solix schedules runs`.
+- **Ready-made team templates.** One-click advisor + skill + routine bundles
+  (ship-fast build team, quality & security gate, launch & devrel, architecture
+  & data), from the Galaxy panel's Teams tab or `solix teams install <id>`.
+- **Skill authoring.** Create, edit, version, restore and dry-run your own
+  skills, stored under `~/.solix/skills` and discovered like the bundled ones.
+  Bundled skills stay read-only.
+- **Chat connectors.** Post fleet events (plan done/failed, task escalated,
+  budget alert) to Slack or Telegram; credentials are encrypted at rest and
+  never returned. With webhook routines, you can drive *and* monitor from a phone.
+- **Multi-org tenancy.** Orgs isolate your plans and goals; switch the active org
+  from the top bar or `solix orgs`.
+
+**Platform**
+- **Multi-runtime (experimental).** Groundwork for running Codex alongside Claude
+  Code — see `docs/multi-runtime.md` for exactly how far this is verified.
 - **Pro licensing (dormant).** Offline, signature-verified license support +
   `solix license activate` — off by default (free beta); nothing to buy yet.
-- **Tests + CI.** A test suite (175 tests) and PR-gating CI, from zero.
+- `SOLIX_CLAUDE_BIN` / `SOLIX_CODEX_BIN` override the agent executable, for
+  non-standard installs (nvm shims, custom prefixes, wrapper scripts).
+- **Tests + CI.** A suite of 318 tests and PR-gating CI, from zero — including
+  an end-to-end launcher test against a real subprocess, a populated-legacy-
+  database migration test, a launcher↔hook contract test, and a headless
+  browser smoke check (`pnpm smoke:browser`).
+
+### Fixed
+
+These affect anyone upgrading from 1.11.8:
+
+- **A missing texture could blank the entire UI.** The 3D scene wrapped its
+  textured planets in `<Suspense>` with a procedural fallback — but Suspense
+  covers the *pending* state, not failures. A failed texture load threw past it
+  and, with no error boundary in the app, unmounted the whole tree: black page,
+  no HUD, no panels. Textured bodies now sit behind a real error boundary and
+  degrade to the procedural look as always intended, and the scene as a whole is
+  boundaried so it can never take the HUD down with it.
+- **Missing static assets returned `index.html` with HTTP 200.** The SPA
+  catch-all answered any unmatched path with the app shell, so a missing asset
+  came back as HTML the browser then tried to decode as an image. File-shaped
+  paths now 404 properly; client-side routes still fall through.
+- **Upgrading a long-dormant database could fail.** An index was created from the
+  base schema against a column that a later migration adds, so opening a
+  database predating that column threw on boot. The same ordering issue also
+  made the `sessions.origin` CHECK relaxation silently roll back.
+
+### Changed
+- **Releases ship textured.** `prepare-assets` now runs on the publish path, so a
+  published build contains the planet and sky textures rather than silently
+  shipping the procedural look. It is deliberately not part of `pnpm build` —
+  that would put a network fetch in every compile and break offline/CI builds.
 
 ### Notes
 - The Pro gate is inert until enforcement is turned on — this release changes
-  nothing for existing users.
+  nothing about what existing users can do.
+- **Codex support is experimental and unverified against the real CLI**, and
+  `solix install --codex` is not implemented. See `docs/multi-runtime.md`.
+- Multi-org is a logical model over the existing local SQLite store. A
+  Team-edition Postgres/S3 backend is a documented configuration seam
+  (`/api/system/storage`), not an implemented driver.
+- Several defects in this release's own pre-release code were caught and fixed
+  before shipping — most notably a worker-gate policy mismatch that would have
+  failed open. None of them ever reached a published version; they are recorded
+  in the git history rather than here, since no user was affected.
+
 
 ## [1.11.8] — 2026-09-04
 
