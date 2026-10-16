@@ -18,7 +18,7 @@
     "lint": "pnpm -r lint",
     "clean": "pnpm -r exec rm -rf dist node_modules .turbo",
     "pack:dry": "pnpm -r build && cd packages/cli && npm pack --dry-run",
-    "release": "pnpm -r build && cd packages/cli && npm publish",
+    "release": "pnpm --filter @solix/web prepare-assets && pnpm -r build && cd packages/cli && npm publish",
     "smoke:browser": "node scripts/smoke-browser.mjs"
   },
   "devDependencies": {

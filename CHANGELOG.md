@@ -102,6 +102,16 @@ Builds on the v1.12.0 Maestro preview. All additive; the Pro tier stays dormant.
 - **A texture-less bundle shipped silently.** `copy-static` now warns loudly when
   the packaged web bundle contains no textures, naming the command to fix it.
 
+### Changed
+- **Releases now ship textured.** `prepare-assets` runs on the publish path
+  (`prepublishOnly` and `pnpm release`) so a published build contains the planet
+  and sky textures instead of silently shipping the procedural look. It is
+  deliberately kept out of `pnpm build`: a network fetch in every compile would
+  break offline and CI builds, and the script is idempotent and exits 0 on
+  failure, so an offline publish still succeeds (untextured, with a loud
+  warning) rather than being blocked. README corrected — it previously claimed
+  this already happened automatically, which it did not.
+
 ### Added
 - `pnpm smoke:browser` — a headless browser smoke check (`scripts/smoke-browser.mjs`)
   that boots the UI in Chromium, fails on any uncaught error or unexpected

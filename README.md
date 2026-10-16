@@ -224,8 +224,18 @@ control.
 
 ## Custom textures (optional)
 
-By default Solix runs `prepare-assets` to pull a small set of
-CC-licensed planet + sky textures (~3 MB total) from public CDNs:
+`prepare-assets` pulls a small set of CC-licensed planet + sky textures
+(~3 MB total) from public CDNs. It runs automatically on the **publish**
+path (`prepublishOnly` / `pnpm release`), so a released build ships
+textured. It is deliberately NOT part of `pnpm build` — that would put a
+network fetch in every compile and break offline and CI builds — so for
+local development run it once yourself:
+
+```bash
+pnpm --filter @solix/web prepare-assets
+```
+
+The textures it fetches:
 
 | Texture | Used by | Source |
 |---|---|---|
@@ -237,10 +247,15 @@ CC-licensed planet + sky textures (~3 MB total) from public CDNs:
 | `jupiter.jpg` | Argus advisor | jsDelivr — `jeromeetienne/threex.planets` |
 | `moon.jpg` | Sentinel advisor | three.js examples |
 
-The fetch script tries multiple mirrors; if any download fails, the
-scene falls back gracefully — missing textures revert to procedural
-spheres, no errors. Run `pnpm --filter @solix/web prepare-assets`
-again any time to re-attempt.
+The fetch script tries multiple mirrors and never fails a build: if a
+download doesn't land, the scene falls back to procedural spheres. That
+fallback is enforced by an error boundary around every textured body, so
+a missing or corrupt texture degrades the *look* and nothing else — it
+cannot take the UI down. (It used to: the fallback was wired with
+`<Suspense>`, which only covers loading, not failure, so one failed
+texture blanked the whole app. Fixed — see `ErrorBoundary`.) Re-run
+`prepare-assets` any time to re-attempt, and `pnpm smoke:browser` to
+verify the UI in a headless browser.
 
 To swap any texture for your own (e.g., a higher-res version from
 [solarsystemscope.com/textures](https://www.solarsystemscope.com/textures/) —
