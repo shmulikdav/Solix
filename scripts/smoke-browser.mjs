@@ -271,7 +271,7 @@ async function main() {
     await page.click('[data-nav-rail] >> text="Fleet"');
     await page.waitForSelector('[data-workspace-surface]', { timeout: 10000 });
     for (const [tab, expected] of tabs) {
-      await page.click(`[data-workspace-surface] >> text="${tab}"`);
+      await page.click(`[data-nav-rail] >> text="${tab}"`);
       await page.waitForSelector(`text=${expected}`, { timeout: 10000 });
       await page.screenshot({ path: `${SHOT_DIR}/03-fleet-${tab.toLowerCase()}.png` });
     }
@@ -284,7 +284,7 @@ async function main() {
   await step('a routine can be created and then stopped in-app (S4)', async () => {
     await page.click('[data-nav-rail] >> text="Fleet"');
     await page.waitForSelector('[data-workspace-surface]', { timeout: 10000 });
-    await page.click('[data-workspace-surface] >> text="Routines"');
+    await page.click('[data-nav-rail] >> text="Routines"');
     await page.waitForSelector('text=New routine', { timeout: 10000 });
 
     // The demo seeds no routines, so create one. This also checks that the
@@ -469,7 +469,7 @@ async function main() {
     }
     await page.click('[data-nav-rail] >> text="Fleet"');
     await page.waitForSelector('[data-workspace-surface]', { timeout: 10000 });
-    await page.click('[data-workspace-surface] >> text="Orgs"');
+    await page.click('[data-nav-rail] >> text="Orgs"');
     await page.waitForSelector('text=An org scopes which plans you see', {
       timeout: 10000,
     });

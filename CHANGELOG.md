@@ -122,6 +122,17 @@ These affect anyone upgrading from 1.11.8:
 
   `npm i -g @shmulikdav/solix` then `solix` is the whole install.
   `solix install` remains for scripted setups and `--force` re-wiring.
+- **Fleet's tab strip is gone and its sections are grids.** The strip listed
+  the same six sections the rail already lists, so it was the navigation
+  twice — and it was the copy that truncated "Connections" at 480px. The
+  header now says which section you are in and what it is for, which the
+  strip never did. Crew, Teams, Routines, Connections and Skills lay out as
+  responsive grids instead of one card per row: Crew shows twelve advisors at
+  once where the dock showed about two.
+- **Surfaces cap their content width.** Full width is room to work, not
+  licence to run a sentence to 1400px — the column centres at a readable
+  width so the header and the body share a left edge, while card grids still
+  get two or three columns.
 - **Mission Control, Maestro, Share and Fleet now use the whole window.**
   They were 480px right-hand docks, which was the wrong container for all
   four: Fleet's six sections truncated in a tab strip, Crew showed one card

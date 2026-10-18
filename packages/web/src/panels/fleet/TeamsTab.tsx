@@ -80,7 +80,7 @@ export function TeamsTab({ open }: { open: boolean }): JSX.Element {
         </div>
       )}
 
-      <div className="space-y-3">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         {templates.map((t) => (
           <div key={t.id} className="rounded border border-solix-border bg-black/20 p-3">
             <div className="text-sm font-semibold text-slate-100">{t.name}</div>

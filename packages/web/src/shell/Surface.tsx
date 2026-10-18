@@ -29,7 +29,13 @@ export function Surface({
       // would otherwise slide beneath the breadcrumb.
       style={{ top: TOP_BAR_HEIGHT_PX }}
     >
-      {children}
+      {/* Full width is room to work, not licence to stretch a sentence to
+          1400px. The column caps and centres so the header and the body
+          share one left edge, and prose stays readable while card grids
+          still get several columns. */}
+      <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col overflow-hidden">
+        {children}
+      </div>
     </div>
   );
 }

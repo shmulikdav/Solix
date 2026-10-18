@@ -54,7 +54,7 @@ export function RoutinesTab({ open }: { open: boolean }): JSX.Element {
           one below.
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="grid gap-2 lg:grid-cols-2">
           {routines.map((r) => (
             <RoutineCard key={r.id} routine={r} />
           ))}

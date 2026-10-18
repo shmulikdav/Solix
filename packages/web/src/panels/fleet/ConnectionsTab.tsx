@@ -95,9 +95,11 @@ export function ConnectionsTab({ open }: Props): JSX.Element | null {
             <div className="text-[10px] uppercase tracking-widest text-slate-500">
               Connections · {conns.length}
             </div>
-            {conns.map((c) => (
-              <ConnectionCard key={c.id} conn={c} onChanged={refresh} />
-            ))}
+            <div className="grid gap-3 lg:grid-cols-2">
+              {conns.map((c) => (
+                <ConnectionCard key={c.id} conn={c} onChanged={refresh} />
+              ))}
+            </div>
           </div>
         )}
 

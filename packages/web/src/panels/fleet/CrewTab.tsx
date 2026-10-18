@@ -100,7 +100,9 @@ function CrewSection({
       <div className="text-[10px] uppercase tracking-widest text-slate-500 mb-2">
         {title}
       </div>
-      <div className="space-y-2">
+      {/* Was one card per row at any width. Each card is self-contained,
+          so a grid is strictly better use of a full-width surface. */}
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
         {advisors.map((a) => {
           const pinnedSession = a.pinnedSessionId
             ? sessions[a.pinnedSessionId]
