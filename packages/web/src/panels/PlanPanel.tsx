@@ -14,7 +14,7 @@ import {
 } from '../store/index.js';
 import { ProjectPicker } from './ProjectPicker.js';
 import { Button } from '../ui/Button.js';
-import { RightDock } from './RightDock.js';
+import { Surface } from '../shell/Surface.js';
 
 interface PlanPanelProps {
   open: boolean;
@@ -137,7 +137,7 @@ export function PlanPanel({ open, onClose }: PlanPanelProps): JSX.Element | null
   };
 
   return (
-    <RightDock>
+    <Surface>
       <div className="px-5 py-4 border-b border-solix-border flex items-start justify-between shrink-0">
         <div>
           <div className="flex items-center gap-2">
@@ -365,7 +365,7 @@ export function PlanPanel({ open, onClose }: PlanPanelProps): JSX.Element | null
           </div>
         )}
       </div>
-    </RightDock>
+    </Surface>
   );
 }
 

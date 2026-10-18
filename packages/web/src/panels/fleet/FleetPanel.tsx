@@ -1,5 +1,7 @@
 import { useSolixStore } from '../../store/index.js';
-import { PanelHeader, RightDock, TabButton } from '../RightDock.js';
+import { FLEET_SECTIONS, type FleetTabId } from '../../shell/surfaces.js';
+import { PanelHeader, TabButton } from '../RightDock.js';
+import { Surface } from '../../shell/Surface.js';
 import { ConnectionsTab } from './ConnectionsTab.js';
 import { CrewTab } from './CrewTab.js';
 import { OrgsTab } from './OrgsTab.js';
@@ -21,16 +23,9 @@ import { TeamsTab } from './TeamsTab.js';
  * Each tab is `({ open }) => JSX` and renders only its own scroller; this panel
  * owns the dock shell, the header, the tab strip and the close button.
  */
-const TABS = [
-  { id: 'crew', label: 'Crew' },
-  { id: 'skills', label: 'Skills' },
-  { id: 'teams', label: 'Teams' },
-  { id: 'routines', label: 'Routines' },
-  { id: 'connections', label: 'Connections' },
-  { id: 'orgs', label: 'Orgs' },
-] as const;
-
-export type FleetTabId = (typeof TABS)[number]['id'];
+// One definition of the section list, shared with the rail — a second copy
+// here is how the rail and the panel end up offering different tabs.
+const TABS = FLEET_SECTIONS;
 
 const DEFAULT_TAB: FleetTabId = 'crew';
 
@@ -39,22 +34,21 @@ function isFleetTab(v: string | null): v is FleetTabId {
 }
 
 export function FleetPanel({ open }: { open: boolean }): JSX.Element | null {
-  const activePanelTab = useSolixStore((s) => s.activePanelTab);
-  const openPanel = useSolixStore((s) => s.openPanel);
-  const closePanel = useSolixStore((s) => s.closePanel);
+  const surface = useSolixStore((s) => s.workspaceSurface);
+  const openSurface = useSolixStore((s) => s.openSurface);
+  const closeSurface = useSolixStore((s) => s.closeSurface);
 
   if (!open) return null;
 
-  const tab: FleetTabId = isFleetTab(activePanelTab)
-    ? activePanelTab
-    : DEFAULT_TAB;
+  const current = surface?.kind === 'fleet' ? surface.tab : null;
+  const tab: FleetTabId = isFleetTab(current) ? current : DEFAULT_TAB;
 
   return (
-    <RightDock>
+    <Surface>
       <PanelHeader
         eyebrow="fleet"
         title="Fleet"
-        onClose={closePanel}
+        onClose={closeSurface}
       >
         Who works for you, what they can use, and what runs on a schedule.
       </PanelHeader>
@@ -63,7 +57,7 @@ export function FleetPanel({ open }: { open: boolean }): JSX.Element | null {
           <TabButton
             key={t.id}
             active={tab === t.id}
-            onClick={() => openPanel('fleet', t.id)}
+            onClick={() => openSurface({ kind: 'fleet', tab: t.id })}
           >
             {t.label}
           </TabButton>
@@ -75,6 +69,6 @@ export function FleetPanel({ open }: { open: boolean }): JSX.Element | null {
       {tab === 'routines' && <RoutinesTab open />}
       {tab === 'skills' && <SkillsTab />}
       {tab === 'orgs' && <OrgsTab />}
-    </RightDock>
+    </Surface>
   );
 }

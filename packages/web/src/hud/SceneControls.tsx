@@ -8,6 +8,10 @@ export function SceneControls(): JSX.Element {
   const motionEnabled = useSolixStore((s) => s.motionEnabled);
   const viewMode = useSolixStore((s) => s.viewMode);
   const dockOffsetPx = useSolixStore(selectDockOffsetPx);
+  // A workspace surface replaces the canvas, so pan/zoom/pause controls for
+  // a galaxy that is no longer on screen would be pointing at nothing.
+  const surface = useSolixStore((s) => s.workspaceSurface);
+  const inGalaxy = viewMode === 'galaxy' && !surface;
   const toggleMotion = useSolixStore((s) => s.toggleMotion);
   const [hintDismissed, setHintDismissed] = useState(true);
 
@@ -30,7 +34,7 @@ export function SceneControls(): JSX.Element {
 
   return (
     <>
-      {viewMode === 'galaxy' && !hintDismissed && (
+      {inGalaxy && !hintDismissed && (
         <div
           className="pointer-events-none absolute bottom-4 z-20 flex justify-center"
           // Centred within the main area, not the window — otherwise the rail
@@ -69,7 +73,7 @@ export function SceneControls(): JSX.Element {
       {/* Orbital motion only exists in the galaxy view — the button rendered in
           List and Missions too, where nothing orbits and pressing it did
           nothing visible. */}
-      {viewMode === 'galaxy' && (
+      {inGalaxy && (
       <div
         className="pointer-events-none absolute bottom-4 z-20"
         // Consume the same dock offset the Decision Queue uses — this control

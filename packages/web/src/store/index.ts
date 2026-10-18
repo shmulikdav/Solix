@@ -21,7 +21,10 @@ import type {
 } from '@solix/shared';
 import { chime, notify } from '../notifications.js';
 import { RIGHT_DOCK_WIDTH_PX, type PanelId } from '../panels/dock.js';
-import { RAIL_WIDTH_PX } from '../shell/surfaces.js';
+import {
+  RAIL_WIDTH_PX,
+  type WorkspaceSurface,
+} from '../shell/surfaces.js';
 
 export interface PendingPermission {
   requestId: string;
@@ -217,8 +220,6 @@ interface SolixState {
   chatBySessionId: Record<string, ChatEntry[]>;
   /** The single open right-dock panel, or null. Source of dock exclusivity. */
   activePanel: PanelId | null;
-  /** Remembered tab for a tabbed panel, so reopening returns you where you were. */
-  activePanelTab: string | null;
   selectedSessionId: string | null;
   selectedAdvisorId: string | null;
   selectedSkillId: string | null;
@@ -229,8 +230,18 @@ interface SolixState {
 
   setConnected: (c: boolean) => void;
   applyMessage: (msg: ServerMessage) => void;
-  openPanel: (id: PanelId, tab?: string) => void;
+  openPanel: (id: PanelId) => void;
   closePanel: () => void;
+
+  /**
+   * What the main area shows instead of the galaxy. Deliberately separate
+   * from `activePanel`: a surface is somewhere you work and gets the whole
+   * area, a panel is about something you clicked and sits beside the scene.
+   * Keeping them apart is what lets a session panel stay open over Fleet.
+   */
+  workspaceSurface: WorkspaceSurface | null;
+  openSurface: (surface: WorkspaceSurface) => void;
+  closeSurface: () => void;
   selectSession: (id: string | null) => void;
   selectAdvisor: (id: string | null) => void;
   selectSkill: (id: string | null) => void;
@@ -425,11 +436,9 @@ function panelPatch(
       'selectedSessionId' | 'selectedAdvisorId' | 'selectedSkillId'
     >
   >,
-  tab?: string,
 ): Partial<SolixState> {
   return {
     activePanel: next,
-    activePanelTab: tab ?? null,
     selectedSessionId: null,
     selectedAdvisorId: null,
     selectedSkillId: null,
@@ -457,7 +466,6 @@ export const useSolixStore = create<SolixState>((set, get) => ({
   recentToolCalls: [],
   pendingPermissions: {},
   activePanel: null,
-  activePanelTab: null,
   selectedSessionId: null,
   selectedAdvisorId: null,
   selectedSkillId: null,
@@ -813,7 +821,14 @@ export const useSolixStore = create<SolixState>((set, get) => ({
   // hot react-three-fiber render paths and ClickRipple's store.subscribe, and
   // collapsing them would force every one of those to re-derive.
 
-  openPanel: (id, tab) => set(panelPatch(id, {}, tab)),
+  openPanel: (id) => set(panelPatch(id, {})),
+
+  workspaceSurface: null,
+  openSurface: (surface) => set({ workspaceSurface: surface }),
+  // Returns to whatever viewMode was showing before — the view is remembered
+  // independently, so closing Fleet puts you back in the galaxy (or List, or
+  // Missions) rather than guessing.
+  closeSurface: () => set({ workspaceSurface: null }),
 
   closePanel: () => set(panelPatch(null, {})),
 
@@ -850,12 +865,18 @@ export const useSolixStore = create<SolixState>((set, get) => ({
 
   // Kept as thin aliases so the 3D scene (Sun.tsx, Scene.tsx) and the keymap
   // don't change in this phase. Removed in the cleanup phase.
-  openWorkspace: () => set(panelPatch('workspace', {})),
+  // Kept as a named action because scene/Sun.tsx calls it on the sun click
+  // and should not need to know about surface shapes.
+  openWorkspace: () => set({ workspaceSurface: { kind: 'overview' } }),
   closeWorkspace: () =>
-    set((s) => (s.activePanel === 'workspace' ? panelPatch(null, {}) : {})),
-  openPlanPanel: () => set(panelPatch('plan', {})),
+    set((s) =>
+      s.workspaceSurface?.kind === 'overview' ? { workspaceSurface: null } : {},
+    ),
+  openPlanPanel: () => set({ workspaceSurface: { kind: 'plan' } }),
   closePlanPanel: () =>
-    set((s) => (s.activePanel === 'plan' ? panelPatch(null, {}) : {})),
+    set((s) =>
+      s.workspaceSurface?.kind === 'plan' ? { workspaceSurface: null } : {},
+    ),
 
   createPlanFromGoal: async (goal, cwd, opts) => {
     try {

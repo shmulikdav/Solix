@@ -16,6 +16,7 @@ beforeEach(() => {
     sessions: {},
     viewMode: 'galaxy',
     activePanel: null,
+    workspaceSurface: null,
     pendingPermissions: {},
   });
 });
@@ -94,7 +95,7 @@ describe('FirstSunHint', () => {
     rerender(<FirstSunHint suppressed={false} />);
     expect(screen.getByText(/That's the sun/)).toBeTruthy();
     act(() => {
-      useSolixStore.setState({ activePanel: 'workspace' });
+      useSolixStore.setState({ workspaceSurface: { kind: 'overview' } });
     });
     rerender(<FirstSunHint suppressed={false} />);
     expect(screen.queryByText(/That's the sun/)).toBeNull();

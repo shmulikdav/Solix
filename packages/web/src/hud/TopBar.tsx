@@ -1,5 +1,9 @@
 import { selectPlanets, useSolixStore } from '../store/index.js';
-import { RAIL_WIDTH_PX, TOP_BAR_HEIGHT_PX } from '../shell/surfaces.js';
+import {
+  RAIL_WIDTH_PX,
+  TOP_BAR_HEIGHT_PX,
+  type WorkspaceSurface,
+} from '../shell/surfaces.js';
 import { ConnectionDot } from './ConnectionDot.js';
 
 /**
@@ -14,7 +18,7 @@ import { ConnectionDot } from './ConnectionDot.js';
 export function TopBar(): JSX.Element {
   const viewMode = useSolixStore((s) => s.viewMode);
   const activePanel = useSolixStore((s) => s.activePanel);
-  const activePanelTab = useSolixStore((s) => s.activePanelTab);
+  const surface = useSolixStore((s) => s.workspaceSurface);
   const playbackActive = useSolixStore((s) => s.playback.active);
   const exitPlayback = useSolixStore((s) => s.exitPlayback);
   const orgs = useSolixStore((s) => s.orgs);
@@ -46,7 +50,7 @@ export function TopBar(): JSX.Element {
       <Breadcrumb
         viewMode={viewMode}
         activePanel={activePanel}
-        activePanelTab={activePanelTab}
+        surface={surface}
       />
 
       <div className="flex-1" />
@@ -113,7 +117,10 @@ const PANEL_LABELS: Record<string, string> = {
   decisions: 'Decisions',
   advisor: 'Advisor',
   skill: 'Skill',
-  workspace: 'Mission Control',
+};
+
+const SURFACE_LABELS: Record<string, string> = {
+  overview: 'Mission Control',
   plan: 'Maestro',
   share: 'Share',
   fleet: 'Fleet',
@@ -129,21 +136,22 @@ const VIEW_LABELS: Record<string, string> = {
 function Breadcrumb({
   viewMode,
   activePanel,
-  activePanelTab,
+  surface,
 }: {
   viewMode: string;
   activePanel: string | null;
-  activePanelTab: string | null;
+  surface: WorkspaceSurface | null;
 }): JSX.Element {
-  const crumbs: string[] = [VIEW_LABELS[viewMode] ?? viewMode];
-  if (activePanel) {
-    crumbs.push(PANEL_LABELS[activePanel] ?? activePanel);
-    if (activePanel === 'fleet') {
-      crumbs.push(
-        (activePanelTab ?? 'crew').replace(/^./, (c) => c.toUpperCase()),
-      );
-    }
+  // A surface replaces the view, so it replaces the first crumb rather than
+  // appending to it — "Galaxy › Fleet" would claim you are still looking at
+  // the galaxy. A dock sits over whatever is behind it, so it appends.
+  const crumbs: string[] = surface
+    ? [SURFACE_LABELS[surface.kind] ?? surface.kind]
+    : [VIEW_LABELS[viewMode] ?? viewMode];
+  if (surface?.kind === 'fleet') {
+    crumbs.push(surface.tab.replace(/^./, (c) => c.toUpperCase()));
   }
+  if (activePanel) crumbs.push(PANEL_LABELS[activePanel] ?? activePanel);
   return (
     <div className="flex items-center gap-1.5 text-xs text-slate-400">
       {crumbs.map((c, i) => (

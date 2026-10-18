@@ -6,8 +6,10 @@ import {
 import {
   RAIL_GROUPS,
   RAIL_ID_TO_PANEL,
+  RAIL_ID_TO_SURFACE,
   RAIL_ITEMS,
   RAIL_WIDTH_PX,
+  type FleetTabId,
   type RailItem,
 } from './surfaces.js';
 
@@ -33,10 +35,12 @@ export function NavRail({
   const viewMode = useSolixStore((s) => s.viewMode);
   const setViewMode = useSolixStore((s) => s.setViewMode);
   const activePanel = useSolixStore((s) => s.activePanel);
-  const activePanelTab = useSolixStore((s) => s.activePanelTab);
   const openPanel = useSolixStore((s) => s.openPanel);
   const closePanel = useSolixStore((s) => s.closePanel);
   const planets = useSolixStore(selectPlanets);
+  const surface = useSolixStore((s) => s.workspaceSurface);
+  const openSurface = useSolixStore((s) => s.openSurface);
+  const closeSurface = useSolixStore((s) => s.closeSurface);
   const pending = useSolixStore(selectPendingPermissionsOrdered).length;
 
   // Only the count that means "a human is needed" earns a badge. Active and
@@ -51,7 +55,10 @@ export function NavRail({
   const isActive = (item: RailItem): boolean => {
     const panel = RAIL_ID_TO_PANEL[item.id];
     if (panel) return activePanel === panel;
-    return viewMode === item.id && !activePanel;
+    const asSurface = RAIL_ID_TO_SURFACE[item.id];
+    if (asSurface) return surface?.kind === asSurface.kind;
+    // A view is only "where you are" when nothing is covering it.
+    return viewMode === item.id && !surface && !activePanel;
   };
 
   const activate = (item: RailItem): void => {
@@ -59,8 +66,9 @@ export function NavRail({
       case 'galaxy':
       case 'list':
       case 'missions':
-        // Choosing a view also dismisses whatever panel is covering it —
-        // otherwise picking "List" leaves you looking at the same panel.
+        // Choosing a view dismisses whatever is covering it — otherwise
+        // picking "List" leaves you looking at the same Fleet page.
+        closeSurface();
         closePanel();
         setViewMode(item.id);
         return;
@@ -72,9 +80,15 @@ export function NavRail({
         return;
       default: {
         const panel = RAIL_ID_TO_PANEL[item.id];
-        if (!panel) return;
-        if (activePanel === panel) closePanel();
-        else openPanel(panel);
+        if (panel) {
+          if (activePanel === panel) closePanel();
+          else openPanel(panel);
+          return;
+        }
+        const asSurface = RAIL_ID_TO_SURFACE[item.id];
+        if (!asSurface) return;
+        if (surface?.kind === asSurface.kind) closeSurface();
+        else openSurface(asSurface);
       }
     }
   };
@@ -162,16 +176,16 @@ export function NavRail({
                       <div className="mt-1 mb-1 ml-2.5 space-y-1 pl-3">
                         {item.children.map((child) => {
                           const childActive =
-                            activePanelTab === child.id ||
-                            (activePanelTab == null && child.id === 'crew');
+                            surface?.kind === 'fleet' &&
+                            surface.tab === child.id;
                           return (
                             <button
                               key={child.id}
                               onClick={() =>
-                                openPanel(
-                                  RAIL_ID_TO_PANEL[item.id] ?? 'fleet',
-                                  child.id,
-                                )
+                                openSurface({
+                                  kind: 'fleet',
+                                  tab: child.id as FleetTabId,
+                                })
                               }
                               aria-current={childActive ? 'page' : undefined}
                               className={`w-full py-0.5 text-left text-xs transition-colors ${

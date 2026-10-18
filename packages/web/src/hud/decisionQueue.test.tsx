@@ -40,7 +40,7 @@ function seed(perms: Record<string, ReturnType<typeof perm>>) {
 afterEach(cleanup);
 beforeEach(() => {
   seed({});
-  useSolixStore.setState({ activePanel: null, activePanelTab: null });
+  useSolixStore.setState({ activePanel: null, workspaceSurface: null });
 });
 
 describe('DecisionQueue', () => {
@@ -86,7 +86,18 @@ describe('Y / N are gated on the card being visible', () => {
 
   it('refuses while a different panel is open', () => {
     seed({ a: perm('a', 1) });
-    useSolixStore.setState({ activePanel: 'fleet' });
+    useSolixStore.setState({ activePanel: 'session' });
+    expect(selectCanResolveByKey(useSolixStore.getState())).toBe(false);
+  });
+
+  // A surface fills the main area and does not show the cards, so it must
+  // not enable the shortcuts either.
+  it('refuses while only a workspace surface is open', () => {
+    seed({ a: perm('a', 1) });
+    useSolixStore.setState({
+      activePanel: null,
+      workspaceSurface: { kind: 'fleet', tab: 'crew' },
+    });
     expect(selectCanResolveByKey(useSolixStore.getState())).toBe(false);
   });
 });

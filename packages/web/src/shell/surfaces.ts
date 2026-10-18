@@ -16,6 +16,24 @@ import type { PanelId } from '../panels/dock.js';
  */
 export const RAIL_WIDTH_PX = 220;
 
+/**
+ * What the main area is showing, when it is not showing the galaxy.
+ *
+ * These are places you work, so they get the whole area rather than a 480px
+ * column: Fleet's crew cards, Maestro's task threads and diffs, Mission
+ * Control's whole-workspace numbers. They are deliberately separate from
+ * `activePanel`, which is the contextual dock — the panels that are *about*
+ * something you clicked in the scene and therefore belong beside it.
+ *
+ * That split is what lets a session panel stay open over Fleet, which the
+ * single mutually-exclusive `activePanel` could not express.
+ */
+export type WorkspaceSurface =
+  | { kind: 'overview' }
+  | { kind: 'plan' }
+  | { kind: 'share' }
+  | { kind: 'fleet'; tab: FleetTabId };
+
 /** Height of the slim top strip above the main area. */
 export const TOP_BAR_HEIGHT_PX = 44;
 
@@ -51,6 +69,8 @@ export const FLEET_SECTIONS = [
   { id: 'orgs', label: 'Orgs' },
 ] as const;
 
+export type FleetTabId = (typeof FLEET_SECTIONS)[number]['id'];
+
 export const RAIL_ITEMS: RailItem[] = [
   { id: 'galaxy', label: 'Galaxy', glyph: '🪐', group: 'watch', hint: 'V' },
   { id: 'list', label: 'List', glyph: '☰', group: 'watch' },
@@ -73,11 +93,15 @@ export const RAIL_ITEMS: RailItem[] = [
   { id: 'timeline', label: 'Timeline', glyph: '⏱', group: 'govern', hint: 'T' },
 ];
 
-/** Rail ids that map onto a dock panel, for highlighting the active row. */
+/** Rail ids that open a contextual dock panel rather than a surface. */
 export const RAIL_ID_TO_PANEL: Partial<Record<string, PanelId>> = {
   decisions: 'decisions',
-  plan: 'plan',
-  overview: 'workspace',
-  fleet: 'fleet',
-  share: 'share',
+};
+
+/** Rail ids that take over the main area. */
+export const RAIL_ID_TO_SURFACE: Partial<Record<string, WorkspaceSurface>> = {
+  overview: { kind: 'overview' },
+  plan: { kind: 'plan' },
+  share: { kind: 'share' },
+  fleet: { kind: 'fleet', tab: 'crew' },
 };

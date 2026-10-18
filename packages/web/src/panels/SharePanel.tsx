@@ -9,7 +9,8 @@ import type {
 } from '@solix/shared';
 import { diffManifests } from '@solix/shared';
 import { useSolixStore } from '../store/index.js';
-import { RightDock, TabButton } from './RightDock.js';
+import { TabButton } from './RightDock.js';
+import { Surface } from '../shell/Surface.js';
 
 interface ImportResponse {
   ok: boolean;
@@ -159,7 +160,7 @@ export function SharePanel({
   };
 
   return (
-    <RightDock>
+    <Surface>
       <div className="px-4 py-3 border-b border-solix-border flex items-start justify-between">
         <div>
           <div className="text-xs uppercase tracking-wide text-solix-accent">
@@ -285,7 +286,7 @@ export function SharePanel({
             ? 'Each export snapshots a version. Identical re-exports are deduped.'
             : "Imports never spawn pinned advisors or run shell commands. You're in control."}
       </div>
-    </RightDock>
+    </Surface>
   );
 }
 

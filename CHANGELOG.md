@@ -122,6 +122,17 @@ These affect anyone upgrading from 1.11.8:
 
   `npm i -g @shmulikdav/solix` then `solix` is the whole install.
   `solix install` remains for scripted setups and `--force` re-wiring.
+- **Mission Control, Maestro, Share and Fleet now use the whole window.**
+  They were 480px right-hand docks, which was the wrong container for all
+  four: Fleet's six sections truncated in a tab strip, Crew showed one card
+  per row forever, and Maestro's diffs had nowhere to go. They are workspace
+  surfaces now and replace the canvas rather than covering it.
+- **A panel about an agent no longer closes when you open Fleet.** One
+  mutually-exclusive field held both "which surface am I working in" and
+  "which thing did I click in the scene", so the two fought: opening Fleet
+  shut the transcript you were reading. They are separate now — a contextual
+  dock floats over whichever surface is up — and Escape closes the nearest
+  one first rather than throwing away both.
 - **Pending decisions moved into the rail.** The queue used to float over the
   galaxy permanently, taking a 320px column whether or not anything was
   waiting, and twice it was found underneath something because the arithmetic

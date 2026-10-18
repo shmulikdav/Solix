@@ -269,9 +269,9 @@ async function main() {
       ['Orgs', 'An org scopes which plans you see'],
     ];
     await page.click('[data-nav-rail] >> text="Fleet"');
-    await page.waitForSelector('[data-dock-panel]', { timeout: 10000 });
+    await page.waitForSelector('[data-workspace-surface]', { timeout: 10000 });
     for (const [tab, expected] of tabs) {
-      await page.click(`[data-dock-panel] >> text="${tab}"`);
+      await page.click(`[data-workspace-surface] >> text="${tab}"`);
       await page.waitForSelector(`text=${expected}`, { timeout: 10000 });
       await page.screenshot({ path: `${SHOT_DIR}/03-fleet-${tab.toLowerCase()}.png` });
     }
@@ -283,24 +283,24 @@ async function main() {
   // layer had one read-only selector and zero write actions for schedules.
   await step('a routine can be created and then stopped in-app (S4)', async () => {
     await page.click('[data-nav-rail] >> text="Fleet"');
-    await page.waitForSelector('[data-dock-panel]', { timeout: 10000 });
-    await page.click('[data-dock-panel] >> text="Routines"');
+    await page.waitForSelector('[data-workspace-surface]', { timeout: 10000 });
+    await page.click('[data-workspace-surface] >> text="Routines"');
     await page.waitForSelector('text=New routine', { timeout: 10000 });
 
     // The demo seeds no routines, so create one. This also checks that the
     // consequence of creating recurring spend is stated before the button.
-    await page.fill('[data-dock-panel] input[placeholder="Name (optional)"]', 'Smoke routine');
-    await page.fill('[data-dock-panel] input[placeholder="/path/to/project"]', '/tmp/smoke-proj');
+    await page.fill('[data-workspace-surface] input[placeholder="Name (optional)"]', 'Smoke routine');
+    await page.fill('[data-workspace-surface] input[placeholder="/path/to/project"]', '/tmp/smoke-proj');
     await page.fill(
-      '[data-dock-panel] textarea[placeholder="What should the agent do on each run?"]',
+      '[data-workspace-surface] textarea[placeholder="What should the agent do on each run?"]',
       'say hello',
     );
     await page.waitForSelector('text=/costs money on every run/', { timeout: 5000 });
-    await page.click('[data-dock-panel] >> text="Create routine"');
+    await page.click('[data-workspace-surface] >> text="Create routine"');
     await page.waitForSelector('text=Smoke routine', { timeout: 10000 });
 
     // Now the part that did not exist: turning it off without a terminal.
-    const toggle = page.locator('[data-dock-panel] input[type=checkbox]').first();
+    const toggle = page.locator('[data-workspace-surface] input[type=checkbox]').first();
     if ((await toggle.count()) === 0) {
       throw new Error('no routine on/off control — recurring spend is unstoppable in-app');
     }
@@ -313,8 +313,8 @@ async function main() {
     await page.screenshot({ path: `${SHOT_DIR}/04-routines.png` });
 
     // Leave the demo db as we found it.
-    await page.click('[data-dock-panel] >> text="Delete"');
-    await page.click('[data-dock-panel] >> text="Delete for good"');
+    await page.click('[data-workspace-surface] >> text="Delete"');
+    await page.click('[data-workspace-surface] >> text="Delete for good"');
     await page.keyboard.press('Escape');
   });
 
@@ -333,37 +333,63 @@ async function main() {
     // Wait on the dock itself, not on the text: the button carries the same
     // label, so a text selector resolves instantly against the button and the
     // assertion then races the lazy panel chunk.
-    await page.waitForSelector('[data-dock-panel]', { timeout: 10000 });
+    await page.waitForSelector('[data-workspace-surface]', { timeout: 10000 });
     await page.waitForSelector('text=Context pressure', { timeout: 10000 });
-    const docks = await page.locator('[data-dock-panel]').count();
-    if (docks !== 1) {
-      throw new Error(`expected exactly 1 dock panel open, found ${docks}`);
+    const open = await page.locator('[data-workspace-surface]').count();
+    if (open !== 1) {
+      throw new Error(`expected exactly 1 surface open, found ${open}`);
     }
     await page.screenshot({ path: `${SHOT_DIR}/07-mission-control.png` });
     await page.keyboard.press('Escape');
   });
 
-  // Regression guard for B6: two dock panels used to be able to paint over each
-  // other, because one group was local component state and the other was the
-  // store, and the two never coordinated. The panel on top wins visually but
-  // the Decision Queue's offset is computed from the *other* one, so a pending
-  // permission prompt can end up underneath a panel. Permission prompts are
-  // what unblock stuck agents, so this is a safety surface going missing.
-  // Only one dock panel may exist in the DOM at a time.
-  await step('opening a second dock panel closes the first', async () => {
+  // B6 originally: two dock panels could paint over each other because one
+  // group was local state and the other the store, and the Decision Queue's
+  // offset was computed from the wrong one — so a pending permission could
+  // end up underneath something. The shape has changed but the invariant has
+  // not, it has just split in two.
+  //
+  // Surfaces replace each other: only ever one in the main area.
+  // Docks float over whichever surface is up, which is the behaviour the old
+  // single `activePanel` could not express — opening Fleet used to close the
+  // agent transcript you were reading.
+  await step('one surface at a time, with a dock free to sit over it', async () => {
     await page.keyboard.press('p');
     await page.waitForSelector('text=Plan a build', { timeout: 10000 });
     await page.click('[data-nav-rail] >> text="Fleet"');
     await page.waitForSelector('text=Active crew', { timeout: 10000 });
-    const docks = await page.locator('[data-dock-panel]').count();
-    if (docks !== 1) {
-      throw new Error(`expected exactly 1 dock panel open, found ${docks}`);
+
+    const surfaces = await page.locator('[data-workspace-surface]').count();
+    if (surfaces !== 1) {
+      throw new Error(`expected exactly 1 surface, found ${surfaces}`);
     }
     if (await page.locator('text=Plan a build').count()) {
-      throw new Error('plan panel is still mounted behind the connections panel');
+      throw new Error('Maestro is still mounted behind Fleet');
+    }
+
+    // Now a dock on top of it — both must survive.
+    await page.click('[data-nav-rail] >> text="Decisions"');
+    await page.waitForSelector('[data-dock-panel]', { timeout: 10000 });
+    if ((await page.locator('[data-workspace-surface]').count()) !== 1) {
+      throw new Error('opening a dock closed the surface underneath it');
+    }
+    if (!(await page.locator('text=Active crew').count())) {
+      throw new Error('Fleet unmounted when the Decisions dock opened');
     }
     await page.screenshot({ path: `${SHOT_DIR}/06-single-dock.png` });
+    // Escape closes the nearest thing first, so clearing a dock AND the
+    // surface under it takes two presses. That is deliberate — one press
+    // throwing away both would discard more than the user asked for.
     await page.keyboard.press('Escape');
+    await page.waitForSelector('[data-dock-panel]', {
+      state: 'detached',
+      timeout: 5000,
+    });
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[data-workspace-surface]', {
+      state: 'detached',
+      timeout: 5000,
+    });
   });
 
   // Regression guard: the top bar grows every time a surface is added, and an
@@ -442,12 +468,12 @@ async function main() {
       throw new Error('the org <select> is still in the top bar');
     }
     await page.click('[data-nav-rail] >> text="Fleet"');
-    await page.waitForSelector('[data-dock-panel]', { timeout: 10000 });
-    await page.click('[data-dock-panel] >> text="Orgs"');
+    await page.waitForSelector('[data-workspace-surface]', { timeout: 10000 });
+    await page.click('[data-workspace-surface] >> text="Orgs"');
     await page.waitForSelector('text=An org scopes which plans you see', {
       timeout: 10000,
     });
-    const active = await page.locator('[data-dock-panel] >> text="active"').count();
+    const active = await page.locator('[data-workspace-surface] >> text="active"').count();
     if (active !== 1) {
       throw new Error(`expected exactly one active org, found ${active}`);
     }

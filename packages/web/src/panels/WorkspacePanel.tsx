@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { AuditEvent } from '@solix/shared';
 import { selectWorkspaceSummary, useSolixStore } from '../store/index.js';
-import { RightDock } from './RightDock.js';
+import { Surface } from '../shell/Surface.js';
 
 interface WorkspacePanelProps {
   open: boolean;
@@ -108,7 +108,7 @@ export function WorkspacePanel({
   ];
 
   return (
-    <RightDock>
+    <Surface>
       <div className="px-4 py-3 border-b border-solix-border flex items-start justify-between">
         <div>
           <div className="text-xs uppercase tracking-wide text-solix-accent">
@@ -238,6 +238,6 @@ export function WorkspacePanel({
           )}
         </div>
       </div>
-    </RightDock>
+    </Surface>
   );
 }

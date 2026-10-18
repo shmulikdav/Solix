@@ -33,7 +33,7 @@ export function FirstSunHint({
 }): JSX.Element | null {
   const sessionCount = useSolixStore((s) => Object.keys(s.sessions).length);
   const viewMode = useSolixStore((s) => s.viewMode);
-  const activePanel = useSolixStore((s) => s.activePanel);
+  const surface = useSolixStore((s) => s.workspaceSurface);
   const dockOffsetPx = useSolixStore(selectDockOffsetPx);
   // A pending permission is both more urgent and more fragile than this hint:
   // it is the thing that unblocks a stuck agent, and the Decision Queue sits
@@ -58,8 +58,8 @@ export function FirstSunHint({
 
   // Opening Mission Control is the hint being acted on; it has done its job.
   useEffect(() => {
-    if (activePanel === 'workspace') setVisible(false);
-  }, [activePanel]);
+    if (surface?.kind === 'overview') setVisible(false);
+  }, [surface]);
 
   if (!visible) return null;
 

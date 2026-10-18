@@ -15,24 +15,22 @@
  * `w-[${n}px]`), so any scheme that keeps the class keeps the duplication.
  */
 
-/** Every surface that can occupy the right dock. At most one is open. */
+/**
+ * Every surface that can occupy the right dock. At most one is open.
+ *
+ * Deliberately short. Mission Control, Maestro, Share and Fleet used to be in
+ * here, and being a 480px column was wrong for all four — they are places you
+ * work, so they became `WorkspaceSurface` and take the whole main area. What
+ * is left is the things that belong *beside* the scene: the three opened by
+ * clicking a 3D object, and the decision queue, which you want in view while
+ * you watch the galaxy it is reporting on.
+ */
 export type PanelId =
   // contextual — opened by clicking something in the 3D scene
   | 'session'
   | 'advisor'
   | 'skill'
-  // deliberate — opened from the top bar or a shortcut
-  | 'workspace'
-  | 'plan'
-  // Pending permissions. A dock panel rather than a free-floating column:
-  // as an overlay it was twice found underneath something (B6, B7), and the
-  // arithmetic that kept it clear had to be re-derived every time the layout
-  // changed. A panel cannot be covered by its own siblings.
-  | 'decisions'
-  // Export / import / versions / audit. Named 'share' rather than 'galaxy'
-  // because that word already means the 3D view mode.
-  | 'share'
-  // The six configuration surfaces, behind one door and one tab strip.
-  | 'fleet';
+  // pending permissions, opened from the rail
+  | 'decisions';
 
 export const RIGHT_DOCK_WIDTH_PX = 480;

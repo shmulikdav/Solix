@@ -6,7 +6,12 @@ import { Toasts } from './hud/Toasts.js';
 import { Welcome } from './hud/Welcome.js';
 import { HelpPanel } from './hud/HelpPanel.js';
 import { NavRail } from './shell/NavRail.js';
-import { RAIL_WIDTH_PX, TOP_BAR_HEIGHT_PX } from './shell/surfaces.js';
+import {
+  RAIL_WIDTH_PX,
+  TOP_BAR_HEIGHT_PX,
+  type FleetTabId,
+  type WorkspaceSurface,
+} from './shell/surfaces.js';
 import { FirstSunHint } from './hud/FirstSunHint.js';
 import { readDismissed } from './hud/onboarding.js';
 import { DecisionQueue } from './hud/DecisionQueue.js';
@@ -80,17 +85,12 @@ export default function App(): JSX.Element {
   // Decision Queue behind a panel and hide a pending permission request.
   const panelOffsetPx = useSolixStore(selectDockOffsetPx);
 
-  const shareOpen = activePanel === 'share';
-  const fleetOpen = activePanel === 'fleet';
   const decisionsOpen = activePanel === 'decisions';
-  const workspaceOpen = activePanel === 'workspace';
-  const planPanelOpen = activePanel === 'plan';
-  const setShareOpen = (v: boolean): void =>
-    v ? openPanel('share') : closePanel();
-  const openFleet = (tab?: string): void => openPanel('fleet', tab);
-  const closeWorkspace = (): void => closePanel();
-  const openPlanPanel = (): void => openPanel('plan');
-  const closePlanPanel = (): void => closePanel();
+  const surface = useSolixStore((s) => s.workspaceSurface);
+  const openSurface = useSolixStore((s) => s.openSurface);
+  const closeSurface = useSolixStore((s) => s.closeSurface);
+  const openFleet = (tab?: string): void =>
+    openSurface({ kind: 'fleet', tab: (tab as FleetTabId) ?? 'crew' });
 
   useEffect(() => {
     startWsClient();
@@ -116,7 +116,11 @@ export default function App(): JSX.Element {
         // One call closes whichever dock panel is open — previously this had
         // to enumerate every panel, and adding one meant remembering to add it
         // here too.
-        state.closePanel();
+        // Escape closes the nearest thing: a contextual dock first, then
+        // the surface underneath it. Closing both at once would throw away
+        // more than the user asked for.
+        if (state.activePanel) state.closePanel();
+        else state.closeSurface();
         setNewTaskOpen(false);
         setHelpOpen(false);
         // Esc also exits Timeline Playback — the only mode where the rest of
@@ -130,19 +134,17 @@ export default function App(): JSX.Element {
       } else if (!isTextField && e.key === '?') {
         setHelpOpen((v) => !v);
       } else if (!isTextField && (e.key === 'g' || e.key === 'G')) {
-        if (state.activePanel === 'share') state.closePanel();
-        else state.openPanel('share');
+        if (state.workspaceSurface?.kind === 'share') state.closeSurface();
+        else state.openSurface({ kind: 'share' });
       } else if (!isTextField && (e.key === 'c' || e.key === 'C')) {
-        // C still means crew, but crew is a Fleet tab now, so the key toggles
-        // Fleet-on-crew rather than a separate modal.
-        if (state.activePanel === 'fleet' && state.activePanelTab === 'crew') {
-          state.closePanel();
-        } else {
-          state.openPanel('fleet', 'crew');
-        }
+        // C still means crew, but crew is a Fleet section now, so the key
+        // toggles Fleet-on-crew rather than a separate modal.
+        const f = state.workspaceSurface;
+        if (f?.kind === 'fleet' && f.tab === 'crew') state.closeSurface();
+        else state.openSurface({ kind: 'fleet', tab: 'crew' });
       } else if (!isTextField && (e.key === 'p' || e.key === 'P')) {
-        if (state.activePanel === 'plan') state.closePanel();
-        else state.openPanel('plan');
+        if (state.workspaceSurface?.kind === 'plan') state.closeSurface();
+        else state.openSurface({ kind: 'plan' });
       } else if (!isTextField && (e.key === 'l' || e.key === 'L')) {
         setNewTaskOpen(true);
         // Camera + motion keys only do something in the galaxy view. They were
@@ -172,8 +174,8 @@ export default function App(): JSX.Element {
       } else if (!isTextField && (e.key === 't' || e.key === 'T')) {
         setTimelineOpen((v) => !v);
       } else if (!isTextField && (e.key === 'w' || e.key === 'W')) {
-        if (state.activePanel === 'workspace') state.closePanel();
-        else state.openPanel('workspace');
+        if (state.workspaceSurface?.kind === 'overview') state.closeSurface();
+        else state.openSurface({ kind: 'overview' });
       } else if (
         !isTextField &&
         top &&
@@ -204,7 +206,16 @@ export default function App(): JSX.Element {
         className="absolute inset-y-0 right-0"
         style={{ left: RAIL_WIDTH_PX }}
       >
-        <ViewSurface />
+        {/* One of these, never both: a surface replaces the canvas rather
+            than covering it, which is what makes Fleet and Maestro usable at
+            full width. Contextual docks still float over whichever is up. */}
+        {surface ? (
+          <Suspense fallback={null}>
+            <WorkspaceSurfaces surface={surface} onClose={closeSurface} />
+          </Suspense>
+        ) : (
+          <ViewSurface />
+        )}
       </div>
       <NavRail
         onNewTask={() => setNewTaskOpen(true)}
@@ -216,26 +227,6 @@ export default function App(): JSX.Element {
       <SidePanel />
       <AdvisorPanel />
       <SkillPanel />
-      {shareOpen && (
-        <Suspense fallback={null}>
-          <SharePanel open={shareOpen} onClose={() => setShareOpen(false)} />
-        </Suspense>
-      )}
-      {workspaceOpen && (
-        <Suspense fallback={null}>
-          <WorkspacePanel open={workspaceOpen} onClose={closeWorkspace} />
-        </Suspense>
-      )}
-      {planPanelOpen && (
-        <Suspense fallback={null}>
-          <PlanPanel open={planPanelOpen} onClose={closePlanPanel} />
-        </Suspense>
-      )}
-      {fleetOpen && (
-        <Suspense fallback={null}>
-          <FleetPanel open={fleetOpen} />
-        </Suspense>
-      )}
       <NewTaskModal
         open={newTaskOpen}
         onClose={() => setNewTaskOpen(false)}
@@ -253,7 +244,7 @@ export default function App(): JSX.Element {
           forceOpen flag, and closing it wrote the first-run dismissed flag —
           so pressing ? once consumed a new user's onboarding. */}
       <Welcome
-        onPlanBuild={() => openPanel('plan')}
+        onPlanBuild={() => openSurface({ kind: 'plan' })}
         onOpenCrew={() => openFleet('crew')}
         onDismissed={() => setWelcomeOpen(false)}
       />
@@ -270,6 +261,26 @@ export default function App(): JSX.Element {
  * Renders either the 3D galaxy or the table list view, depending on the
  * persisted viewMode. The TopBar / DecisionQueue / panels overlay both.
  */
+/** Routes the active workspace surface to its component. */
+function WorkspaceSurfaces({
+  surface,
+  onClose,
+}: {
+  surface: WorkspaceSurface;
+  onClose: () => void;
+}): JSX.Element {
+  switch (surface.kind) {
+    case 'overview':
+      return <WorkspacePanel open onClose={onClose} />;
+    case 'plan':
+      return <PlanPanel open onClose={onClose} />;
+    case 'share':
+      return <SharePanel open onClose={onClose} />;
+    case 'fleet':
+      return <FleetPanel open />;
+  }
+}
+
 function ViewSurface(): JSX.Element {
   const viewMode = useSolixStore((s) => s.viewMode);
   if (viewMode === 'list') return <ListView />;
