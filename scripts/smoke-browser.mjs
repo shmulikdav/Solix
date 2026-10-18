@@ -187,6 +187,28 @@ async function main() {
     await page.keyboard.press('Escape');
   });
 
+  // Regression guard: the top bar grows every time a surface is added, and an
+  // overflowing bar silently pushes its right-most control (the help button)
+  // off the viewport — invisible to typecheck and to jsdom tests, and only
+  // noticed when a human squints at a screenshot. Check at a laptop width.
+  await step('no top-bar control is clipped at 1280px', async () => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await sleep(600);
+    const clipped = await page.evaluate(() => {
+      const w = document.documentElement.clientWidth;
+      return [...document.querySelectorAll('button, select')]
+        .map((el) => ({ el, r: el.getBoundingClientRect() }))
+        .filter(({ r }) => r.width > 0 && r.height > 0 && r.top < 120)
+        .filter(({ r }) => r.right > w + 1 || r.left < -1)
+        .map(({ el, r }) => `${(el.textContent || el.tagName).trim().slice(0, 24)} @${Math.round(r.right)}>${w}`);
+    });
+    if (clipped.length) {
+      throw new Error(`clipped out of viewport: ${clipped.join('; ')}`);
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await sleep(400);
+  });
+
   await step('org switcher is present and shows the default org', async () => {
     const value = await page.evaluate(() => {
       const sel = document.querySelector('select[title*="Active org"]');
