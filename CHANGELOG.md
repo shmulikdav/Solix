@@ -95,6 +95,26 @@ These affect anyone upgrading from 1.11.8:
   made the `sessions.origin` CHECK relaxation silently roll back.
 
 ### Changed
+- **Installing a team now states what it will actually do.** Two of the three
+  things a team install performs are bookkeeping — enabling advisors is a flag,
+  and "installing" a skill only records an association. The routines are the
+  only part with an ongoing effect: an interval routine launches a real agent
+  session on a cadence and spends money on every run. The install card now says
+  so in plain language per template ("runs automatically every 1d — each run
+  starts a real agent session and costs money" vs "fires only when its webhook
+  URL is called"), and the routines are a declinable checkbox. The default is
+  unchanged, so a team is still complete out of the box — what's removed is the
+  surprise, not the feature.
+- **A fired routine is now governed by containment.** Routines launched
+  unattended previously ran with no gate: their tool calls were observed but
+  never blocked, unlike Maestro workers. A routine is now its own session role,
+  correlated via `--session-id` so the gate can identify it, and governed by the
+  denylist — destructive commands and out-of-project writes are hard-denied,
+  ordinary work auto-allows. It deliberately does *not* queue a permission
+  prompt: a routine often fires overnight, and a prompt nobody answers would
+  time out and fail the run. Sessions you start yourself are unaffected.
+  Note that containment implies the environment allowlist, so a routine relying
+  on ambient environment variables now needs `SOLIX_ENV_PASSTHROUGH`.
 - **Releases ship textured.** `prepare-assets` now runs on the publish path, so a
   published build contains the planet and sky textures rather than silently
   shipping the procedural look. It is deliberately not part of `pnpm build` —

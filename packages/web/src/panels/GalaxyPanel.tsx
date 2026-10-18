@@ -315,6 +315,25 @@ function TabButton({
   );
 }
 
+/** Plain-language statement of what a template's routines will actually do —
+ *  an interval routine launches a real agent session on a cadence and spends
+ *  money on every run, which is easy to miss in a one-click install. */
+function describeRoutineCost(t: TeamTemplate): string {
+  const interval = t.routines.filter((r) => (r.trigger ?? 'interval') === 'interval');
+  const webhook = t.routines.filter((r) => r.trigger === 'webhook');
+  const manual = t.routines.filter((r) => r.trigger === 'manual');
+  const parts: string[] = [];
+  if (interval.length) {
+    const cadences = [...new Set(interval.map((r) => r.cadence ?? '1h'))].join(', ');
+    parts.push(
+      `${interval.length} runs automatically every ${cadences} — each run starts a real agent session and costs money.`,
+    );
+  }
+  if (webhook.length) parts.push(`${webhook.length} fires only when its webhook URL is called.`);
+  if (manual.length) parts.push(`${manual.length} runs only when you trigger it.`);
+  return parts.join(' ');
+}
+
 /** P2 #7 — ready-made team templates: pick a project, install an advisor+skill+
  *  routine bundle in one click. */
 function TeamsTab({ open }: { open: boolean }): JSX.Element {
@@ -324,6 +343,9 @@ function TeamsTab({ open }: { open: boolean }): JSX.Element {
   const [cwd, setCwd] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
+  // Routines are the only part of a team install with an ongoing effect, so
+  // they're an explicit, declinable choice rather than a silent side effect.
+  const [includeRoutines, setIncludeRoutines] = useState(true);
 
   const projectList = Object.values(projects).sort(
     (a, b) => b.lastActiveAt - a.lastActiveAt,
@@ -351,7 +373,7 @@ function TeamsTab({ open }: { open: boolean }): JSX.Element {
     }
     setBusy(id);
     setNote(null);
-    const res = await installTeamTemplate(id, effectiveCwd.trim());
+    const res = await installTeamTemplate(id, effectiveCwd.trim(), includeRoutines);
     setBusy(null);
     if (res.ok) {
       const warns = res.warnings?.length ? ` (${res.warnings.length} skipped)` : '';
@@ -413,6 +435,21 @@ function TeamsTab({ open }: { open: boolean }): JSX.Element {
                 <div>routines · {t.routines.map((r) => r.name).join(', ')}</div>
               )}
             </div>
+            {t.routines.length > 0 && (
+              <label className="mt-2 flex items-start gap-2 text-[10px] rounded px-2 py-1.5 border border-solix-warn/40 bg-solix-warn/10 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeRoutines}
+                  onChange={(e) => setIncludeRoutines(e.target.checked)}
+                  className="mt-0.5 accent-amber-400"
+                />
+                <span className="text-slate-300">
+                  Also create {t.routines.length} routine
+                  {t.routines.length === 1 ? '' : 's'}.{' '}
+                  {describeRoutineCost(t)}
+                </span>
+              </label>
+            )}
             <button
               onClick={() => void onInstall(t.id)}
               disabled={busy === t.id}

@@ -56,7 +56,7 @@ export function TopBar({
   );
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between p-4 z-40">
+    <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-4 z-40">
       <div className="pointer-events-auto flex items-center gap-2 sm:gap-3">
         <div className="flex items-baseline gap-1.5">
           <div className="text-xl font-bold tracking-widest text-solix-accent">
@@ -94,7 +94,10 @@ export function TopBar({
         )}
       </div>
 
-      <div className="pointer-events-auto flex items-center gap-2 sm:gap-3 text-xs">
+      {/* flex-wrap + justify-end: this group grows every time a surface is
+          added, and without wrapping the overflow silently pushes the
+          right-most control (the help button) off the viewport edge. */}
+      <div className="pointer-events-auto flex flex-wrap items-center justify-end gap-2 sm:gap-3 text-xs max-w-full">
         {/* Counters and timeline are useful but not critical on mobile;
             hide them at <sm to keep the topbar single-row. */}
         <div className="hidden sm:flex items-center gap-2">

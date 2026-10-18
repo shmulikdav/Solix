@@ -932,12 +932,16 @@ export function createHttpApp(opts: {
   app.get('/api/teams/templates', (c) => c.json(listTeamTemplates()));
 
   app.post('/api/teams/templates/:id/install', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { cwd?: string };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      cwd?: string;
+      includeRoutines?: boolean;
+    };
     if (!body.cwd || !body.cwd.trim()) {
       return c.json({ ok: false, warnings: ['cwd is required'] }, 400);
     }
     const result = installTeamTemplate(opts.db, c.req.param('id'), {
       cwd: body.cwd,
+      includeRoutines: body.includeRoutines,
     });
     if (!result.ok) {
       // Unknown template vs. a bad cwd both come back as a 400 with warnings.

@@ -1,4 +1,5 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
@@ -650,6 +651,12 @@ export class Launcher {
     /** Sprint M: per-session budget cap (USD) + goal to roll up to. */
     budgetUsd?: number;
     goalId?: string;
+    /** Mark this as an autonomous launch (currently: a fired routine). The
+     *  session is pre-created with this role and correlated via
+     *  `--session-id`, so the containment gate can recognise it: its tool
+     *  calls are governed by the denylist and safe ones auto-allow, instead
+     *  of queueing for a human who isn't there. Implies containment. */
+    sessionRole?: 'routine';
   }): { ok: boolean; sessionId?: string } {
     if (!opts.initialPrompt.trim()) return { ok: false };
 
@@ -711,9 +718,27 @@ export class Launcher {
 
     const args: string[] = ['--print'];
     if (opts.model) args.push('--model', String(opts.model));
+
+    // An autonomous launch pre-creates its planet row with a UUID and passes
+    // it as --session-id, so the hooks enrich THAT row and the gate can see
+    // the role. Human-initiated launches keep the original synthetic id and
+    // ungated behaviour — this path is opt-in and changes nothing for them.
+    let sessionId = `task-${nanoid(8)}`;
+    if (opts.sessionRole) {
+      const caps = claudeCaps();
+      const correlated = randomUUID();
+      if (caps.sessionId) {
+        args.push('--session-id', correlated);
+        sessionId = correlated;
+        this.preparePlanetRow(correlated, spawnCwd, opts.sessionRole, opts.model);
+      } else {
+        console.warn(
+          '[launcher] claude lacks --session-id; routine will run ungated',
+        );
+      }
+    }
     args.push(opts.initialPrompt);
 
-    const sessionId = `task-${nanoid(8)}`;
     return this.spawnPrint({
       sessionId,
       cwd: spawnCwd,
@@ -722,6 +747,7 @@ export class Launcher {
       worktreePath,
       budgetUsd: opts.budgetUsd,
       goalId: opts.goalId,
+      contain: Boolean(opts.sessionRole),
     });
   }
 
@@ -880,6 +906,40 @@ export class Launcher {
     return undefined;
   }
 
+  /**
+   * Pre-create the session row for an autonomous launch, tagged with its role,
+   * so the containment gate can identify it the moment its first hook fires.
+   * Mirrors the orchestrator's worker/verifier planet rows.
+   */
+  private preparePlanetRow(
+    sessionId: string,
+    cwd: string,
+    role: 'routine',
+    model?: Model,
+  ): void {
+    try {
+      const project = ensureProject(this.db, cwd);
+      upsertSession(this.db, {
+        id: sessionId,
+        pid: 0,
+        projectId: project.id,
+        cwd,
+        origin: 'internal',
+        model: model ?? 'default',
+        kind: 'user',
+        sessionRole: role,
+      });
+      const active = setSessionStatus(this.db, sessionId, 'active');
+      if (active) {
+        this.broadcaster.broadcast({ type: 'session_upsert', session: active });
+      }
+    } catch (err) {
+      // Never let bookkeeping stop the launch; worst case it runs ungated and
+      // the warning below says so.
+      console.warn('[launcher] could not pre-create routine session row', err);
+    }
+  }
+
   private spawnPrint(opts: {
     sessionId: string;
     cwd: string;
@@ -888,6 +948,8 @@ export class Launcher {
     worktreePath?: string;
     budgetUsd?: number;
     goalId?: string;
+    /** Inject the fail-closed containment gate (autonomous launches only). */
+    contain?: boolean;
   }): { ok: boolean; sessionId?: string } {
     let child: ChildProcess;
     try {
@@ -896,7 +958,7 @@ export class Launcher {
         cwd: opts.cwd,
         stdio: ['ignore', 'pipe', 'pipe'],
         detached: false,
-        env: buildSpawnEnv(),
+        env: buildSpawnEnv(opts.contain),
       });
     } catch (err) {
       this.broadcaster.broadcast({

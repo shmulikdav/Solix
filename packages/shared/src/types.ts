@@ -24,9 +24,13 @@ export type AgentRuntime = 'claude' | 'codex';
 
 export type SessionKind = 'user' | 'advisor';
 
-/** v2 Maestro — a session's role within an orchestration plan. Absent for
- *  ordinary (non-plan) sessions. */
-export type SessionRole = 'worker' | 'verifier' | 'planner';
+/** A session's role when Solix launched it rather than a human.
+ *  - worker/verifier/planner: dispatched by the Maestro orchestrator
+ *  - routine: fired by a scheduled/webhook/manual routine
+ *  Absent for ordinary sessions a human started. Autonomous roles are governed
+ *  by the containment denylist instead of a per-step human prompt — there is
+ *  nobody at the keyboard to answer one. */
+export type SessionRole = 'worker' | 'verifier' | 'planner' | 'routine';
 
 export interface Session {
   id: string;

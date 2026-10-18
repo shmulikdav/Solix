@@ -486,7 +486,8 @@ export class EventRouter {
       // denylist + cwd-confinement above is the boundary, not a per-step prompt.
       if (
         session.sessionRole === 'worker' ||
-        session.sessionRole === 'verifier'
+        session.sessionRole === 'verifier' ||
+        session.sessionRole === 'routine'
       ) {
         return Promise.resolve({ approved: true, timedOut: false });
       }

@@ -93,7 +93,14 @@ export function getTeamTemplate(id: string): TeamTemplate | null {
 export function installTeamTemplate(
   db: DB,
   templateId: string,
-  input: { cwd: string },
+  input: {
+    cwd: string;
+    /** Create the template's routines. Default true. A routine is the only
+     *  part of a team install with an ongoing effect — an interval routine
+     *  launches a real agent session on a cadence, which costs money — so the
+     *  caller can decline them while still taking the advisors + skills. */
+    includeRoutines?: boolean;
+  },
 ): TeamInstallResult {
   const template = getTeamTemplate(templateId);
   const warnings: string[] = [];
@@ -146,8 +153,9 @@ export function installTeamTemplate(
     skillsInstalled.push(skill.id);
   }
 
-  // Routines — create each in the target project.
-  for (const routine of template.routines) {
+  // Routines — create each in the target project, unless declined.
+  const includeRoutines = input.includeRoutines !== false;
+  for (const routine of includeRoutines ? template.routines : []) {
     const sched = createSchedule(db, {
       cwd,
       prompt: routine.prompt,
@@ -157,6 +165,12 @@ export function installTeamTemplate(
       owner: template.id,
     });
     routinesCreated.push(sched.id);
+  }
+
+  if (!includeRoutines && template.routines.length > 0) {
+    warnings.push(
+      `${template.routines.length} routine(s) not created (declined)`,
+    );
   }
 
   return {

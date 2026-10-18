@@ -21,7 +21,10 @@ export interface ContainmentDecision {
 
 /** Roles subject to containment — the autonomous, human-less ones. */
 function isContainedRole(role?: SessionRole): boolean {
-  return role === 'worker' || role === 'verifier';
+  // Every role Solix launches without a human present. A routine fires
+  // unattended (often overnight), so it must be governed by the denylist
+  // rather than a prompt nobody will answer.
+  return role === 'worker' || role === 'verifier' || role === 'routine';
 }
 
 /** Does a shell command match a destructive denylist pattern? Returns the
