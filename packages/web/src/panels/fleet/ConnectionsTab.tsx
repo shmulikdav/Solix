@@ -308,7 +308,7 @@ function ConnectionCard({
           onClick={() => void call('', undefined, 'DELETE')}
           className="text-[10px] text-solix-danger/80 hover:text-solix-danger"
         >
-          delete
+          Delete
         </button>
       </div>
 
@@ -360,7 +360,7 @@ function ConnectionCard({
           disabled={!key.trim() || !value}
           className="px-2 rounded bg-solix-accent/15 border border-solix-accent/50 text-solix-accent text-[11px] hover:bg-solix-accent/25 disabled:opacity-40"
         >
-          set
+          Set
         </button>
       </div>
 
@@ -401,7 +401,7 @@ function ConnectionCard({
           disabled={!scope.trim()}
           className="px-2 rounded bg-black/30 border border-solix-border text-slate-300 text-[11px] hover:bg-black/50 disabled:opacity-40"
         >
-          grant
+          Grant
         </button>
       </div>
     </div>

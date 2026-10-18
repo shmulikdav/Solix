@@ -78,6 +78,11 @@ additive and backward-compatible; the paid tier ships dormant (free public beta
 
 These affect anyone upgrading from 1.11.8:
 
+- **One project picker instead of three.** The plan panel, the team installer
+  and the routine form each had their own project `<select>` and working-
+  directory input, with near-identical styling and three different wordings
+  for the same field. They share one component, and a test keeps a fourth from
+  appearing.
 - **"Approve & run" was green.** It dispatches one agent per task and is the
   largest single spend in the product, wearing the same colour as "enabling an
   advisor is free". Colour now means something: amber is "this spends money",

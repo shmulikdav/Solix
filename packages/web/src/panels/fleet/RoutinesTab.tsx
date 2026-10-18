@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ScheduledTask, ScheduleRun, TriggerKind } from '@solix/shared';
 import { selectSchedulesArray, useSolixStore } from '../../store/index.js';
+import { ProjectPicker } from '../ProjectPicker.js';
 
 /**
  * Routines — recurring, unsupervised agent runs.
@@ -300,18 +301,12 @@ function NewRoutineForm(): JSX.Element {
         placeholder="Name (optional)"
         className="w-full px-2 py-1.5 rounded bg-black/30 border border-solix-border text-sm focus:outline-none focus:border-solix-accent/60"
       />
-      <input
+      <ProjectPicker
+        projects={projectList}
         value={cwd}
-        onChange={(e) => setCwd(e.target.value)}
-        placeholder="/path/to/project"
-        list="solix-routine-projects"
-        className="w-full px-2 py-1.5 rounded bg-black/30 border border-solix-border text-sm focus:outline-none focus:border-solix-accent/60"
+        onChange={setCwd}
+        placeholder="Choose a project…"
       />
-      <datalist id="solix-routine-projects">
-        {projectList.map((p) => (
-          <option key={p.id} value={p.cwd} />
-        ))}
-      </datalist>
       <textarea
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}

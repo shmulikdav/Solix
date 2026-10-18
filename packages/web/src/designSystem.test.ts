@@ -123,6 +123,19 @@ describe('design system — colour is semantic', () => {
     expect(plan).toContain('one per task. Each run costs money');
   });
 
+  // C1/C2: there were three project pickers and three cwd inputs with
+  // near-identical class strings. Three implementations of one control is how
+  // two of them end up behaving differently without anyone deciding they
+  // should.
+  it('has one project/cwd input, not three', () => {
+    const offenders = files.filter(
+      (f) =>
+        !f.endsWith('ProjectPicker.tsx') &&
+        /placeholder="\/path\/to\/project"/.test(readFileSync(f, 'utf8')),
+    );
+    expect(offenders.map((f) => f.replace(SRC, ''))).toEqual([]);
+  });
+
   // C3: browser prompts are unstyled, look like the browser rather than the
   // app, and in two of the three cases fed an unvalidated string to parseFloat
   // or straight into a POST body.

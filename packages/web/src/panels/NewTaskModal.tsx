@@ -291,7 +291,7 @@ export function NewTaskModal({
                       : 'border-solix-border text-slate-300 hover:bg-solix-border/30'
                   }`}
                 >
-                  none
+                  None
                 </button>
                 {enabledAdvisors.map((a) => (
                   <button
@@ -373,7 +373,7 @@ export function NewTaskModal({
                       : 'border-solix-border text-slate-300 hover:bg-solix-border/30'
                   }`}
                 >
-                  none
+                  None
                 </button>
                 {goalList.map((g) => (
                   <button

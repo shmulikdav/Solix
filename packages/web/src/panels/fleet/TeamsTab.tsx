@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { TeamTemplate } from '@solix/shared';
 import { useSolixStore } from '../../store/index.js';
+import { ProjectPicker } from '../ProjectPicker.js';
 import { describeRoutineCost } from './routineCost.js';
 
 /** P2 #7 — ready-made team templates: pick a project, install an advisor+skill+
@@ -58,25 +59,11 @@ export function TeamsTab({ open }: { open: boolean }): JSX.Element {
         <div className="text-xs uppercase tracking-wide text-slate-400 mb-2">
           Install into project
         </div>
-        {projectList.length > 0 && (
-          <select
-            value=""
-            onChange={(e) => e.target.value && setCwd(e.target.value)}
-            className="w-full text-xs bg-black/40 border border-solix-border rounded p-2 text-slate-200 mb-2 focus:outline-none focus:border-solix-accent"
-          >
-            <option value="">Choose a project…</option>
-            {projectList.map((p) => (
-              <option key={p.id} value={p.cwd}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        )}
-        <input
+        <ProjectPicker
+          projects={projectList}
           value={effectiveCwd}
-          onChange={(e) => setCwd(e.target.value)}
-          placeholder="/path/to/project"
-          className="w-full text-xs font-mono bg-black/40 border border-solix-border rounded p-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-solix-accent"
+          onChange={setCwd}
+          placeholder="Choose a project…"
         />
       </div>
 

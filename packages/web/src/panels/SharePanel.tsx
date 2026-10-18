@@ -534,7 +534,7 @@ function VersionsTab({ open }: { open: boolean }): JSX.Element {
             onClick={clearSelection}
             className="text-slate-500 hover:text-slate-100"
           >
-            clear
+            Clear
           </button>
         </div>
       )}

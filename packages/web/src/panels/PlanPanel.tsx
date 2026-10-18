@@ -12,6 +12,7 @@ import {
   selectTaskThread,
   useSolixStore,
 } from '../store/index.js';
+import { ProjectPicker } from './ProjectPicker.js';
 import { RightDock } from './RightDock.js';
 
 interface PlanPanelProps {
@@ -224,41 +225,13 @@ export function PlanPanel({ open, onClose }: PlanPanelProps): JSX.Element | null
             </div>
           )}
 
-          {(managed.length > 0 || observed.length > 0) && (
-            <select
-              value=""
-              onChange={(e) => {
-                if (e.target.value) setCwd(e.target.value);
-              }}
-              className="w-full text-xs bg-black/40 border border-solix-border rounded p-2 text-slate-200 focus:outline-none focus:border-solix-accent"
-            >
-              <option value="">Choose an existing project…</option>
-              {managed.length > 0 && (
-                <optgroup label="Your projects">
-                  {managed.map((p) => (
-                    <option key={p.id} value={p.cwd}>
-                      {p.name}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-              {observed.length > 0 && (
-                <optgroup label="Observed">
-                  {observed.map((p) => (
-                    <option key={p.id} value={p.cwd}>
-                      {p.name}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-            </select>
-          )}
-
-          <input
+          <ProjectPicker
             value={effectiveCwd}
-            onChange={(e) => setCwd(e.target.value)}
-            placeholder="/path/to/project"
-            className="w-full text-xs font-mono bg-black/40 border border-solix-border rounded p-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-solix-accent"
+            onChange={setCwd}
+            groups={[
+              { label: 'Your projects', projects: managed },
+              { label: 'Observed', projects: observed },
+            ]}
           />
         </div>
 
