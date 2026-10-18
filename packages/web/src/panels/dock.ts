@@ -25,10 +25,10 @@ export type PanelId =
   | 'workspace'
   | 'plan'
   // These two migrate here so that EVERY dock panel goes through one
-  // exclusivity mechanism. They are renamed in later phases: 'galaxy' becomes
+  // exclusivity mechanism. 'connections' is folded into a Fleet panel in a
   // 'share' (the name collides with the Galaxy view mode) and 'connections'
   // is absorbed into a tabbed 'fleet'.
-  | 'galaxy'
+  | 'share'
   | 'connections';
 
 export const RIGHT_DOCK_WIDTH_PX = 480;

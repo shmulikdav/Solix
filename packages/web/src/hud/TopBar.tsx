@@ -2,23 +2,25 @@ import { useSolixStore, selectPlanets } from '../store/index.js';
 import { NEW_SKILL_ID } from '../panels/SkillPanel.js';
 
 interface TopBarProps {
-  onOpenGalaxy?: () => void;
+  onOpenShare?: () => void;
   onNewTask?: () => void;
   onOpenTimeline?: () => void;
   onOpenHelp?: () => void;
   onOpenCrew?: () => void;
   onOpenPlan?: () => void;
   onOpenConnections?: () => void;
+  onOpenWorkspace?: () => void;
 }
 
 export function TopBar({
-  onOpenGalaxy,
+  onOpenShare,
   onNewTask,
   onOpenTimeline,
   onOpenHelp,
   onOpenCrew,
   onOpenPlan,
   onOpenConnections,
+  onOpenWorkspace,
 }: TopBarProps = {}): JSX.Element {
   const connected = useSolixStore((s) => s.connected);
   const planets = useSolixStore(selectPlanets);
@@ -133,6 +135,15 @@ export function TopBar({
             ✦ Crew
           </button>
         )}
+        {onOpenWorkspace && (
+          <button
+            onClick={onOpenWorkspace}
+            className="px-2 py-1 rounded bg-slate-500/15 border border-slate-400/40 text-slate-200 hover:bg-slate-500/25"
+            title="Mission Control: whole-workspace overview (W) — also opens by clicking the sun"
+          >
+            ☀ Mission Control
+          </button>
+        )}
         {onOpenPlan && (
           <button
             onClick={onOpenPlan}
@@ -151,13 +162,13 @@ export function TopBar({
             ⚷ Connections
           </button>
         )}
-        {onOpenGalaxy && (
+        {onOpenShare && (
           <button
-            onClick={onOpenGalaxy}
+            onClick={onOpenShare}
             className="px-2 py-1 rounded bg-solix-accent/15 border border-solix-accent/40 text-solix-accent hover:bg-solix-accent/25"
-            title="Galaxy: export and import (G)"
+            title="Share: export, import, versions and audit (G)"
           >
-            ⌬ Galaxy
+            ⌬ Share
           </button>
         )}
         <button

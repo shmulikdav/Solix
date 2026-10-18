@@ -23,7 +23,7 @@ interface PlanPanelProps {
  * v2 Maestro — the conductor's panel. Type a goal → the orchestrator runs a
  * planner session and returns a task DAG parked at `awaiting_approval`; you
  * review it and approve (dispatch is Phase 2). Right-docked, same archetype as
- * WorkspacePanel / GalaxyPanel.
+ * WorkspacePanel / SharePanel.
  */
 const TEMPLATE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'empty', label: 'Empty' },

@@ -65,7 +65,7 @@ function Chip({
 /**
  * Mission Control — the whole-workspace overview opened by clicking the sun.
  * All figures are real (derived by `selectWorkspaceSummary`); `interventions`
- * comes from the persisted audit log, fetched on open like GalaxyPanel's Audit tab.
+ * comes from the persisted audit log, fetched on open like SharePanel's Audit tab.
  */
 export function WorkspacePanel({
   open,

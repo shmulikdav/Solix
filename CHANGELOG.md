@@ -78,6 +78,10 @@ additive and backward-compatible; the paid tier ships dormant (free public beta
 
 These affect anyone upgrading from 1.11.8:
 
+- **Mission Control had no button.** The whole-workspace overview opened only by
+  clicking the 3D sun or pressing `W` — and the sun does not exist in List or
+  Missions view, so there the panel was keyboard-only and effectively
+  undiscoverable. It now has a top-bar button; the sun and `W` keep working.
 - **A pending permission prompt could be hidden behind a panel.** Two groups of
   side panels tracked their open state separately — one in component state, one
   in the store — and never coordinated, so two panels could be open at once.
@@ -103,6 +107,11 @@ These affect anyone upgrading from 1.11.8:
   made the `sessions.origin` CHECK relaxation silently roll back.
 
 ### Changed
+
+- **The Galaxy panel is now the Share panel.** "Galaxy" named two unrelated
+  things five controls apart in the same bar: the 3D view (`V`) and the
+  export/import panel (`G`). The panel is renamed to Share, which is what its
+  tabs actually do — export, import, versions and audit. `G` is unchanged.
 - **Installing a team now states what it will actually do.** Two of the three
   things a team install performs are bookkeeping — enabling advisors is a flag,
   and "installing" a skill only records an association. The routines are the

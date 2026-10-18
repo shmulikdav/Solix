@@ -81,7 +81,7 @@ export function PanelHeader({
 }
 
 /**
- * Tab strip button. This existed byte-identically in GalaxyPanel and
+ * Tab strip button. This existed byte-identically in SharePanel and
  * SidePanel; the Fleet panel would have been a third copy.
  */
 export function TabButton({

@@ -10,7 +10,7 @@ interface CrewPanelProps {
 /**
  * Sprint N — the crew roster. Lists every advisor (active + opt-in) so users
  * can discover and enable the ones that ship disabled. Mirrors the
- * GalaxyPanel open/close pattern; opened from the TopBar "✦ Crew" button.
+ * SharePanel open/close pattern; opened from the TopBar "✦ Crew" button.
  */
 export function CrewPanel({ open, onClose }: CrewPanelProps): JSX.Element | null {
   const advisors = useSolixStore(selectAllAdvisors);

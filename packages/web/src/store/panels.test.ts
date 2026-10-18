@@ -35,8 +35,8 @@ describe('right dock exclusivity', () => {
     expect(s().activePanel).toBe('session');
     expect(s().selectedSessionId).toBe('sess-1');
 
-    s().openPanel('galaxy');
-    expect(s().activePanel).toBe('galaxy');
+    s().openPanel('share');
+    expect(s().activePanel).toBe('share');
     // The selection must be cleared, not merely covered.
     expect(s().selectedSessionId).toBeNull();
 
@@ -89,7 +89,7 @@ describe('right dock exclusivity', () => {
   });
 
   it('closePanel closes whatever is open', () => {
-    for (const p of ['plan', 'galaxy', 'connections', 'workspace'] as const) {
+    for (const p of ['plan', 'share', 'connections', 'workspace'] as const) {
       s().openPanel(p);
       s().closePanel();
       expect(s().activePanel).toBeNull();
@@ -113,7 +113,7 @@ describe('right dock exclusivity', () => {
       () => s().selectAdvisor('b'),
       () => s().selectSkill('c'),
       () => s().openPanel('plan'),
-      () => s().openPanel('galaxy'),
+      () => s().openPanel('share'),
       () => s().openPanel('connections'),
       () => s().openPanel('workspace'),
     ]) {

@@ -19,17 +19,17 @@ interface ImportResponse {
   error?: string;
 }
 
-interface GalaxyPanelProps {
+interface SharePanelProps {
   open: boolean;
   onClose: () => void;
 }
 
 type Tab = 'share' | 'teams' | 'versions' | 'audit';
 
-export function GalaxyPanel({
+export function SharePanel({
   open,
   onClose,
-}: GalaxyPanelProps): JSX.Element | null {
+}: SharePanelProps): JSX.Element | null {
   const [tab, setTab] = useState<Tab>('share');
   const [name, setName] = useState('My Galaxy');
   const [importText, setImportText] = useState('');

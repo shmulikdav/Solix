@@ -151,7 +151,7 @@ export function NewTaskModal({
         ancestor of it. When the opaque panel was nested inside a
         `backdrop-blur` element, some browsers composited it translucently and
         the galaxy bled through the form. Keeping the blur on a sibling (the way
-        GalaxyPanel keeps it on its own element) makes the panel render solid.
+        SharePanel keeps it on its own element) makes the panel render solid.
       */}
       <div className="absolute inset-0 bg-black/80 backdrop-blur-lg" />
       <div className="relative z-10 w-[520px] max-w-[92vw] max-h-[88vh] flex flex-col rounded-xl border border-solix-accent/40 bg-solix-panel shadow-2xl">

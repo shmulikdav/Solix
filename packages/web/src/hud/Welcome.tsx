@@ -4,7 +4,7 @@ import { useSolixStore } from '../store/index.js';
 const STORAGE_KEY = 'solix.welcome.dismissed.v1';
 
 interface WelcomeProps {
-  onOpenGalaxy: () => void;
+  onOpenShare: () => void;
   /** When true, render the modal even if previously dismissed or sessions exist. */
   forceOpen?: boolean;
   /** Called when the user closes the modal (forceOpen path); the persistent
@@ -13,7 +13,7 @@ interface WelcomeProps {
 }
 
 export function Welcome({
-  onOpenGalaxy,
+  onOpenShare,
   forceOpen = false,
   onClose,
 }: WelcomeProps): JSX.Element | null {
@@ -143,7 +143,7 @@ export function Welcome({
                 <kbd className="px-1.5 py-0.5 rounded bg-black/50 border border-solix-border text-[10px]">
                   G
                 </kbd>{' '}
-                or click <span className="text-solix-accent">⌬ Galaxy</span>{' '}
+                or click <span className="text-solix-accent">⌬ Share</span>{' '}
                 in the top bar to export, import, publish, or install a
                 galaxy from a registry.
               </>
@@ -173,7 +173,7 @@ export function Welcome({
           </div>
           <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-slate-400">
             <Kbd k="V">cycle Galaxy → List → Missions</Kbd>
-            <Kbd k="G">toggle Galaxy panel</Kbd>
+            <Kbd k="G">toggle Share panel</Kbd>
             <Kbd k="P">Maestro — plan a build</Kbd>
             <Kbd k="L">new task</Kbd>
             <Kbd k="T">timeline</Kbd>
@@ -194,12 +194,12 @@ export function Welcome({
         <div className="px-6 py-3 border-t border-solix-border flex items-center gap-2">
           <button
             onClick={() => {
-              onOpenGalaxy();
+              onOpenShare();
               close();
             }}
             className="px-3 py-1.5 rounded bg-solix-accent/15 border border-solix-accent/40 text-solix-accent text-xs hover:bg-solix-accent/25"
           >
-            Open Galaxy panel
+            Open Share panel
           </button>
           <div className="flex-1" />
           <span className="text-[10px] font-mono text-slate-500 mr-2">

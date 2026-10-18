@@ -172,8 +172,8 @@ async function main() {
     await page.keyboard.press('Escape');
   });
 
-  await step('Galaxy → Teams tab lists team templates', async () => {
-    await page.click('text=⌬ Galaxy');
+  await step('Share → Teams tab lists team templates', async () => {
+    await page.click('text=⌬ Share');
     await page.click('text=Teams');
     await page.waitForSelector('text=Ship-fast build team', { timeout: 10000 });
     await page.screenshot({ path: `${SHOT_DIR}/04-teams.png` });
@@ -184,6 +184,24 @@ async function main() {
     await page.click('text=✎ Skill');
     await page.waitForSelector('text=Author a skill', { timeout: 10000 });
     await page.screenshot({ path: `${SHOT_DIR}/05-skill.png` });
+    await page.keyboard.press('Escape');
+  });
+
+  // N6: Mission Control had no button at all. It opened only by clicking the 3D
+  // sun or pressing W — and the sun does not exist in List or Missions view, so
+  // there the whole panel was keyboard-only and effectively undiscoverable.
+  await step('Mission Control opens from the top bar (N6)', async () => {
+    await page.click('text=\u2600 Mission Control');
+    // Wait on the dock itself, not on the text: the button carries the same
+    // label, so a text selector resolves instantly against the button and the
+    // assertion then races the lazy panel chunk.
+    await page.waitForSelector('[data-dock-panel]', { timeout: 10000 });
+    await page.waitForSelector('text=Context pressure', { timeout: 10000 });
+    const docks = await page.locator('[data-dock-panel]').count();
+    if (docks !== 1) {
+      throw new Error(`expected exactly 1 dock panel open, found ${docks}`);
+    }
+    await page.screenshot({ path: `${SHOT_DIR}/07-mission-control.png` });
     await page.keyboard.press('Escape');
   });
 

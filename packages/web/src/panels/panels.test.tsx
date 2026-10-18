@@ -5,7 +5,7 @@ import type { Plan, PlanTask, TaskThreadEntry } from '@solix/shared';
 import { useSolixStore } from '../store/index.js';
 import { PlanPanel } from './PlanPanel.js';
 import { ConnectionsPanel } from './ConnectionsPanel.js';
-import { GalaxyPanel } from './GalaxyPanel.js';
+import { SharePanel } from './SharePanel.js';
 import { SkillPanel, NEW_SKILL_ID } from './SkillPanel.js';
 import { TopBar } from '../hud/TopBar.js';
 
@@ -236,7 +236,7 @@ describe('ConnectionsPanel — notifications section', () => {
   });
 });
 
-describe('GalaxyPanel — Teams tab', () => {
+describe('SharePanel — Teams tab', () => {
   beforeEach(() => seedStore());
 
   it('lists team templates and installs one into a project', async () => {
@@ -256,7 +256,7 @@ describe('GalaxyPanel — Teams tab', () => {
         ],
       ],
     ]);
-    render(<GalaxyPanel open onClose={() => {}} />);
+    render(<SharePanel open onClose={() => {}} />);
     screen.getByText('Teams').click();
     expect(await screen.findByText('Ship-fast build team')).toBeTruthy();
     // Needs a target project — type one, then install.

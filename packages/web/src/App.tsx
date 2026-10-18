@@ -39,8 +39,8 @@ const Scene = lazy(() =>
 const TimelineDrawer = lazy(() =>
   import('./hud/TimelineDrawer.js').then((m) => ({ default: m.TimelineDrawer })),
 );
-const GalaxyPanel = lazy(() =>
-  import('./panels/GalaxyPanel.js').then((m) => ({ default: m.GalaxyPanel })),
+const SharePanel = lazy(() =>
+  import('./panels/SharePanel.js').then((m) => ({ default: m.SharePanel })),
 );
 const CrewPanel = lazy(() =>
   import('./panels/CrewPanel.js').then((m) => ({ default: m.CrewPanel })),
@@ -76,12 +76,12 @@ export default function App(): JSX.Element {
   // Decision Queue behind a panel and hide a pending permission request.
   const panelOffsetPx = useSolixStore(selectDockOffsetPx);
 
-  const galaxyOpen = activePanel === 'galaxy';
+  const shareOpen = activePanel === 'share';
   const connectionsOpen = activePanel === 'connections';
   const workspaceOpen = activePanel === 'workspace';
   const planPanelOpen = activePanel === 'plan';
-  const setGalaxyOpen = (v: boolean): void =>
-    v ? openPanel('galaxy') : closePanel();
+  const setShareOpen = (v: boolean): void =>
+    v ? openPanel('share') : closePanel();
   const setConnectionsOpen = (v: boolean): void =>
     v ? openPanel('connections') : closePanel();
   const closeWorkspace = (): void => closePanel();
@@ -126,8 +126,8 @@ export default function App(): JSX.Element {
       } else if (!isTextField && e.key === '?') {
         setHelpOpen((v) => !v);
       } else if (!isTextField && (e.key === 'g' || e.key === 'G')) {
-        if (state.activePanel === 'galaxy') state.closePanel();
-        else state.openPanel('galaxy');
+        if (state.activePanel === 'share') state.closePanel();
+        else state.openPanel('share');
       } else if (!isTextField && (e.key === 'c' || e.key === 'C')) {
         setCrewOpen((v) => !v);
       } else if (!isTextField && (e.key === 'p' || e.key === 'P')) {
@@ -178,21 +178,22 @@ export default function App(): JSX.Element {
     <div className="relative h-full w-full">
       <ViewSurface />
       <TopBar
-        onOpenGalaxy={() => setGalaxyOpen(true)}
+        onOpenShare={() => setShareOpen(true)}
         onNewTask={() => setNewTaskOpen(true)}
         onOpenTimeline={() => setTimelineOpen(true)}
         onOpenHelp={() => setHelpOpen(true)}
         onOpenCrew={() => setCrewOpen(true)}
         onOpenPlan={openPlanPanel}
         onOpenConnections={() => setConnectionsOpen(true)}
+        onOpenWorkspace={() => openPanel('workspace')}
       />
       <DecisionQueue panelOffsetPx={panelOffsetPx} />
       <SidePanel />
       <AdvisorPanel />
       <SkillPanel />
-      {galaxyOpen && (
+      {shareOpen && (
         <Suspense fallback={null}>
-          <GalaxyPanel open={galaxyOpen} onClose={() => setGalaxyOpen(false)} />
+          <SharePanel open={shareOpen} onClose={() => setShareOpen(false)} />
         </Suspense>
       )}
       {crewOpen && (
@@ -232,7 +233,7 @@ export default function App(): JSX.Element {
       )}
       <SceneControls />
       <Welcome
-        onOpenGalaxy={() => setGalaxyOpen(true)}
+        onOpenShare={() => setShareOpen(true)}
         forceOpen={helpOpen}
         onClose={() => setHelpOpen(false)}
       />
