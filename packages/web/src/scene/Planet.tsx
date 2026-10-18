@@ -16,12 +16,14 @@ import { Moon } from './Moon.js';
 import { AtmosphereRim } from './AtmosphereRim.js';
 import { computeHealth, healthColor as healthBadgeColor } from '../health.js';
 import { GLOSSARY } from '../glossary.js';
+import { useHoverCursor } from './useHoverCursor.js';
 
 interface PlanetProps {
   session: Session;
 }
 
 export function Planet({ session }: PlanetProps): JSX.Element {
+  const hoverCursor = useHoverCursor();
   const groupRef = useRef<Group>(null);
   const planetRef = useRef<Mesh>(null);
   const flareRef = useRef<Mesh>(null);
@@ -215,7 +217,7 @@ export function Planet({ session }: PlanetProps): JSX.Element {
   return (
     <group ref={groupRef}>
       <group rotation={[axialTiltX, 0, axialTiltZ]}>
-        <mesh ref={planetRef} onClick={onClick} castShadow>
+        <mesh ref={planetRef} onClick={onClick} {...hoverCursor} castShadow>
           <sphereGeometry args={[planetSize, 32, 32]} />
           {/*
             roughness/metalness tuned so the steeper sun-falloff lighting

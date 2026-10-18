@@ -10,14 +10,21 @@ import type {
   PlanTask,
   Project,
   ScheduledTask,
+  ScheduleRun,
   ServerMessage,
   Session,
   Skill,
   TaskThreadEntry,
   TimelineEvent,
   ToolCall,
+  TriggerKind,
 } from '@solix/shared';
 import { chime, notify } from '../notifications.js';
+import { RIGHT_DOCK_WIDTH_PX, type PanelId } from '../panels/dock.js';
+import {
+  RAIL_WIDTH_PX,
+  type WorkspaceSurface,
+} from '../shell/surfaces.js';
 
 export interface PendingPermission {
   requestId: string;
@@ -211,11 +218,11 @@ interface SolixState {
   pendingPermissions: Record<string, PendingPermission>;
   // Per-session chat log, in arrival order. Capped at 200 entries per session.
   chatBySessionId: Record<string, ChatEntry[]>;
+  /** The single open right-dock panel, or null. Source of dock exclusivity. */
+  activePanel: PanelId | null;
   selectedSessionId: string | null;
   selectedAdvisorId: string | null;
   selectedSkillId: string | null;
-  workspaceOpen: boolean;
-  planPanelOpen: boolean;
   motionEnabled: boolean;
   viewMode: 'galaxy' | 'list' | 'missions';
   playback: PlaybackState;
@@ -223,6 +230,18 @@ interface SolixState {
 
   setConnected: (c: boolean) => void;
   applyMessage: (msg: ServerMessage) => void;
+  openPanel: (id: PanelId) => void;
+  closePanel: () => void;
+
+  /**
+   * What the main area shows instead of the galaxy. Deliberately separate
+   * from `activePanel`: a surface is somewhere you work and gets the whole
+   * area, a panel is about something you clicked and sits beside the scene.
+   * Keeping them apart is what lets a session panel stay open over Fleet.
+   */
+  workspaceSurface: WorkspaceSurface | null;
+  openSurface: (surface: WorkspaceSurface) => void;
+  closeSurface: () => void;
   selectSession: (id: string | null) => void;
   selectAdvisor: (id: string | null) => void;
   selectSkill: (id: string | null) => void;
@@ -278,6 +297,26 @@ interface SolixState {
   deleteOrg: (orgId: string) => Promise<{ ok: boolean; error?: string }>;
   /** Install a ready-made team template (advisors+skills+routines) into a
    *  project (P2 #7). */
+  /** Routines (scheduled tasks). Every mutating route broadcasts over the
+   *  websocket, so none of these write optimistically — they POST and let the
+   *  snapshot land. There is deliberately no edit action: the server has no
+   *  PATCH /api/schedules/:id, and delete-and-recreate is not a substitute
+   *  because it drops run history and rotates the webhook token, which would
+   *  silently break any webhook already wired up. */
+  loadSchedules: () => Promise<void>;
+  createSchedule: (input: {
+    cwd: string;
+    prompt: string;
+    cadence?: string;
+    name?: string;
+    trigger?: TriggerKind;
+    owner?: string;
+  }) => Promise<{ ok: boolean; error?: string }>;
+  setScheduleEnabled: (id: string, enabled: boolean) => Promise<void>;
+  deleteSchedule: (id: string) => Promise<void>;
+  fireSchedule: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  loadScheduleRuns: (id: string) => Promise<ScheduleRun[]>;
+
   installTeamTemplate: (
     templateId: string,
     cwd: string,
@@ -384,6 +423,29 @@ function writeViewPref(m: 'galaxy' | 'list' | 'missions'): void {
   }
 }
 
+/**
+ * The one place dock exclusivity is expressed: set the active panel and clear
+ * every selection, then apply whichever selection belongs to the new panel.
+ * Returning a partial keeps all callers a single `set(...)`.
+ */
+function panelPatch(
+  next: PanelId | null,
+  ids: Partial<
+    Pick<
+      SolixState,
+      'selectedSessionId' | 'selectedAdvisorId' | 'selectedSkillId'
+    >
+  >,
+): Partial<SolixState> {
+  return {
+    activePanel: next,
+    selectedSessionId: null,
+    selectedAdvisorId: null,
+    selectedSkillId: null,
+    ...ids,
+  };
+}
+
 export const useSolixStore = create<SolixState>((set, get) => ({
   connected: false,
   projects: {},
@@ -403,11 +465,10 @@ export const useSolixStore = create<SolixState>((set, get) => ({
   chatBySessionId: {},
   recentToolCalls: [],
   pendingPermissions: {},
+  activePanel: null,
   selectedSessionId: null,
   selectedAdvisorId: null,
   selectedSkillId: null,
-  workspaceOpen: false,
-  planPanelOpen: false,
   motionEnabled: readMotionPref(),
   viewMode: readViewPref(),
   playback: EMPTY_PLAYBACK,
@@ -753,56 +814,69 @@ export const useSolixStore = create<SolixState>((set, get) => ({
     }
   },
 
+  // ── Right dock ────────────────────────────────────────────────────
+  // `activePanel` is the single source of dock exclusivity. The three
+  // selection ids are kept as denormalised projections of it rather than
+  // folded into a discriminated union: they're read in ~15 places including
+  // hot react-three-fiber render paths and ClickRipple's store.subscribe, and
+  // collapsing them would force every one of those to re-derive.
+
+  openPanel: (id) => set(panelPatch(id, {})),
+
+  workspaceSurface: null,
+  openSurface: (surface) => set({ workspaceSurface: surface }),
+  // Returns to whatever viewMode was showing before — the view is remembered
+  // independently, so closing Fleet puts you back in the galaxy (or List, or
+  // Missions) rather than guessing.
+  closeSurface: () => set({ workspaceSurface: null }),
+
+  closePanel: () => set(panelPatch(null, {})),
+
   selectSession: (id) =>
-    set({
-      selectedSessionId: id,
-      selectedAdvisorId: id ? null : get().selectedAdvisorId,
-      selectedSkillId: id ? null : get().selectedSkillId,
-      workspaceOpen: id ? false : get().workspaceOpen,
-      planPanelOpen: id ? false : get().planPanelOpen,
-    }),
+    set((s) =>
+      id
+        ? panelPatch('session', { selectedSessionId: id })
+        : // Clearing a selection that isn't on screen must stay a no-op —
+          // previously `selectSession(null)` deliberately left the workspace
+          // and plan panels open, and widening that would close panels the
+          // user never asked to close.
+          s.activePanel === 'session'
+          ? panelPatch(null, {})
+          : {},
+    ),
 
   selectAdvisor: (id) =>
-    set({
-      selectedAdvisorId: id,
-      selectedSessionId: id ? null : get().selectedSessionId,
-      selectedSkillId: id ? null : get().selectedSkillId,
-      workspaceOpen: id ? false : get().workspaceOpen,
-      planPanelOpen: id ? false : get().planPanelOpen,
-    }),
+    set((s) =>
+      id
+        ? panelPatch('advisor', { selectedAdvisorId: id })
+        : s.activePanel === 'advisor'
+          ? panelPatch(null, {})
+          : {},
+    ),
 
   selectSkill: (id) =>
-    set({
-      selectedSkillId: id,
-      selectedSessionId: id ? null : get().selectedSessionId,
-      selectedAdvisorId: id ? null : get().selectedAdvisorId,
-      workspaceOpen: id ? false : get().workspaceOpen,
-      planPanelOpen: id ? false : get().planPanelOpen,
-    }),
+    set((s) =>
+      id
+        ? panelPatch('skill', { selectedSkillId: id })
+        : s.activePanel === 'skill'
+          ? panelPatch(null, {})
+          : {},
+    ),
 
-  // The sun opens Mission Control; keep it mutually exclusive with the
-  // planet/advisor/skill side panels so only one right-dock is ever open.
-  openWorkspace: () =>
-    set({
-      workspaceOpen: true,
-      planPanelOpen: false,
-      selectedSessionId: null,
-      selectedAdvisorId: null,
-      selectedSkillId: null,
-    }),
-
-  closeWorkspace: () => set({ workspaceOpen: false }),
-
-  openPlanPanel: () =>
-    set({
-      planPanelOpen: true,
-      workspaceOpen: false,
-      selectedSessionId: null,
-      selectedAdvisorId: null,
-      selectedSkillId: null,
-    }),
-
-  closePlanPanel: () => set({ planPanelOpen: false }),
+  // Kept as thin aliases so the 3D scene (Sun.tsx, Scene.tsx) and the keymap
+  // don't change in this phase. Removed in the cleanup phase.
+  // Kept as a named action because scene/Sun.tsx calls it on the sun click
+  // and should not need to know about surface shapes.
+  openWorkspace: () => set({ workspaceSurface: { kind: 'overview' } }),
+  closeWorkspace: () =>
+    set((s) =>
+      s.workspaceSurface?.kind === 'overview' ? { workspaceSurface: null } : {},
+    ),
+  openPlanPanel: () => set({ workspaceSurface: { kind: 'plan' } }),
+  closePlanPanel: () =>
+    set((s) =>
+      s.workspaceSurface?.kind === 'plan' ? { workspaceSurface: null } : {},
+    ),
 
   createPlanFromGoal: async (goal, cwd, opts) => {
     try {
@@ -913,6 +987,91 @@ export const useSolixStore = create<SolixState>((set, get) => ({
       return { ok: true };
     } catch {
       return { ok: false, error: 'Could not reach the server.' };
+    }
+  },
+
+  loadSchedules: async () => {
+    try {
+      const res = await fetch('/api/schedules');
+      const list = (await res.json()) as ScheduledTask[];
+      if (!Array.isArray(list)) return;
+      const next: Record<string, ScheduledTask> = {};
+      for (const sc of list) next[sc.id] = sc;
+      set({ schedules: next });
+    } catch {
+      /* server not reachable — the websocket snapshot is the primary path */
+    }
+  },
+
+  createSchedule: async (input) => {
+    if (!input.cwd.trim() || !input.prompt.trim()) {
+      return { ok: false, error: 'A working directory and a prompt are required.' };
+    }
+    const trigger = input.trigger ?? 'interval';
+    if (trigger === 'interval' && !input.cadence?.trim()) {
+      return { ok: false, error: 'An interval routine needs a cadence.' };
+    }
+    try {
+      const res = await fetch('/api/schedules', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, trigger }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        return { ok: false, error: data.error ?? 'Could not create the routine.' };
+      }
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Could not reach the server.' };
+    }
+  },
+
+  setScheduleEnabled: async (id, enabled) => {
+    try {
+      await fetch(`/api/schedules/${encodeURIComponent(id)}/toggle`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+    } catch {
+      /* broadcast-driven; a failure leaves the row as it was */
+    }
+  },
+
+  deleteSchedule: async (id) => {
+    try {
+      await fetch(`/api/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    } catch {
+      /* broadcast-driven */
+    }
+  },
+
+  fireSchedule: async (id) => {
+    try {
+      const res = await fetch(`/api/schedules/${encodeURIComponent(id)}/fire`, {
+        method: 'POST',
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+      };
+      if (!res.ok || data.ok === false) {
+        return { ok: false, error: data.error ?? 'Could not start the routine.' };
+      }
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Could not reach the server.' };
+    }
+  },
+
+  loadScheduleRuns: async (id) => {
+    try {
+      const res = await fetch(`/api/schedules/${encodeURIComponent(id)}/runs`);
+      const list = (await res.json()) as ScheduleRun[];
+      return Array.isArray(list) ? list : [];
+    } catch {
+      return [];
     }
   },
 
@@ -1446,8 +1605,74 @@ export function selectSkillsArray(state: SolixState): Skill[] {
   return Object.values(state.skills);
 }
 
+/**
+ * Pending permissions in the order the Decision Queue displays them: newest
+ * first.
+ *
+ * This exists because the keyboard shortcut and the queue used to derive their
+ * own order independently, and the two were exact opposites — the handler took
+ * `Object.values(pendingPermissions)[0]` (insertion order, i.e. OLDEST first)
+ * while the queue sorted newest-first. With two or more pending requests,
+ * pressing `Y` approved the card at the BOTTOM of the list rather than the one
+ * on screen. Approving an agent action the human never saw is the worst failure
+ * this product can have, so both callers now read this one function.
+ */
+/**
+ * How far the Decision Queue (and the scene controls) must sit from the right
+ * edge. Derived from the single open panel rather than a hardcoded if-chain
+ * that re-stated three different CSS widths and assumed one panel was open.
+ */
+export function selectDockOffsetPx(state: SolixState): number {
+  return state.activePanel ? RIGHT_DOCK_WIDTH_PX : 0;
+}
+
+/**
+ * How far anything floating over the main area must sit from the LEFT edge.
+ *
+ * The companion to selectDockOffsetPx. Overlays now have two things to clear —
+ * the nav rail on one side and a contextual dock on the other — and the
+ * Decision Queue has to clear both. Getting either term wrong puts a pending
+ * permission request underneath something, which is the failure this pair of
+ * selectors exists to make impossible.
+ */
+export function selectRailWidthPx(_state: SolixState): number {
+  return RAIL_WIDTH_PX;
+}
+
+/**
+ * Whether the Y / N shortcuts are allowed to resolve a permission.
+ *
+ * They act on a real agent request, so they may only fire while the card is
+ * actually on screen. Decisions opens from the rail now, so an ungated
+ * shortcut would approve a command the user never read — the B1 failure mode
+ * again, and worse, because it would be unavoidable rather than a
+ * mis-ordering between two lists.
+ */
+export function selectCanResolveByKey(state: SolixState): boolean {
+  return state.activePanel === 'decisions';
+}
+
+export function selectPendingPermissionsOrdered(
+  state: SolixState,
+): PendingPermission[] {
+  return Object.values(state.pendingPermissions).sort(
+    (a, b) => b.receivedAt - a.receivedAt,
+  );
+}
+
+/** Enabled routines only — the galaxy's pulsing heartbeat nodes depend on this
+ *  filter, so do not widen it. The Fleet > Routines tab wants every routine,
+ *  including the disabled ones it needs to offer re-enabling. */
 export function selectEnabledSchedules(state: SolixState): ScheduledTask[] {
   return Object.values(state.schedules).filter((s) => s.enabled);
+}
+
+/** Every routine, newest-firing first, disabled ones last. */
+export function selectSchedulesArray(state: SolixState): ScheduledTask[] {
+  return Object.values(state.schedules).sort((a, b) => {
+    if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
+    return a.nextRunAt - b.nextRunAt;
+  });
 }
 
 export function selectGoalsArray(state: SolixState): Goal[] {

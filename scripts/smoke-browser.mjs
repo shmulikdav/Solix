@@ -158,6 +158,96 @@ async function main() {
   await page.screenshot({ path: `${SHOT_DIR}/01-galaxy.png` });
 
   // ── The surfaces added this cycle ──
+  // O1, asserted in the browser because that is where it was invisible: the
+  // modal used to hide itself once any session existed, and this page has ~30
+  // from `solix demo` — the very command the README suggests first. A fresh
+  // browser context has no dismissed flag, so onboarding must be on screen.
+  await step('onboarding appears even with sessions present (O1)', async () => {
+    await page.waitForSelector('text=Pick one to start', { timeout: 10000 });
+    await page.screenshot({ path: `${SHOT_DIR}/01-onboarding.png` });
+    // Dismiss it so the rest of the run can reach the top bar. That it blocks
+    // the UI until dismissed is the point — it is a first-run modal again.
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('text=Pick one to start', {
+      state: 'detached',
+      timeout: 5000,
+    });
+  });
+
+  // O3: help and onboarding were the same component, and closing help wrote
+  // the first-run flag. They are separate now, and the legend is complete.
+  await step('help is its own panel with the full legend', async () => {
+    await page.keyboard.press('?');
+    await page.waitForSelector('text=What you\'re looking at', { timeout: 10000 });
+    for (const term of ['Sun', 'Planet', 'Asteroid belt']) {
+      await page.waitForSelector(`text="${term}"`, { timeout: 5000 });
+    }
+    await page.screenshot({ path: `${SHOT_DIR}/02-help.png` });
+    await page.keyboard.press('Escape');
+  });
+
+  // Decisions moved out of a permanently-floating column into a rail
+  // destination. Two things have to hold: the rail carries the count, and the
+  // keyboard shortcuts refuse to act on a card that is not on screen.
+  await step('Decisions opens from the rail and carries its count', async () => {
+    const badge = page.locator('[data-nav-rail] [title$="waiting on your approval"]');
+    if ((await badge.count()) === 0) {
+      throw new Error('rail shows no pending-decision count');
+    }
+    await page.click('[data-nav-rail] >> text="Decisions"');
+    await page.waitForSelector('[data-dock-panel] >> text=/waiting on you/', {
+      timeout: 10000,
+    });
+    await page.screenshot({ path: `${SHOT_DIR}/08-decisions.png` });
+    await page.keyboard.press('Escape');
+  });
+
+  // The B1 failure mode, which closing the panel would otherwise bring back:
+  // Y resolving a real tool call the user never read.
+  await step('Y does nothing while the Decisions panel is closed', async () => {
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    const before = await page.evaluate(
+      () =>
+        document.querySelector('[data-nav-rail] [title$="waiting on your approval"]')
+          ?.textContent ?? '0',
+    );
+    await page.keyboard.press('y');
+    await page.keyboard.press('y');
+    await page.waitForTimeout(600);
+    const after = await page.evaluate(
+      () =>
+        document.querySelector('[data-nav-rail] [title$="waiting on your approval"]')
+          ?.textContent ?? '0',
+    );
+    if (before !== after) {
+      throw new Error(
+        `Y resolved a permission with the panel closed: ${before} -> ${after}`,
+      );
+    }
+  });
+
+  // The CONNECTED chip was a bordered pill that looked exactly like the
+  // controls beside it and did nothing when clicked. It is a dot now, and the
+  // detail it could not fit — that the socket retries on its own, and the
+  // galaxy is stale until it does — moved into a hover tooltip.
+  await step('connection status is a dot with a tooltip, not a fake button', async () => {
+    const body = await page.textContent('[data-topbar]');
+    if (/CONNECTED|OFFLINE/.test(body ?? '')) {
+      throw new Error('the CONNECTED chip is still in the top bar');
+    }
+    const dot = page.locator('[data-topbar] [role="status"]');
+    if ((await dot.count()) !== 1) {
+      throw new Error(`expected one status dot, found ${await dot.count()}`);
+    }
+    await dot.hover();
+    await page.waitForSelector('[role="tooltip"]', { timeout: 5000 });
+    const tip = await page.textContent('[role="tooltip"]');
+    if (!/live updates/.test(tip ?? '')) {
+      throw new Error(`tooltip did not describe the state: ${tip}`);
+    }
+  });
+
   await step('Maestro plan panel opens (P)', async () => {
     await page.keyboard.press('p');
     await page.waitForSelector('text=Plan a build', { timeout: 10000 });
@@ -165,32 +255,240 @@ async function main() {
     await page.keyboard.press('Escape');
   });
 
-  await step('Connections panel opens with the Notifications section', async () => {
-    await page.click('text=⚷ Connections');
-    await page.waitForSelector('text=Notifications', { timeout: 10000 });
-    await page.screenshot({ path: `${SHOT_DIR}/03-connections.png` });
+  // Fleet is one door for six configuration surfaces that each used to own a
+  // top-level button (or, for Routines, had no UI at all). Every tab has to
+  // actually render — a tab strip that opens an empty panel is worse than the
+  // four buttons it replaced.
+  await step('every Fleet tab renders', async () => {
+    const tabs = [
+      ['Crew', 'Active crew'],
+      ['Skills', 'Author a skill'],
+      ['Teams', 'Ship-fast build team'],
+      ['Routines', 'Each one starts a real session and costs money'],
+      ['Connections', 'Notifications'],
+      ['Orgs', 'Orgs scope which plans you see'],
+    ];
+    await page.click('[data-nav-rail] >> text="Fleet"');
+    await page.waitForSelector('[data-workspace-surface]', { timeout: 10000 });
+    for (const [tab, expected] of tabs) {
+      await page.click(`[data-nav-rail] >> text="${tab}"`);
+      await page.waitForSelector(`text=${expected}`, { timeout: 10000 });
+      await page.screenshot({ path: `${SHOT_DIR}/03-fleet-${tab.toLowerCase()}.png` });
+    }
     await page.keyboard.press('Escape');
   });
 
-  await step('Galaxy → Teams tab lists team templates', async () => {
-    await page.click('text=⌬ Galaxy');
-    await page.click('text=Teams');
-    await page.waitForSelector('text=Ship-fast build team', { timeout: 10000 });
-    await page.screenshot({ path: `${SHOT_DIR}/04-teams.png` });
+  // S4: a routine is recurring spend. It was creatable from the UI (installing
+  // a team makes them) but only cancellable from a terminal, because the web
+  // layer had one read-only selector and zero write actions for schedules.
+  await step('a routine can be created and then stopped in-app (S4)', async () => {
+    await page.click('[data-nav-rail] >> text="Fleet"');
+    await page.waitForSelector('[data-workspace-surface]', { timeout: 10000 });
+    await page.click('[data-nav-rail] >> text="Routines"');
+    await page.waitForSelector('text=New routine', { timeout: 10000 });
+
+    // The demo seeds no routines, so create one. This also checks that the
+    // consequence of creating recurring spend is stated before the button.
+    await page.fill('[data-workspace-surface] input[placeholder="Name (optional)"]', 'Smoke routine');
+    await page.fill('[data-workspace-surface] input[placeholder="/path/to/project"]', '/tmp/smoke-proj');
+    await page.fill(
+      '[data-workspace-surface] textarea[placeholder="What should the agent do on each run?"]',
+      'say hello',
+    );
+    await page.waitForSelector('text=/costs money on every run/', { timeout: 5000 });
+    await page.click('[data-workspace-surface] >> text="Create routine"');
+    await page.waitForSelector('text=Smoke routine', { timeout: 10000 });
+
+    // Now the part that did not exist: turning it off without a terminal.
+    const toggle = page.locator('[data-workspace-surface] input[type=checkbox]').first();
+    if ((await toggle.count()) === 0) {
+      throw new Error('no routine on/off control — recurring spend is unstoppable in-app');
+    }
+    await page.waitForSelector('text=/is running on a schedule/', { timeout: 5000 });
+    await toggle.click();
+    await page.waitForSelector('text=/is running on a schedule/', {
+      state: 'detached',
+      timeout: 10000,
+    });
+    await page.screenshot({ path: `${SHOT_DIR}/04-routines.png` });
+
+    // Leave the demo db as we found it.
+    await page.click('[data-workspace-surface] >> text="Delete"');
+    await page.click('[data-workspace-surface] >> text="Delete for good"');
     await page.keyboard.press('Escape');
   });
 
-  await step('Skill authoring form opens', async () => {
-    await page.click('text=✎ Skill');
-    await page.waitForSelector('text=Author a skill', { timeout: 10000 });
-    await page.screenshot({ path: `${SHOT_DIR}/05-skill.png` });
+  await step('Share panel still opens on its own tabs', async () => {
+    await page.click('[data-nav-rail] >> text="Share"');
+    await page.waitForSelector('text=Versions', { timeout: 10000 });
+    await page.screenshot({ path: `${SHOT_DIR}/05-share.png` });
     await page.keyboard.press('Escape');
+  });
+
+  // N6: Mission Control had no button at all. It opened only by clicking the 3D
+  // sun or pressing W — and the sun does not exist in List or Missions view, so
+  // there the whole panel was keyboard-only and effectively undiscoverable.
+  await step('Mission Control opens from the top bar (N6)', async () => {
+    await page.click('[data-nav-rail] >> text="Mission Control"');
+    // Wait on the dock itself, not on the text: the button carries the same
+    // label, so a text selector resolves instantly against the button and the
+    // assertion then races the lazy panel chunk.
+    await page.waitForSelector('[data-workspace-surface]', { timeout: 10000 });
+    await page.waitForSelector('text=Context pressure', { timeout: 10000 });
+    const open = await page.locator('[data-workspace-surface]').count();
+    if (open !== 1) {
+      throw new Error(`expected exactly 1 surface open, found ${open}`);
+    }
+    await page.screenshot({ path: `${SHOT_DIR}/07-mission-control.png` });
+    await page.keyboard.press('Escape');
+  });
+
+  // B6 originally: two dock panels could paint over each other because one
+  // group was local state and the other the store, and the Decision Queue's
+  // offset was computed from the wrong one — so a pending permission could
+  // end up underneath something. The shape has changed but the invariant has
+  // not, it has just split in two.
+  //
+  // Surfaces replace each other: only ever one in the main area.
+  // Docks float over whichever surface is up, which is the behaviour the old
+  // single `activePanel` could not express — opening Fleet used to close the
+  // agent transcript you were reading.
+  await step('one surface at a time, with a dock free to sit over it', async () => {
+    await page.keyboard.press('p');
+    await page.waitForSelector('text=Plan a build', { timeout: 10000 });
+    await page.click('[data-nav-rail] >> text="Fleet"');
+    await page.waitForSelector('text=Active crew', { timeout: 10000 });
+
+    const surfaces = await page.locator('[data-workspace-surface]').count();
+    if (surfaces !== 1) {
+      throw new Error(`expected exactly 1 surface, found ${surfaces}`);
+    }
+    if (await page.locator('text=Plan a build').count()) {
+      throw new Error('Maestro is still mounted behind Fleet');
+    }
+
+    // Now a dock on top of it — both must survive.
+    await page.click('[data-nav-rail] >> text="Decisions"');
+    await page.waitForSelector('[data-dock-panel]', { timeout: 10000 });
+    if ((await page.locator('[data-workspace-surface]').count()) !== 1) {
+      throw new Error('opening a dock closed the surface underneath it');
+    }
+    if (!(await page.locator('text=Active crew').count())) {
+      throw new Error('Fleet unmounted when the Decisions dock opened');
+    }
+    await page.screenshot({ path: `${SHOT_DIR}/06-single-dock.png` });
+    // Escape closes the nearest thing first, so clearing a dock AND the
+    // surface under it takes two presses. That is deliberate — one press
+    // throwing away both would discard more than the user asked for.
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[data-dock-panel]', {
+      state: 'detached',
+      timeout: 5000,
+    });
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('[data-workspace-surface]', {
+      state: 'detached',
+      timeout: 5000,
+    });
   });
 
   // Regression guard: the top bar grows every time a surface is added, and an
   // overflowing bar silently pushes its right-most control (the help button)
   // off the viewport — invisible to typecheck and to jsdom tests, and only
   // noticed when a human squints at a screenshot. Check at a laptop width.
+  // Every previous attempt at this failed: the bar carried identity, status,
+  // a view switch and seven destinations, and wrapped at every width up to
+  // 1920px. Moving destinations to the rail is what finally makes a single
+  // row possible, so assert it at the narrowest width we support rather than
+  // at the width that happens to pass.
+  await step('the top bar is a single row at 1280px', async () => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.waitForTimeout(400);
+    const info = await page.evaluate(() => {
+      const bar = document.querySelector('[data-topbar]');
+      if (!bar) return null;
+      const tops = [...bar.querySelectorAll('button, span, kbd')]
+        .filter((b) => {
+          const r = b.getBoundingClientRect();
+          return r.width > 0 && r.height > 0;
+        })
+        .map((b) => b.getBoundingClientRect().top);
+      return {
+        // Vertical spread, not a bucket count. A bordered <kbd> sits a few
+        // px higher than plain text, which an 8px bucket read as a second
+        // row; a genuine wrap moves an element a full line — 30px or more.
+        spread: tops.length ? Math.max(...tops) - Math.min(...tops) : 0,
+        height: Math.round(bar.getBoundingClientRect().height),
+      };
+    });
+    if (!info) throw new Error('top bar not found');
+    if (info.spread > 20) {
+      throw new Error(
+        `top bar wrapped at 1280px — ${Math.round(info.spread)}px between the ` +
+          'highest and lowest control',
+      );
+    }
+    if (info.height > 56) {
+      throw new Error(`top bar is ${info.height}px tall, expected one row`);
+    }
+  });
+
+  // Phase 4: one keystroke to anywhere, including agents, which are
+  // otherwise only reachable by finding the right dot in a 3D scene.
+  await step('the command palette opens and navigates', async () => {
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('[data-command-palette]', { timeout: 5000 });
+    await page.fill('[data-command-palette] input', 'routines');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('[data-command-palette]', {
+      state: 'detached',
+      timeout: 5000,
+    });
+    await page.waitForSelector('text=New routine', { timeout: 10000 });
+    await page.screenshot({ path: `${SHOT_DIR}/09-palette.png` });
+    await page.keyboard.press('Escape');
+  });
+
+  // A beta tester with no way to report anything is a tester you learn
+  // nothing from. The payload is shown before it goes anywhere, because the
+  // product's claim is that nothing leaves the machine.
+  await step('Report a problem collects diagnostics without leaking paths', async () => {
+    await page.click('[data-nav-rail] >> text="Report a problem"');
+    // Wait on the diagnostics themselves, not the dialog chrome — the
+    // heading renders immediately and the fetch resolves after it, so
+    // reading too early just captures the fallback message.
+    await page.waitForSelector('pre >> text=/solix\\s+\\d+\\.\\d+/', {
+      timeout: 10000,
+    });
+    const payload = (await page.textContent('pre')) ?? '';
+    for (const want of ['solix', 'node', 'platform', 'hooks', 'sessions']) {
+      if (!payload.includes(want)) {
+        throw new Error(`diagnostics missing "${want}": ${payload}`);
+      }
+    }
+    // The demo seeds ~30 sessions in real directories; none may appear.
+    if (/\/(home|Users|tmp)\//.test(payload)) {
+      throw new Error(`diagnostics leaked a filesystem path:\n${payload}`);
+    }
+    await page.screenshot({ path: `${SHOT_DIR}/10-report.png` });
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('text=What gets attached', {
+      state: 'detached',
+      timeout: 5000,
+    });
+  });
+
+  // The rail is the navigation now, so every destination must be in it.
+  await step('every rail destination is present', async () => {
+    for (const label of [
+      'Galaxy', 'List', 'Missions', 'Decisions', 'New task', 'Maestro',
+      'Mission Control', 'Fleet', 'Share', 'Timeline', 'Help',
+    ]) {
+      const n = await page.locator(`[data-nav-rail] >> text="${label}"`).count();
+      if (n === 0) throw new Error(`rail is missing "${label}"`);
+    }
+  });
+
   await step('no top-bar control is clipped at 1280px', async () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await sleep(600);
@@ -209,14 +507,28 @@ async function main() {
     await sleep(400);
   });
 
-  await step('org switcher is present and shows the default org', async () => {
-    const value = await page.evaluate(() => {
-      const sel = document.querySelector('select[title*="Active org"]');
-      return sel ? sel.value : null;
-    });
-    if (value !== 'org-default') {
-      throw new Error(`org switcher missing or wrong value: ${value}`);
+  // The org <select> moved into Fleet > Orgs. What stays in the bar is a
+  // label, because the active org changes which plans Maestro lists — but with
+  // only the default org there is nothing to disambiguate, so the chip is
+  // hidden and the switcher has to be reachable in Fleet instead.
+  await step('orgs are managed in Fleet, with the default org active', async () => {
+    const strayLegacySelect = await page
+      .locator('[data-topbar] select[title*="Active org"]')
+      .count();
+    if (strayLegacySelect > 0) {
+      throw new Error('the org <select> is still in the top bar');
     }
+    await page.click('[data-nav-rail] >> text="Fleet"');
+    await page.waitForSelector('[data-workspace-surface]', { timeout: 10000 });
+    await page.click('[data-nav-rail] >> text="Orgs"');
+    await page.waitForSelector('text=Orgs scope which plans you see', {
+      timeout: 10000,
+    });
+    const active = await page.locator('[data-workspace-surface] >> text="active"').count();
+    if (active !== 1) {
+      throw new Error(`expected exactly one active org, found ${active}`);
+    }
+    await page.keyboard.press('Escape');
   });
 
   await page.screenshot({ path: `${SHOT_DIR}/06-final.png`, fullPage: false });

@@ -12,6 +12,9 @@ import {
   selectTaskThread,
   useSolixStore,
 } from '../store/index.js';
+import { ProjectPicker } from './ProjectPicker.js';
+import { Button } from '../ui/Button.js';
+import { Surface } from '../shell/Surface.js';
 
 interface PlanPanelProps {
   open: boolean;
@@ -22,7 +25,7 @@ interface PlanPanelProps {
  * v2 Maestro — the conductor's panel. Type a goal → the orchestrator runs a
  * planner session and returns a task DAG parked at `awaiting_approval`; you
  * review it and approve (dispatch is Phase 2). Right-docked, same archetype as
- * WorkspacePanel / GalaxyPanel.
+ * WorkspacePanel / SharePanel.
  */
 const TEMPLATE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'empty', label: 'Empty' },
@@ -134,7 +137,7 @@ export function PlanPanel({ open, onClose }: PlanPanelProps): JSX.Element | null
   };
 
   return (
-    <div className="absolute top-16 right-0 bottom-0 w-full sm:w-[480px] bg-solix-panel border-l border-solix-border backdrop-blur-md flex flex-col z-30">
+    <Surface>
       <div className="px-5 py-4 border-b border-solix-border flex items-start justify-between shrink-0">
         <div>
           <div className="flex items-center gap-2">
@@ -183,7 +186,7 @@ export function PlanPanel({ open, onClose }: PlanPanelProps): JSX.Element | null
             </div>
             <button
               onClick={() => setShowNew((v) => !v)}
-              className="text-[11px] text-amber-300 hover:text-amber-200"
+              className="text-[11px] text-solix-accent hover:text-solix-accent/80"
             >
               {showNew ? 'Cancel' : '＋ New project'}
             </button>
@@ -212,7 +215,7 @@ export function PlanPanel({ open, onClose }: PlanPanelProps): JSX.Element | null
                 <button
                   onClick={() => void onCreateProject()}
                   disabled={creating || !newName.trim()}
-                  className="px-3 rounded bg-amber-500/20 border border-amber-400/60 text-amber-100 text-xs hover:bg-amber-500/30 disabled:opacity-40"
+                  className="px-3 rounded bg-solix-accent/20 border border-solix-accent/60 text-solix-accent text-xs hover:bg-solix-accent/30 disabled:opacity-40"
                 >
                   {creating ? 'Creating…' : 'Create'}
                 </button>
@@ -223,41 +226,13 @@ export function PlanPanel({ open, onClose }: PlanPanelProps): JSX.Element | null
             </div>
           )}
 
-          {(managed.length > 0 || observed.length > 0) && (
-            <select
-              value=""
-              onChange={(e) => {
-                if (e.target.value) setCwd(e.target.value);
-              }}
-              className="w-full text-xs bg-black/40 border border-solix-border rounded p-2 text-slate-200 focus:outline-none focus:border-solix-accent"
-            >
-              <option value="">Choose an existing project…</option>
-              {managed.length > 0 && (
-                <optgroup label="Your projects">
-                  {managed.map((p) => (
-                    <option key={p.id} value={p.cwd}>
-                      {p.name}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-              {observed.length > 0 && (
-                <optgroup label="Observed">
-                  {observed.map((p) => (
-                    <option key={p.id} value={p.cwd}>
-                      {p.name}
-                    </option>
-                  ))}
-                </optgroup>
-              )}
-            </select>
-          )}
-
-          <input
+          <ProjectPicker
             value={effectiveCwd}
-            onChange={(e) => setCwd(e.target.value)}
-            placeholder="/path/to/project"
-            className="w-full text-xs font-mono bg-black/40 border border-solix-border rounded p-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-solix-accent"
+            onChange={setCwd}
+            groups={[
+              { label: 'Your projects', projects: managed },
+              { label: 'Observed', projects: observed },
+            ]}
           />
         </div>
 
@@ -364,7 +339,7 @@ export function PlanPanel({ open, onClose }: PlanPanelProps): JSX.Element | null
           <button
             onClick={() => void onPlan()}
             disabled={busy || !goal.trim() || !effectiveCwd.trim()}
-            className="w-full py-2 rounded bg-amber-500/20 border border-amber-400/60 text-amber-100 text-sm hover:bg-amber-500/30 disabled:opacity-40"
+            className="w-full py-2 rounded bg-solix-warn/20 border border-solix-warn/60 text-solix-warn text-sm hover:bg-solix-warn/30 disabled:opacity-40"
           >
             {busy
               ? 'Planning…'
@@ -390,7 +365,7 @@ export function PlanPanel({ open, onClose }: PlanPanelProps): JSX.Element | null
           </div>
         )}
       </div>
-    </div>
+    </Surface>
   );
 }
 
@@ -514,23 +489,38 @@ function PlanCard({ plan }: { plan: Plan }): JSX.Element {
       )}
 
       {plan.status === 'awaiting_approval' && (
-        <button
-          onClick={() => void onApprove()}
-          disabled={busy}
-          className="mt-3 w-full py-1.5 rounded bg-solix-ok/20 border border-solix-ok text-solix-ok text-xs hover:bg-solix-ok/30 disabled:opacity-40"
-        >
-          {busy ? 'Approving…' : 'Approve & run'}
-        </button>
+        <>
+          <Button
+            variant="warn"
+            block
+            className="mt-3"
+            onClick={() => void onApprove()}
+            busy={busy}
+            busyLabel="Approving…"
+          >
+            Approve & run
+          </Button>
+          <div className="mt-1 text-[10px] text-solix-warn/80 leading-snug">
+            Starts {tasks.length === 1 ? 'an agent' : `${tasks.length} agents`},
+            one per task. Each run costs money
+            {plan.budgetUsd
+              ? `, capped at $${plan.budgetUsd.toFixed(2)}.`
+              : ' and there is no budget cap on this plan.'}
+          </div>
+        </>
       )}
 
       {plan.status === 'paused' && (
-        <button
+        <Button
+          variant="warn"
+          block
+          className="mt-3"
           onClick={() => void onResume()}
-          disabled={busy}
-          className="mt-3 w-full py-1.5 rounded bg-solix-accent/15 border border-solix-accent/60 text-solix-accent text-xs hover:bg-solix-accent/25 disabled:opacity-40"
+          busy={busy}
+          busyLabel="Resuming…"
         >
-          {busy ? 'Resuming…' : 'Resume run'}
-        </button>
+          Resume run
+        </Button>
       )}
 
       {runError && (
@@ -558,7 +548,7 @@ function PlanCard({ plan }: { plan: Plan }): JSX.Element {
                 <button
                   onClick={() => void onActivate()}
                   disabled={!licenseKey.trim()}
-                  className="px-3 rounded bg-amber-500/20 border border-amber-400/60 text-amber-100 text-[11px] hover:bg-amber-500/30 disabled:opacity-40"
+                  className="px-3 rounded bg-solix-accent/20 border border-solix-accent/60 text-solix-accent text-[11px] hover:bg-solix-accent/30 disabled:opacity-40"
                 >
                   Activate
                 </button>
@@ -572,13 +562,16 @@ function PlanCard({ plan }: { plan: Plan }): JSX.Element {
       )}
 
       {plan.status === 'running' && (
-        <button
+        <Button
+          variant="danger"
+          block
+          className="mt-3"
           onClick={() => void onAbort()}
-          disabled={busy}
-          className="mt-3 w-full py-1.5 rounded bg-solix-danger/15 border border-solix-danger/60 text-solix-danger text-xs hover:bg-solix-danger/25 disabled:opacity-40"
+          busy={busy}
+          busyLabel="Stopping…"
         >
-          {busy ? 'Stopping…' : 'Abort run (stop agents)'}
-        </button>
+          Abort run (stop agents)
+        </Button>
       )}
 
       {plan.status !== 'draft' && plan.status !== 'awaiting_approval' && (
@@ -608,15 +601,15 @@ function PlanCard({ plan }: { plan: Plan }): JSX.Element {
               onKeyDown={(e) => {
                 if (e.key === 'Enter') void onRefine();
               }}
-              placeholder="Refine or add a follow-up goal…"
+              placeholder="Follow-up goal for this project…"
               className="flex-1 text-xs bg-black/40 border border-solix-border rounded p-2 text-slate-100 placeholder-slate-600 focus:outline-none focus:border-solix-accent"
             />
             <button
               onClick={() => void onRefine()}
               disabled={refining || !refine.trim()}
-              className="px-3 rounded bg-amber-500/20 border border-amber-400/60 text-amber-100 text-xs hover:bg-amber-500/30 disabled:opacity-40"
+              className="px-3 rounded bg-solix-warn/20 border border-solix-warn/60 text-solix-warn text-xs hover:bg-solix-warn/30 disabled:opacity-40"
             >
-              {refining ? '…' : 'Plan'}
+              {refining ? '…' : 'New plan'}
             </button>
           </div>
         </div>
@@ -682,7 +675,7 @@ function PlanReviewSection({ planId }: { planId: string }): JSX.Element {
                   />
                 ))}
               </ul>
-              <DiffView diff={review.diff} truncated={review.truncated} />
+              <PlanDiffView diff={review.diff} truncated={review.truncated} />
             </>
           )}
         </div>
@@ -760,7 +753,7 @@ function FileReviewRow({
         )}
         <button
           onClick={() => setOpen((v) => !v)}
-          className="shrink-0 text-slate-500 hover:text-amber-200"
+          className="shrink-0 text-slate-500 hover:text-slate-200"
           title="Comment on this file → follow-up task"
           aria-label="Comment on this file"
         >
@@ -781,7 +774,7 @@ function FileReviewRow({
           <button
             onClick={() => void onSubmit()}
             disabled={busy || !body.trim()}
-            className="px-2.5 rounded bg-amber-500/20 border border-amber-400/60 text-amber-100 text-[11px] hover:bg-amber-500/30 disabled:opacity-40"
+            className="px-2.5 rounded bg-solix-warn/20 border border-solix-warn/60 text-solix-warn text-[11px] hover:bg-solix-warn/30 disabled:opacity-40"
           >
             {busy ? '…' : 'Fix it'}
           </button>
@@ -799,7 +792,7 @@ function FileReviewRow({
 }
 
 /** Minimal unified-diff renderer: red/green lines in a scrollable monospace box. */
-function DiffView({
+function PlanDiffView({
   diff,
   truncated,
 }: {
@@ -985,7 +978,7 @@ function TaskThread({ task }: { task: PlanTask }): JSX.Element {
         <button
           onClick={() => void onSend()}
           disabled={sending || !comment.trim()}
-          className="px-2.5 rounded bg-amber-500/20 border border-amber-400/60 text-amber-100 text-[11px] hover:bg-amber-500/30 disabled:opacity-40"
+          className="px-2.5 rounded bg-solix-warn/20 border border-solix-warn/60 text-solix-warn text-[11px] hover:bg-solix-warn/30 disabled:opacity-40"
         >
           {sending ? '…' : 'Post'}
         </button>

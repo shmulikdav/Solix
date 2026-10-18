@@ -78,6 +78,202 @@ additive and backward-compatible; the paid tier ships dormant (free public beta
 
 These affect anyone upgrading from 1.11.8:
 
+- **Native Windows is now declined, loudly, instead of failing silently.**
+  The hooks are POSIX shell scripts using `$PPID`, `date +%s`, `pwd` and
+  `curl`; Windows `cmd` cannot execute them. Solix wrote and registered them
+  anyway, so a Windows user got a running UI, an empty galaxy, and nothing
+  explaining why. `solix start` now says so up front and points at WSL — where
+  Solix already works today, because WSL reports as linux — and `solix install`
+  refuses rather than reporting a success that isn't one. `solix demo` and the
+  UI are unaffected and run anywhere Node does.
+
+  Rewriting the hooks in Node would be portable but was measured and rejected:
+  `sh` starts in ~2ms against node's ~37ms, and PreToolUse/PostToolUse fire on
+  every tool call in the agent's blocking path. Paying ~70ms per tool call on
+  every platform to serve one is the wrong trade. Real Windows support means
+  native `.cmd` hooks, verified on Windows.
+- **`solix doctor` now reports what a bug report needs** — platform, Solix and
+  Node versions, and whether the installed hooks match the running build.
+- **Uninstalling could silently revert your Claude Code settings.**
+  `solix uninstall` restored the backup wholesale whenever one existed — and
+  that backup is taken *once*, at first install. Anything you added to
+  `~/.claude/settings.json` afterwards (your own hooks, MCP servers,
+  permissions, env) was quietly rolled back to the install-time snapshot.
+  Removing a tool is not consent to roll back a file the tool is a guest in.
+  It now always removes only its own hook entries, leaving everything else —
+  including other tools' hooks on the same events — untouched. The backup is
+  kept for the one case surgery cannot handle, a `settings.json` that no
+  longer parses, and that path says what it did.
+- **Upgrades left you on the previous release's hook scripts.** The first-run
+  check only asked whether the hook files existed, not which version wrote
+  them, so every release after the first would start up, see "installed", and
+  skip — running new server code against old hooks indefinitely. The install
+  is version-stamped now; a mismatch re-wires and says which version it is
+  coming from.
+- **Installing is one command now.** `solix start` never checked whether its
+  Claude Code hooks were wired — it booted the server, opened the browser and
+  printed "start any `claude` session to see your first planet appear", which
+  simply never happened if you had skipped `solix install`. An empty galaxy,
+  forever, with no error explaining it. First run now wires the hooks itself
+  and says exactly what it changed, where the backup went, and that
+  `solix uninstall` reverses it. On a machine with no Claude Code it wires
+  nothing and points at `solix demo` instead of creating a config directory
+  for software that isn't there.
+
+  `npm i -g @shmulikdav/solix` then `solix` is the whole install.
+  `solix install` remains for scripted setups and `--force` re-wiring.
+- **`pnpm rehearse` installs the tarball on a throwaway machine.** The test
+  suite exercises the repo; this exercises what a beta tester actually
+  receives. It packs the CLI, installs it globally into a temporary prefix
+  against a temporary HOME, starts it, fires a real hook script, checks the
+  session arrives, and uninstalls — covering the failures only packaging can
+  produce, like a file that builds locally but never reaches `dist`.
+- **"Report a problem" in the rail.** There was no way to report anything
+  from inside Solix — you had to find the repo yourself, run `solix doctor`
+  in a terminal and work out which parts mattered. It now collects the same
+  information and opens a prefilled GitHub issue, so a problem you hit
+  actually reaches someone. New `GET /api/diagnostics` carries version, Node,
+  platform, hook state (including whether the installed hooks match the
+  running build) and session counts; the CLI supplies the hook half, since
+  it owns the install.
+
+  It shows you the payload first. Solix's claim is that nothing leaves your
+  machine, so the one control that offers to send something outward owes you
+  a look at it — and what it sends is versions, counts and hook state, never
+  a path, a project name or a prompt. That is enforced by a test, and by a
+  browser step that fails if a filesystem path appears in the payload while
+  thirty-odd demo sessions are running.
+- **⌘K opens a command palette.** Eleven rail destinations plus six Fleet
+  sections is a reasonable amount of navigation to see and a poor amount to
+  traverse when you know where you are going — and none of it reached your
+  agents, which were otherwise findable only by picking the right dot out of
+  a 3D scene. The palette indexes every surface, every Fleet section, and
+  every agent by name. It deliberately cannot approve a decision or start a
+  routine: acting on a tool call you cannot see is the thing the Y/N gate
+  exists to prevent, so it takes you to Decisions instead.
+- **The connection indicator says `Live` again.** Reducing it to a bare dot
+  was an over-correction from "this pill looks like a button" — the result
+  was unreadable, which was the complaint. A dot plus one word is legible and
+  still not button-shaped; the tooltip keeps the retry-and-staleness detail.
+- **Fleet's tab strip is gone and its sections are grids.** The strip listed
+  the same six sections the rail already lists, so it was the navigation
+  twice — and it was the copy that truncated "Connections" at 480px. The
+  header now says which section you are in and what it is for, which the
+  strip never did. Crew, Teams, Routines, Connections and Skills lay out as
+  responsive grids instead of one card per row: Crew shows twelve advisors at
+  once where the dock showed about two.
+- **Surfaces cap their content width.** Full width is room to work, not
+  licence to run a sentence to 1400px — the column centres at a readable
+  width so the header and the body share a left edge, while card grids still
+  get two or three columns.
+- **Mission Control, Maestro, Share and Fleet now use the whole window.**
+  They were 480px right-hand docks, which was the wrong container for all
+  four: Fleet's six sections truncated in a tab strip, Crew showed one card
+  per row forever, and Maestro's diffs had nowhere to go. They are workspace
+  surfaces now and replace the canvas rather than covering it.
+- **A panel about an agent no longer closes when you open Fleet.** One
+  mutually-exclusive field held both "which surface am I working in" and
+  "which thing did I click in the scene", so the two fought: opening Fleet
+  shut the transcript you were reading. They are separate now — a contextual
+  dock floats over whichever surface is up — and Escape closes the nearest
+  one first rather than throwing away both.
+- **Pending decisions moved into the rail.** The queue used to float over the
+  galaxy permanently, taking a 320px column whether or not anything was
+  waiting, and twice it was found underneath something because the arithmetic
+  keeping it clear had to be re-derived every time the layout moved. It is a
+  rail destination now — "Decisions" under Watch, with the pending count beside
+  it — and the panel opens when you click it. The count is the signal, and it
+  cannot be covered, because the rail is always there.
+- **`Y` and `N` now refuse to act unless the card is on screen.** They resolved
+  the top pending request from a global key handler with no visibility check.
+  That was survivable while the queue was always visible; with it behind a
+  click it would mean approving a command you never read. The shortcuts are
+  gated on the Decisions panel being open.
+- **Navigation moved out of the top bar into a left rail.** One 44px strip was
+  carrying four unrelated jobs — identity, live status, the view switch, and
+  seven destinations, two with their own sub-tabs — so it wrapped onto a second
+  row at every window width, and no amount of shaving pixels fixed that.
+  Destinations are now a left rail grouped by what they are for: watch the
+  fleet, build with it, govern it. Fleet shows its six sections as rows instead
+  of a tab strip where "Connections" truncated. The strip that remains says
+  where you are and whether anything needs you, and is a single row at 1280px —
+  which it had never been.
+- **The connection indicator looked like a button and wasn't one.** `CONNECTED`
+  / `OFFLINE` was a bordered pill styled exactly like the controls beside it,
+  and clicking it did nothing — which teaches people to distrust the styling
+  everywhere else. It is a dot now: solid when connected, hollow and pulsing
+  when not, so the state does not depend on telling green from red. Hovering
+  or focusing it says what the chip had no room for — that the socket retries
+  every 1.5s on its own, and that the galaxy on screen is stale until it
+  succeeds.
+- **A first-run hint that the sun is clickable.** `EmptyHint` explains the
+  metaphor while the system is empty and then vanishes at exactly the moment
+  you first have something to click. A one-time hint fills that gap, and
+  stands down while a permission is pending.
+- **Three buttons said less than they did.** "Plan", next to a field reading
+  "Refine or add a follow-up goal", created a brand new plan rather than
+  refining the existing one — it is "New plan" now, and the field says what it
+  does. "Add" meant add-a-connection in one panel and add-a-goal in another;
+  "Apply" meant import-a-galaxy.
+- **One project picker instead of three.** The plan panel, the team installer
+  and the routine form each had their own project `<select>` and working-
+  directory input, with near-identical styling and three different wordings
+  for the same field. They share one component, and a test keeps a fourth from
+  appearing.
+- **"Approve & run" was green.** It dispatches one agent per task and is the
+  largest single spend in the product, wearing the same colour as "enabling an
+  advisor is free". Colour now means something: amber is "this spends money",
+  red is "this stops or destroys something", green is "free or succeeded",
+  purple is the one primary action on a surface, and navigation is neutral —
+  opening a panel never costs anything. Approve & run also states how many
+  agents it will start and whether the plan has a budget cap.
+- **Two spend controls were disguised and three free ones were not.** Pin,
+  Invoke, Launch, Send, Plan, Fix it, Post and Install team are all amber now;
+  creating a project, saving a skill and activating a license are not, because
+  they cost nothing. A test enforces this on every button so the palette cannot
+  drift back.
+- **"Raise cap" was a browser prompt feeding parseFloat.** Typing "20 dollars"
+  silently set the cap to 20 and typing "twenty" silently did nothing. It is a
+  number input that shows the new cap before you commit, and it is amber rather
+  than green, because raising a cap lets an agent spend more.
+- **The timeline drawer covered the plan panel's Approve and Abort buttons.**
+  Both are z-30 and the drawer renders later, so it won on the tie. It now
+  stops at the dock's edge.
+- **The first command the README suggests destroyed onboarding.** The welcome
+  modal only rendered when there were zero sessions, and `solix demo` — the
+  quick start's first step — seeds about thirty. Anyone who followed the
+  instructions never saw onboarding, and nothing brought it back. It now shows
+  until you dismiss it, whatever is on screen.
+- **Opening help silently consumed a new user's onboarding.** Help and the
+  welcome modal were one component, and help's "Got it" wrote the first-run
+  dismissed flag. They are separate now; closing help writes nothing.
+- **The welcome modal could not be dismissed.** No ✕, no backdrop handler, and
+  its Escape path only cleared a flag that is already false on a genuine first
+  run. All three work now.
+- **Returning users saw a frame of the welcome modal on every load**, because
+  the dismissed flag hydrated from localStorage in an effect, after first
+  render. It is read synchronously.
+- **Recurring spend could be started from the app but only stopped from a
+  terminal.** Installing a team creates interval routines, and each run launches
+  a real agent session that costs money. The web app had one read-only selector
+  for routines and no way to list, pause, fire or delete one — to stop a routine
+  you had to leave the app and run `solix schedules`. Fleet › Routines now shows
+  every routine (including disabled ones), says plainly how many are running on
+  a schedule and spending money, and can disable, run and delete them. Creating
+  one states the recurring cost before the button, and "Run now" takes a
+  confirm, since it starts an unsupervised session with one click.
+- **Mission Control had no button.** The whole-workspace overview opened only by
+  clicking the 3D sun or pressing `W` — and the sun does not exist in List or
+  Missions view, so there the panel was keyboard-only and effectively
+  undiscoverable. It now has a top-bar button; the sun and `W` keep working.
+- **A pending permission prompt could be hidden behind a panel.** Two groups of
+  side panels tracked their open state separately — one in component state, one
+  in the store — and never coordinated, so two panels could be open at once.
+  The one on top won visually, but the Decision Queue positioned itself from the
+  other one's width and slid partly underneath. Approving or denying an agent's
+  action is how you unblock a stuck agent, so the prompt going missing was a
+  safety problem, not a cosmetic one. There is now exactly one open panel at a
+  time, and the queue's offset is derived from that single source.
 - **A missing texture could blank the entire UI.** The 3D scene wrapped its
   textured planets in `<Suspense>` with a procedural fallback — but Suspense
   covers the *pending* state, not failures. A failed texture load threw past it
@@ -95,6 +291,28 @@ These affect anyone upgrading from 1.11.8:
   made the `sessions.origin` CHECK relaxation silently roll back.
 
 ### Changed
+
+- **Onboarding is three choices instead of six cards.** The old modal
+  explained the whole product before letting you do anything and ended on a
+  feature marked "(preview)", while omitting five shipped surfaces. It now
+  offers one action to take — each says whether it costs money — and the
+  reference material moved to `?`, which gained the complete shortcut legend
+  (the old one listed 11 keys and omitted 8 that were bound), a plain-language
+  key to the sun / planet / moon / belt vocabulary that previously existed only
+  in hover tooltips, and a getting-started checklist that ticks itself off from
+  real state.
+- **Crew, Connections, Skills, Teams, Orgs and Routines are now one Fleet
+  panel.** Four of these each had their own top-bar button, so configuration
+  competed for attention with the things you actually do, and the bar grew by
+  one control per feature. They are tabs now, behind `⚙ Fleet`. The `C`
+  shortcut still goes straight to Crew. Crew's cards were restructured for the
+  narrower column rather than just moved, and the org switcher's `window.prompt`
+  is gone — new orgs use an inline form, and the active org stays visible in the
+  bar as a label since it changes which plans Maestro lists.
+- **The Galaxy panel is now the Share panel.** "Galaxy" named two unrelated
+  things five controls apart in the same bar: the 3D view (`V`) and the
+  export/import panel (`G`). The panel is renamed to Share, which is what its
+  tabs actually do — export, import, versions and audit. `G` is unchanged.
 - **Installing a team now states what it will actually do.** Two of the three
   things a team install performs are bookkeeping — enabling advisors is a flag,
   and "installing" a skill only records an association. The routines are the

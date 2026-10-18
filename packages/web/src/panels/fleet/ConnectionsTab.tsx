@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
 import type { Connection, Notifier, NotifyEvent } from '@solix/shared';
-
+import { Button } from '../../ui/Button.js';
 interface Props {
   open: boolean;
-  onClose: () => void;
 }
 
 /**
@@ -11,8 +10,11 @@ interface Props {
  * are never shown or returned), and grant it to advisor roles / plan ids / '*'.
  * A granted connection's secrets are injected (least-privilege) into matching
  * Maestro workers at dispatch. Self-contained: talks to /api/connections.
+ *
+ * A Fleet tab: FleetPanel owns the dock shell, header and close button, so this
+ * returns only its own scroller.
  */
-export function ConnectionsPanel({ open, onClose }: Props): JSX.Element | null {
+export function ConnectionsTab({ open }: Props): JSX.Element | null {
   const [conns, setConns] = useState<Connection[]>([]);
   const [newName, setNewName] = useState('');
   const [newKind, setNewKind] = useState<'env' | 'mcp'>('env');
@@ -47,28 +49,7 @@ export function ConnectionsPanel({ open, onClose }: Props): JSX.Element | null {
   };
 
   return (
-    <div className="absolute top-16 right-0 bottom-0 w-full sm:w-[480px] bg-solix-panel border-l border-solix-border backdrop-blur-md flex flex-col z-30">
-      <div className="px-5 py-4 border-b border-solix-border flex items-start justify-between shrink-0">
-        <div>
-          <div className="text-xs uppercase tracking-widest text-solix-accent">
-            connections
-          </div>
-          <div className="text-lg font-semibold mt-0.5">Secrets & access</div>
-          <div className="text-xs text-slate-400 mt-1 leading-snug">
-            Store API keys once, grant them to agents. A worker only ever sees the
-            secrets it's granted — values are write-only and encrypted at rest.
-          </div>
-        </div>
-        <button
-          onClick={onClose}
-          className="text-slate-400 hover:text-slate-100"
-          aria-label="Close"
-        >
-          ✕
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+    <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
         {/* New connection */}
         <div className="space-y-2">
           <div className="text-[10px] uppercase tracking-wide text-slate-400">
@@ -89,13 +70,14 @@ export function ConnectionsPanel({ open, onClose }: Props): JSX.Element | null {
               <option value="env">env</option>
               <option value="mcp">mcp</option>
             </select>
-            <button
+            <Button
+              variant="primary"
               onClick={() => void addConnection()}
-              disabled={busy || !newName.trim()}
-              className="px-3 rounded bg-solix-accent/15 border border-solix-accent/50 text-solix-accent text-xs hover:bg-solix-accent/25 disabled:opacity-40"
+              disabled={!newName.trim()}
+              busy={busy}
             >
-              Add
-            </button>
+              Add connection
+            </Button>
           </div>
         </div>
 
@@ -109,15 +91,16 @@ export function ConnectionsPanel({ open, onClose }: Props): JSX.Element | null {
             <div className="text-[10px] uppercase tracking-widest text-slate-500">
               Connections · {conns.length}
             </div>
-            {conns.map((c) => (
-              <ConnectionCard key={c.id} conn={c} onChanged={refresh} />
-            ))}
+            <div className="grid gap-3 lg:grid-cols-2">
+              {conns.map((c) => (
+                <ConnectionCard key={c.id} conn={c} onChanged={refresh} />
+              ))}
+            </div>
           </div>
         )}
 
-        <div className="border-t border-solix-border pt-4">
-          <NotifiersSection open={open} />
-        </div>
+      <div className="border-t border-solix-border pt-4">
+        <NotifiersSection open={open} />
       </div>
     </div>
   );
@@ -256,13 +239,15 @@ function NotifiersSection({ open }: { open: boolean }): JSX.Element {
             </button>
           ))}
         </div>
-        <button
+        <Button
+          variant="primary"
+          block
           onClick={() => void add()}
-          disabled={busy || !name.trim()}
-          className="w-full py-1.5 rounded bg-solix-accent/15 border border-solix-accent/50 text-solix-accent text-xs hover:bg-solix-accent/25 disabled:opacity-40"
+          disabled={!name.trim()}
+          busy={busy}
         >
           Add notifier
-        </button>
+        </Button>
       </div>
 
       {list.map((n) => (
@@ -321,12 +306,14 @@ function ConnectionCard({
             {conn.kind}
           </span>
         </div>
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => void call('', undefined, 'DELETE')}
-          className="text-[10px] text-solix-danger/80 hover:text-solix-danger"
+          className="!border-transparent !text-solix-danger/80 hover:!text-solix-danger"
         >
-          delete
-        </button>
+          Delete
+        </Button>
       </div>
 
       <div className="text-[11px] text-slate-400">
@@ -365,7 +352,7 @@ function ConnectionCard({
           placeholder="value (write-only)"
           className="flex-1 text-[11px] bg-black/40 border border-solix-border rounded p-1.5 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-solix-accent"
         />
-        <button
+        <Button variant="primary" size="sm"
           onClick={() => {
             if (key.trim() && value) {
               void call('/secrets', { key: key.trim(), value }).then(() => {
@@ -375,10 +362,9 @@ function ConnectionCard({
             }
           }}
           disabled={!key.trim() || !value}
-          className="px-2 rounded bg-solix-accent/15 border border-solix-accent/50 text-solix-accent text-[11px] hover:bg-solix-accent/25 disabled:opacity-40"
         >
-          set
-        </button>
+          Set
+        </Button>
       </div>
 
       <div className="text-[11px] text-slate-400">
@@ -410,16 +396,15 @@ function ConnectionCard({
           placeholder="advisor role, plan id, or *"
           className="flex-1 text-[11px] bg-black/40 border border-solix-border rounded p-1.5 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-solix-accent"
         />
-        <button
+        <Button variant="ghost" size="sm"
           onClick={() => {
             if (scope.trim())
               void call('/grants', { scope: scope.trim() }).then(() => setScope(''));
           }}
           disabled={!scope.trim()}
-          className="px-2 rounded bg-black/30 border border-solix-border text-slate-300 text-[11px] hover:bg-black/50 disabled:opacity-40"
         >
-          grant
-        </button>
+          Grant
+        </Button>
       </div>
     </div>
   );

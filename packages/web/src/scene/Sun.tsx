@@ -1,4 +1,5 @@
 import { ErrorBoundary } from '../ErrorBoundary.js';
+import { useHoverCursor } from './useHoverCursor.js';
 import { Suspense, useMemo, useRef } from 'react';
 import { useFrame, useLoader } from '@react-three/fiber';
 import {
@@ -45,6 +46,7 @@ function readSunActivity(): { active: number; attention: number } {
 }
 
 export function Sun(): JSX.Element {
+  const hoverCursor = useHoverCursor();
   const groupRef = useRef<Group>(null);
   const lightRef = useRef<PointLight>(null);
 
@@ -105,12 +107,7 @@ export function Sun(): JSX.Element {
           e.stopPropagation();
           useSolixStore.getState().openWorkspace();
         }}
-        onPointerOver={() => {
-          document.body.style.cursor = 'pointer';
-        }}
-        onPointerOut={() => {
-          document.body.style.cursor = '';
-        }}
+        {...hoverCursor}
       >
         <sphereGeometry args={[SUN_RADIUS * 1.3, 24, 24]} />
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />

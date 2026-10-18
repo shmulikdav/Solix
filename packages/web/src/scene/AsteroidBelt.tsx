@@ -9,6 +9,7 @@ import {
 } from 'three';
 import type { Skill } from '@solix/shared';
 import { selectSkillsArray, useSolixStore } from '../store/index.js';
+import { useHoverCursor } from './useHoverCursor.js';
 
 const BELT_RADIUS = 22;
 const BELT_THICKNESS = 1.6;
@@ -40,6 +41,7 @@ interface AsteroidLayout {
 const TMP_OBJ = new Object3D();
 
 export function AsteroidBelt(): JSX.Element | null {
+  const hoverCursor = useHoverCursor();
   const skills = useSolixStore(selectSkillsArray);
   const selectSkill = useSolixStore((s) => s.selectSkill);
   const selectedSkillId = useSolixStore((s) => s.selectedSkillId);
@@ -119,6 +121,7 @@ export function AsteroidBelt(): JSX.Element | null {
       ref={meshRef}
       args={[undefined, undefined, layout.length]}
       onClick={onClick}
+      {...hoverCursor}
     >
       <icosahedronGeometry args={[1, 0]} />
       <meshStandardMaterial roughness={0.85} metalness={0.05} />

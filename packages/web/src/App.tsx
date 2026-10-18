@@ -4,6 +4,18 @@ import { MissionView } from './hud/MissionView.js';
 import { TopBar } from './hud/TopBar.js';
 import { Toasts } from './hud/Toasts.js';
 import { Welcome } from './hud/Welcome.js';
+import { HelpPanel } from './hud/HelpPanel.js';
+import { NavRail } from './shell/NavRail.js';
+import {
+  RAIL_WIDTH_PX,
+  TOP_BAR_HEIGHT_PX,
+  type FleetTabId,
+  type WorkspaceSurface,
+} from './shell/surfaces.js';
+import { FirstSunHint } from './hud/FirstSunHint.js';
+import { CommandPalette } from './shell/CommandPalette.js';
+import { ReportProblem } from './shell/ReportProblem.js';
+import { readDismissed } from './hud/onboarding.js';
 import { DecisionQueue } from './hud/DecisionQueue.js';
 import { SceneControls } from './hud/SceneControls.js';
 import { UpdateBanner } from './hud/UpdateBanner.js';
@@ -21,7 +33,12 @@ import { AdvisorPanel } from './panels/AdvisorPanel.js';
 import { SkillPanel } from './panels/SkillPanel.js';
 import { NewTaskModal } from './panels/NewTaskModal.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
-import { useSolixStore } from './store/index.js';
+import {
+  selectCanResolveByKey,
+  selectDockOffsetPx,
+  selectPendingPermissionsOrdered,
+  useSolixStore,
+} from './store/index.js';
 import { startWsClient } from './ws/client.js';
 
 // Sprint K code-split: the 3D galaxy scene pulls three.js, drei, and
@@ -35,11 +52,8 @@ const Scene = lazy(() =>
 const TimelineDrawer = lazy(() =>
   import('./hud/TimelineDrawer.js').then((m) => ({ default: m.TimelineDrawer })),
 );
-const GalaxyPanel = lazy(() =>
-  import('./panels/GalaxyPanel.js').then((m) => ({ default: m.GalaxyPanel })),
-);
-const CrewPanel = lazy(() =>
-  import('./panels/CrewPanel.js').then((m) => ({ default: m.CrewPanel })),
+const SharePanel = lazy(() =>
+  import('./panels/SharePanel.js').then((m) => ({ default: m.SharePanel })),
 );
 const WorkspacePanel = lazy(() =>
   import('./panels/WorkspacePanel.js').then((m) => ({
@@ -49,45 +63,38 @@ const WorkspacePanel = lazy(() =>
 const PlanPanel = lazy(() =>
   import('./panels/PlanPanel.js').then((m) => ({ default: m.PlanPanel })),
 );
-const ConnectionsPanel = lazy(() =>
-  import('./panels/ConnectionsPanel.js').then((m) => ({
-    default: m.ConnectionsPanel,
+const FleetPanel = lazy(() =>
+  import('./panels/fleet/FleetPanel.js').then((m) => ({
+    default: m.FleetPanel,
   })),
 );
 
 export default function App(): JSX.Element {
-  const [galaxyOpen, setGalaxyOpen] = useState(false);
+  // Centred modals and the bottom drawer legitimately coexist with a dock
+  // panel, so they stay local. Everything that occupies the right dock goes
+  // through the store's `activePanel` instead.
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const [crewOpen, setCrewOpen] = useState(false);
-  const [connectionsOpen, setConnectionsOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  // Mirrors Welcome's own gate so the sun hint can wait its turn.
+  const [welcomeOpen, setWelcomeOpen] = useState(() => !readDismissed());
 
-  // Width of whichever right-side panel is open, so the DecisionQueue can
-  // sit beside it instead of overlapping. Numbers match each panel's w-[…].
-  const selectedSessionId = useSolixStore((s) => s.selectedSessionId);
-  const selectedAdvisorId = useSolixStore((s) => s.selectedAdvisorId);
-  const selectedSkillId = useSolixStore((s) => s.selectedSkillId);
-  const workspaceOpen = useSolixStore((s) => s.workspaceOpen);
-  const closeWorkspace = useSolixStore((s) => s.closeWorkspace);
-  const planPanelOpen = useSolixStore((s) => s.planPanelOpen);
-  const openPlanPanel = useSolixStore((s) => s.openPlanPanel);
-  const closePlanPanel = useSolixStore((s) => s.closePlanPanel);
-  const panelOffsetPx = selectedSessionId
-    ? 460
-    : selectedAdvisorId
-      ? 420
-      : selectedSkillId
-        ? 480
-        : galaxyOpen
-          ? 480
-          : workspaceOpen
-            ? 480
-            : planPanelOpen
-              ? 480
-              : connectionsOpen
-                ? 480
-                : 0;
+  const activePanel = useSolixStore((s) => s.activePanel);
+  const openPanel = useSolixStore((s) => s.openPanel);
+  const closePanel = useSolixStore((s) => s.closePanel);
+  // One derived number instead of an if-chain that re-stated three CSS widths
+  // and assumed a single panel was open. A wrong value here can push the
+  // Decision Queue behind a panel and hide a pending permission request.
+  const panelOffsetPx = useSolixStore(selectDockOffsetPx);
+
+  const decisionsOpen = activePanel === 'decisions';
+  const surface = useSolixStore((s) => s.workspaceSurface);
+  const openSurface = useSolixStore((s) => s.openSurface);
+  const closeSurface = useSolixStore((s) => s.closeSurface);
+  const openFleet = (tab?: string): void =>
+    openSurface({ kind: 'fleet', tab: (tab as FleetTabId) ?? 'crew' });
 
   useEffect(() => {
     startWsClient();
@@ -102,20 +109,29 @@ export default function App(): JSX.Element {
         target?.tagName === 'INPUT' ||
         target?.tagName === 'TEXTAREA' ||
         target?.isContentEditable === true;
-      const pending = Object.values(state.pendingPermissions);
-      const top = pending[0];
+      const inGalaxy = state.viewMode === 'galaxy';
+      // Must match what the Decision Queue shows: `Y`/`N` act on the card the
+      // user is actually looking at. Both read one selector so they cannot
+      // drift apart again.
+      const top = selectPendingPermissionsOrdered(state)[0];
+      const decisionsVisible = selectCanResolveByKey(state);
 
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+        return;
+      }
       if (e.key === 'Escape') {
-        state.selectSession(null);
-        state.selectAdvisor(null);
-        state.selectSkill(null);
-        state.closeWorkspace();
-        state.closePlanPanel();
-        setGalaxyOpen(false);
+        // One call closes whichever dock panel is open — previously this had
+        // to enumerate every panel, and adding one meant remembering to add it
+        // here too.
+        // Escape closes the nearest thing: a contextual dock first, then
+        // the surface underneath it. Closing both at once would throw away
+        // more than the user asked for.
+        if (state.activePanel) state.closePanel();
+        else state.closeSurface();
         setNewTaskOpen(false);
         setHelpOpen(false);
-        setCrewOpen(false);
-        setConnectionsOpen(false);
         // Esc also exits Timeline Playback — the only mode where the rest of
         // the UI feels frozen because state is derived from past events.
         // Cheap escape hatch when the "× Live" button isn't clickable for
@@ -127,29 +143,37 @@ export default function App(): JSX.Element {
       } else if (!isTextField && e.key === '?') {
         setHelpOpen((v) => !v);
       } else if (!isTextField && (e.key === 'g' || e.key === 'G')) {
-        setGalaxyOpen((v) => !v);
+        if (state.workspaceSurface?.kind === 'share') state.closeSurface();
+        else state.openSurface({ kind: 'share' });
       } else if (!isTextField && (e.key === 'c' || e.key === 'C')) {
-        setCrewOpen((v) => !v);
+        // C still means crew, but crew is a Fleet section now, so the key
+        // toggles Fleet-on-crew rather than a separate modal.
+        const f = state.workspaceSurface;
+        if (f?.kind === 'fleet' && f.tab === 'crew') state.closeSurface();
+        else state.openSurface({ kind: 'fleet', tab: 'crew' });
       } else if (!isTextField && (e.key === 'p' || e.key === 'P')) {
-        if (state.planPanelOpen) state.closePlanPanel();
-        else state.openPlanPanel();
+        if (state.workspaceSurface?.kind === 'plan') state.closeSurface();
+        else state.openSurface({ kind: 'plan' });
       } else if (!isTextField && (e.key === 'l' || e.key === 'L')) {
         setNewTaskOpen(true);
-      } else if (!isTextField && (e.key === '+' || e.key === '=')) {
+        // Camera + motion keys only do something in the galaxy view. They were
+        // bound in List and Missions too, where there is no camera and nothing
+        // orbits — pressing them silently did nothing.
+      } else if (!isTextField && inGalaxy && (e.key === '+' || e.key === '=')) {
         cameraZoomIn();
-      } else if (!isTextField && e.key === '-') {
+      } else if (!isTextField && inGalaxy && e.key === '-') {
         cameraZoomOut();
-      } else if (!isTextField && e.key === '0') {
+      } else if (!isTextField && inGalaxy && e.key === '0') {
         cameraReset();
-      } else if (!isTextField && e.key === 'ArrowLeft') {
+      } else if (!isTextField && inGalaxy && e.key === 'ArrowLeft') {
         panLeft();
-      } else if (!isTextField && e.key === 'ArrowRight') {
+      } else if (!isTextField && inGalaxy && e.key === 'ArrowRight') {
         panRight();
-      } else if (!isTextField && e.key === 'ArrowUp') {
+      } else if (!isTextField && inGalaxy && e.key === 'ArrowUp') {
         panUp();
-      } else if (!isTextField && e.key === 'ArrowDown') {
+      } else if (!isTextField && inGalaxy && e.key === 'ArrowDown') {
         panDown();
-      } else if (!isTextField && e.key === ' ') {
+      } else if (!isTextField && inGalaxy && e.key === ' ') {
         e.preventDefault();
         state.toggleMotion();
       } else if (!isTextField && (e.key === 'v' || e.key === 'V')) {
@@ -159,11 +183,21 @@ export default function App(): JSX.Element {
       } else if (!isTextField && (e.key === 't' || e.key === 'T')) {
         setTimelineOpen((v) => !v);
       } else if (!isTextField && (e.key === 'w' || e.key === 'W')) {
-        if (state.workspaceOpen) state.closeWorkspace();
-        else state.openWorkspace();
-      } else if (!isTextField && top && (e.key === 'y' || e.key === 'Y')) {
+        if (state.workspaceSurface?.kind === 'overview') state.closeSurface();
+        else state.openSurface({ kind: 'overview' });
+      } else if (
+        !isTextField &&
+        top &&
+        decisionsVisible &&
+        (e.key === 'y' || e.key === 'Y')
+      ) {
         state.resolvePermission(top.requestId, true);
-      } else if (!isTextField && top && (e.key === 'n' || e.key === 'N')) {
+      } else if (
+        !isTextField &&
+        top &&
+        decisionsVisible &&
+        (e.key === 'n' || e.key === 'N')
+      ) {
         state.resolvePermission(top.requestId, false);
       }
     };
@@ -173,48 +207,36 @@ export default function App(): JSX.Element {
 
   return (
     <div className="relative h-full w-full">
-      <ViewSurface />
-      <TopBar
-        onOpenGalaxy={() => setGalaxyOpen(true)}
+      {/* The main area starts after the rail. Everything absolutely positioned
+          inside it — the canvas, the docks, the queue — is measured from this
+          box rather than from the window, so there is one place that knows the
+          rail exists. */}
+      <div
+        className="absolute inset-y-0 right-0"
+        style={{ left: RAIL_WIDTH_PX }}
+      >
+        {/* One of these, never both: a surface replaces the canvas rather
+            than covering it, which is what makes Fleet and Maestro usable at
+            full width. Contextual docks still float over whichever is up. */}
+        {surface ? (
+          <Suspense fallback={null}>
+            <WorkspaceSurfaces surface={surface} onClose={closeSurface} />
+          </Suspense>
+        ) : (
+          <ViewSurface />
+        )}
+      </div>
+      <NavRail
         onNewTask={() => setNewTaskOpen(true)}
         onOpenTimeline={() => setTimelineOpen(true)}
         onOpenHelp={() => setHelpOpen(true)}
-        onOpenCrew={() => setCrewOpen(true)}
-        onOpenPlan={openPlanPanel}
-        onOpenConnections={() => setConnectionsOpen(true)}
+        onReportProblem={() => setReportOpen(true)}
       />
-      <DecisionQueue panelOffsetPx={panelOffsetPx} />
+      <TopBar />
+      {decisionsOpen && <DecisionQueue />}
       <SidePanel />
       <AdvisorPanel />
       <SkillPanel />
-      {galaxyOpen && (
-        <Suspense fallback={null}>
-          <GalaxyPanel open={galaxyOpen} onClose={() => setGalaxyOpen(false)} />
-        </Suspense>
-      )}
-      {crewOpen && (
-        <Suspense fallback={null}>
-          <CrewPanel open={crewOpen} onClose={() => setCrewOpen(false)} />
-        </Suspense>
-      )}
-      {workspaceOpen && (
-        <Suspense fallback={null}>
-          <WorkspacePanel open={workspaceOpen} onClose={closeWorkspace} />
-        </Suspense>
-      )}
-      {planPanelOpen && (
-        <Suspense fallback={null}>
-          <PlanPanel open={planPanelOpen} onClose={closePlanPanel} />
-        </Suspense>
-      )}
-      {connectionsOpen && (
-        <Suspense fallback={null}>
-          <ConnectionsPanel
-            open={connectionsOpen}
-            onClose={() => setConnectionsOpen(false)}
-          />
-        </Suspense>
-      )}
       <NewTaskModal
         open={newTaskOpen}
         onClose={() => setNewTaskOpen(false)}
@@ -228,11 +250,25 @@ export default function App(): JSX.Element {
         </Suspense>
       )}
       <SceneControls />
+      {/* Two components now, not one. Help used to BE Welcome with a
+          forceOpen flag, and closing it wrote the first-run dismissed flag —
+          so pressing ? once consumed a new user's onboarding. */}
       <Welcome
-        onOpenGalaxy={() => setGalaxyOpen(true)}
-        forceOpen={helpOpen}
-        onClose={() => setHelpOpen(false)}
+        onPlanBuild={() => openSurface({ kind: 'plan' })}
+        onOpenCrew={() => openFleet('crew')}
+        onDismissed={() => setWelcomeOpen(false)}
       />
+      <HelpPanel open={helpOpen} onClose={() => setHelpOpen(false)} />
+      <ReportProblem open={reportOpen} onClose={() => setReportOpen(false)} />
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        onNewTask={() => setNewTaskOpen(true)}
+        onOpenTimeline={() => setTimelineOpen(true)}
+        onOpenHelp={() => setHelpOpen(true)}
+        onReportProblem={() => setReportOpen(true)}
+      />
+      <FirstSunHint suppressed={welcomeOpen || helpOpen || paletteOpen} />
       <Toasts />
       <EmptyHint />
       <UpdateBanner />
@@ -244,6 +280,26 @@ export default function App(): JSX.Element {
  * Renders either the 3D galaxy or the table list view, depending on the
  * persisted viewMode. The TopBar / DecisionQueue / panels overlay both.
  */
+/** Routes the active workspace surface to its component. */
+function WorkspaceSurfaces({
+  surface,
+  onClose,
+}: {
+  surface: WorkspaceSurface;
+  onClose: () => void;
+}): JSX.Element {
+  switch (surface.kind) {
+    case 'overview':
+      return <WorkspacePanel open onClose={onClose} />;
+    case 'plan':
+      return <PlanPanel open onClose={onClose} />;
+    case 'share':
+      return <SharePanel open onClose={onClose} />;
+    case 'fleet':
+      return <FleetPanel open />;
+  }
+}
+
 function ViewSurface(): JSX.Element {
   const viewMode = useSolixStore((s) => s.viewMode);
   if (viewMode === 'list') return <ListView />;
@@ -270,9 +326,29 @@ function SceneUnavailable(): JSX.Element {
     <div className="absolute inset-0 flex items-center justify-center bg-solix-bg z-0">
       <div className="text-center text-xs text-slate-500 max-w-xs leading-relaxed">
         <div className="text-slate-300 mb-1">The galaxy view didn’t load.</div>
-        Your agents are still running — switch to{' '}
-        <span className="text-slate-300">List</span> or{' '}
-        <span className="text-slate-300">Missions</span> view, or reload.
+        Your agents are still running.
+        {/* Previously this told the user to switch view but rendered no way to
+            do it — the only path was the top bar behind this overlay. */}
+        <div className="mt-3 flex items-center justify-center gap-2">
+          <button
+            onClick={() => useSolixStore.getState().setViewMode('list')}
+            className="px-2 py-1 rounded border border-solix-border text-slate-300 hover:bg-solix-border/30 hover:text-white"
+          >
+            Switch to List
+          </button>
+          <button
+            onClick={() => useSolixStore.getState().setViewMode('missions')}
+            className="px-2 py-1 rounded border border-solix-border text-slate-300 hover:bg-solix-border/30 hover:text-white"
+          >
+            Missions
+          </button>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-2 py-1 rounded border border-solix-border text-slate-300 hover:bg-solix-border/30 hover:text-white"
+          >
+            Reload
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { AuditEvent } from '@solix/shared';
 import { selectWorkspaceSummary, useSolixStore } from '../store/index.js';
+import { Surface } from '../shell/Surface.js';
 
 interface WorkspacePanelProps {
   open: boolean;
@@ -64,7 +65,7 @@ function Chip({
 /**
  * Mission Control — the whole-workspace overview opened by clicking the sun.
  * All figures are real (derived by `selectWorkspaceSummary`); `interventions`
- * comes from the persisted audit log, fetched on open like GalaxyPanel's Audit tab.
+ * comes from the persisted audit log, fetched on open like SharePanel's Audit tab.
  */
 export function WorkspacePanel({
   open,
@@ -107,7 +108,7 @@ export function WorkspacePanel({
   ];
 
   return (
-    <div className="absolute top-16 right-0 bottom-0 w-full sm:w-[480px] bg-solix-panel border-l border-solix-border backdrop-blur-md flex flex-col z-30">
+    <Surface>
       <div className="px-4 py-3 border-b border-solix-border flex items-start justify-between">
         <div>
           <div className="text-xs uppercase tracking-wide text-solix-accent">
@@ -122,6 +123,7 @@ export function WorkspacePanel({
         <button
           onClick={onClose}
           className="text-slate-400 hover:text-slate-100"
+          aria-label="Close"
         >
           ✕
         </button>
@@ -236,6 +238,6 @@ export function WorkspacePanel({
           )}
         </div>
       </div>
-    </div>
+    </Surface>
   );
 }

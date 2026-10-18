@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { hooksSupported, installedVersion } from './install.js';
 import {
   CLAUDE_AGENTS_DIR,
   CLAUDE_BACKUP,
@@ -9,6 +10,9 @@ import {
   SOLIX_HOME,
   SOLIX_SKILLS_DIR,
 } from './paths.js';
+
+// Injected at build time by tsup, same define as index.ts.
+declare const __SOLIX_VERSION__: string;
 
 interface CheckResult {
   ok: boolean;
@@ -133,6 +137,31 @@ export async function doctor(): Promise<void> {
     ok: existsSync(SOLIX_HOME),
     label: 'Solix home directory',
     detail: SOLIX_HOME,
+  });
+
+  // Report this before the hook checks, because on Windows it is the reason
+  // all of them fail and every other line below is a distraction.
+  checks.push({
+    ok: hooksSupported(),
+    label: 'Platform supports hooks',
+    detail: hooksSupported()
+      ? process.platform
+      : 'native Windows — hooks are POSIX shell; run Solix inside WSL',
+  });
+
+  checks.push({
+    ok: true,
+    label: 'Versions',
+    detail: `solix ${__SOLIX_VERSION__} · node ${process.version} · ${process.platform}`,
+  });
+
+  checks.push({
+    ok: installedVersion() === __SOLIX_VERSION__ || !hooksSupported(),
+    label: 'Hooks match this version',
+    detail:
+      installedVersion() === __SOLIX_VERSION__
+        ? `stamped ${installedVersion()}`
+        : `stamped ${installedVersion() ?? 'unstamped'}, running ${__SOLIX_VERSION__} — restart solix to update`,
   });
 
   let allHooksPresent = true;

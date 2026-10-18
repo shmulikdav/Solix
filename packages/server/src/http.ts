@@ -51,6 +51,7 @@ import { activateLicense, getEntitlement } from './licensing.js';
 import { previewTargetPath, slugifyProjectName } from './util.js';
 import {
   getSession,
+  listActiveSessions,
   listSessionsForProject,
   setSessionStatus,
 } from './state/sessions.js';
@@ -159,6 +160,15 @@ export function createHttpApp(opts: {
   /** Product version to report from /api/health. The CLI injects its own
    * package version; absent when the server is embedded directly. */
   version?: string;
+  /** Hook install state for /api/diagnostics. Owned by the CLI, which does
+   *  the installing; absent in embedded/test contexts. */
+  hookStatus?: () => {
+    installed: boolean;
+    upToDate: boolean;
+    stampedVersion: string | null;
+    claudeCodePresent: boolean;
+    supported: boolean;
+  };
   /** Fire a routine now (launch it, record the run, advance/broadcast). Wired
    *  by create.ts where the launcher lives; absent in embedded/test contexts,
    *  where the fire routes report the capability is unavailable. */
@@ -228,6 +238,38 @@ export function createHttpApp(opts: {
       ts: Date.now(),
     }),
   );
+
+  /**
+   * Everything a bug report needs and nothing it doesn't.
+   *
+   * A beta tester who hits a problem should not have to run `solix doctor`
+   * in a terminal, work out which bits matter and paste them by hand — most
+   * will simply stop using it instead. This is the same information, shaped
+   * for the issue form.
+   *
+   * Deliberately excluded: working directories, project and session names,
+   * org names, prompts, anything from the codebase. Solix's whole claim is
+   * that nothing leaves the machine, so the one place it offers to send
+   * something outward carries counts and versions only.
+   */
+  app.get('/api/diagnostics', (c) => {
+    const sessions = listActiveSessions(opts.db);
+    const byStatus: Record<string, number> = {};
+    for (const s of sessions) {
+      byStatus[s.status] = (byStatus[s.status] ?? 0) + 1;
+    }
+    return c.json({
+      version: opts.version ?? 'unknown',
+      node: process.version,
+      platform: process.platform,
+      arch: process.arch,
+      // Hook state lives in the CLI, which owns the install, so it is
+      // injected the same way version and fireSchedule are.
+      hooks: opts.hookStatus?.() ?? null,
+      sessions: { total: sessions.length, byStatus },
+      uptimeSec: Math.round(process.uptime()),
+    });
+  });
 
   app.post('/events', async (c) => {
     let body: HookEvent | null = null;

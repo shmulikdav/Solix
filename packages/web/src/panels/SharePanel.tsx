@@ -9,6 +9,8 @@ import type {
 } from '@solix/shared';
 import { diffManifests } from '@solix/shared';
 import { useSolixStore } from '../store/index.js';
+import { TabButton } from './RightDock.js';
+import { Surface } from '../shell/Surface.js';
 
 interface ImportResponse {
   ok: boolean;
@@ -18,17 +20,17 @@ interface ImportResponse {
   error?: string;
 }
 
-interface GalaxyPanelProps {
+interface SharePanelProps {
   open: boolean;
   onClose: () => void;
 }
 
-type Tab = 'share' | 'teams' | 'versions' | 'audit';
+type Tab = 'share' | 'versions' | 'audit';
 
-export function GalaxyPanel({
+export function SharePanel({
   open,
   onClose,
-}: GalaxyPanelProps): JSX.Element | null {
+}: SharePanelProps): JSX.Element | null {
   const [tab, setTab] = useState<Tab>('share');
   const [name, setName] = useState('My Galaxy');
   const [importText, setImportText] = useState('');
@@ -158,7 +160,7 @@ export function GalaxyPanel({
   };
 
   return (
-    <div className="absolute top-16 right-0 bottom-0 w-full sm:w-[480px] bg-solix-panel border-l border-solix-border backdrop-blur-md flex flex-col z-30">
+    <Surface>
       <div className="px-4 py-3 border-b border-solix-border flex items-start justify-between">
         <div>
           <div className="text-xs uppercase tracking-wide text-solix-accent">
@@ -173,6 +175,7 @@ export function GalaxyPanel({
         <button
           onClick={onClose}
           className="text-slate-400 hover:text-slate-100"
+          aria-label="Close"
         >
           ✕
         </button>
@@ -181,9 +184,6 @@ export function GalaxyPanel({
       <div className="flex border-b border-solix-border text-xs">
         <TabButton active={tab === 'share'} onClick={() => setTab('share')}>
           Sharing
-        </TabButton>
-        <TabButton active={tab === 'teams'} onClick={() => setTab('teams')}>
-          Teams
         </TabButton>
         <TabButton
           active={tab === 'versions'}
@@ -198,8 +198,6 @@ export function GalaxyPanel({
 
       {tab === 'audit' ? (
         <AuditTab open={open} />
-      ) : tab === 'teams' ? (
-        <TeamsTab open={open} />
       ) : tab === 'versions' ? (
         <VersionsTab open={open} />
       ) : (
@@ -236,7 +234,7 @@ export function GalaxyPanel({
           <button
             onClick={onImportUrl}
             disabled={busy || !importUrl.trim()}
-            className="mt-2 w-full py-2 rounded bg-cyan-500/15 border border-cyan-400/40 text-cyan-200 text-sm hover:bg-cyan-500/25 disabled:opacity-50"
+            className="mt-2 w-full py-2 rounded bg-solix-accent/15 border border-solix-accent/40 text-solix-accent text-sm hover:bg-solix-accent/25 disabled:opacity-50"
           >
             Pull and import
           </button>
@@ -256,7 +254,7 @@ export function GalaxyPanel({
           <button
             onClick={onImportText}
             disabled={busy || !importText.trim()}
-            className="mt-2 w-full py-2 rounded bg-cyan-500/15 border border-cyan-400/40 text-cyan-200 text-sm hover:bg-cyan-500/25 disabled:opacity-50"
+            className="mt-2 w-full py-2 rounded bg-solix-accent/15 border border-solix-accent/40 text-solix-accent text-sm hover:bg-solix-accent/25 disabled:opacity-50"
           >
             Apply manifest
           </button>
@@ -288,184 +286,10 @@ export function GalaxyPanel({
             ? 'Each export snapshots a version. Identical re-exports are deduped.'
             : "Imports never spawn pinned advisors or run shell commands. You're in control."}
       </div>
-    </div>
+    </Surface>
   );
 }
 
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}): JSX.Element {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex-1 px-3 py-2 ${
-        active
-          ? 'text-solix-accent border-b-2 border-solix-accent'
-          : 'text-slate-400 hover:text-slate-200 border-b-2 border-transparent'
-      }`}
-    >
-      {children}
-    </button>
-  );
-}
-
-/** Plain-language statement of what a template's routines will actually do —
- *  an interval routine launches a real agent session on a cadence and spends
- *  money on every run, which is easy to miss in a one-click install. */
-function describeRoutineCost(t: TeamTemplate): string {
-  const interval = t.routines.filter((r) => (r.trigger ?? 'interval') === 'interval');
-  const webhook = t.routines.filter((r) => r.trigger === 'webhook');
-  const manual = t.routines.filter((r) => r.trigger === 'manual');
-  const parts: string[] = [];
-  if (interval.length) {
-    const cadences = [...new Set(interval.map((r) => r.cadence ?? '1h'))].join(', ');
-    parts.push(
-      `${interval.length} runs automatically every ${cadences} — each run starts a real agent session and costs money.`,
-    );
-  }
-  if (webhook.length) parts.push(`${webhook.length} fires only when its webhook URL is called.`);
-  if (manual.length) parts.push(`${manual.length} runs only when you trigger it.`);
-  return parts.join(' ');
-}
-
-/** P2 #7 — ready-made team templates: pick a project, install an advisor+skill+
- *  routine bundle in one click. */
-function TeamsTab({ open }: { open: boolean }): JSX.Element {
-  const projects = useSolixStore((s) => s.projects);
-  const installTeamTemplate = useSolixStore((s) => s.installTeamTemplate);
-  const [templates, setTemplates] = useState<TeamTemplate[]>([]);
-  const [cwd, setCwd] = useState('');
-  const [busy, setBusy] = useState<string | null>(null);
-  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
-  // Routines are the only part of a team install with an ongoing effect, so
-  // they're an explicit, declinable choice rather than a silent side effect.
-  const [includeRoutines, setIncludeRoutines] = useState(true);
-
-  const projectList = Object.values(projects).sort(
-    (a, b) => b.lastActiveAt - a.lastActiveAt,
-  );
-  const effectiveCwd = cwd || projectList[0]?.cwd || '';
-
-  useEffect(() => {
-    if (!open) return;
-    let live = true;
-    void fetch('/api/teams/templates')
-      .then((r) => r.json())
-      .then((list: TeamTemplate[]) => {
-        if (live) setTemplates(list);
-      })
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, [open]);
-
-  const onInstall = async (id: string): Promise<void> => {
-    if (!effectiveCwd.trim()) {
-      setNote({ ok: false, text: 'Pick or type a project first.' });
-      return;
-    }
-    setBusy(id);
-    setNote(null);
-    const res = await installTeamTemplate(id, effectiveCwd.trim(), includeRoutines);
-    setBusy(null);
-    if (res.ok) {
-      const warns = res.warnings?.length ? ` (${res.warnings.length} skipped)` : '';
-      setNote({ ok: true, text: `Installed "${id}"${warns}.` });
-    } else {
-      setNote({ ok: false, text: res.error ?? 'Install failed.' });
-    }
-  };
-
-  return (
-    <div className="flex-1 overflow-y-auto p-4 space-y-4">
-      <div>
-        <div className="text-xs uppercase tracking-wide text-slate-400 mb-2">
-          Install into project
-        </div>
-        {projectList.length > 0 && (
-          <select
-            value=""
-            onChange={(e) => e.target.value && setCwd(e.target.value)}
-            className="w-full text-xs bg-black/40 border border-solix-border rounded p-2 text-slate-200 mb-2 focus:outline-none focus:border-solix-accent"
-          >
-            <option value="">Choose a project…</option>
-            {projectList.map((p) => (
-              <option key={p.id} value={p.cwd}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        )}
-        <input
-          value={effectiveCwd}
-          onChange={(e) => setCwd(e.target.value)}
-          placeholder="/path/to/project"
-          className="w-full text-xs font-mono bg-black/40 border border-solix-border rounded p-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-solix-accent"
-        />
-      </div>
-
-      {note && (
-        <div
-          className={`text-[11px] rounded px-2 py-1 border ${
-            note.ok
-              ? 'text-solix-ok border-solix-ok/40 bg-solix-ok/10'
-              : 'text-solix-danger border-solix-danger/40 bg-solix-danger/10'
-          }`}
-        >
-          {note.text}
-        </div>
-      )}
-
-      <div className="space-y-3">
-        {templates.map((t) => (
-          <div key={t.id} className="rounded border border-solix-border bg-black/20 p-3">
-            <div className="text-sm font-semibold text-slate-100">{t.name}</div>
-            <div className="text-[11px] text-slate-400 mt-0.5">{t.description}</div>
-            <div className="text-[10px] text-slate-500 mt-1.5 space-y-0.5">
-              <div>advisors · {t.advisors.join(', ') || '—'}</div>
-              {t.skills.length > 0 && <div>skills · {t.skills.join(', ')}</div>}
-              {t.routines.length > 0 && (
-                <div>routines · {t.routines.map((r) => r.name).join(', ')}</div>
-              )}
-            </div>
-            {t.routines.length > 0 && (
-              <label className="mt-2 flex items-start gap-2 text-[10px] rounded px-2 py-1.5 border border-solix-warn/40 bg-solix-warn/10 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={includeRoutines}
-                  onChange={(e) => setIncludeRoutines(e.target.checked)}
-                  className="mt-0.5 accent-amber-400"
-                />
-                <span className="text-slate-300">
-                  Also create {t.routines.length} routine
-                  {t.routines.length === 1 ? '' : 's'}.{' '}
-                  {describeRoutineCost(t)}
-                </span>
-              </label>
-            )}
-            <button
-              onClick={() => void onInstall(t.id)}
-              disabled={busy === t.id}
-              className="mt-2 w-full py-1.5 rounded bg-amber-500/20 border border-amber-400/60 text-amber-100 text-xs hover:bg-amber-500/30 disabled:opacity-40"
-            >
-              {busy === t.id ? 'Installing…' : 'Install team'}
-            </button>
-          </div>
-        ))}
-        {templates.length === 0 && (
-          <div className="text-xs text-slate-500 italic">No team templates.</div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 const ALL_KINDS: AuditKind[] = [
   'permission_approved',
@@ -711,12 +535,12 @@ function VersionsTab({ open }: { open: boolean }): JSX.Element {
             onClick={clearSelection}
             className="text-slate-500 hover:text-slate-100"
           >
-            clear
+            Clear
           </button>
         </div>
       )}
 
-      {diff && <DiffView diff={diff.diff} />}
+      {diff && <ManifestDiffView diff={diff.diff} />}
 
       {loading && (
         <div className="text-xs text-slate-500 italic">Loading…</div>
@@ -744,7 +568,7 @@ function VersionsTab({ open }: { open: boolean }): JSX.Element {
                   role === 'from'
                     ? 'border-solix-accent bg-solix-accent/10'
                     : role === 'to'
-                      ? 'border-cyan-400 bg-cyan-400/10'
+                      ? 'border-solix-accent bg-solix-accent/10'
                       : 'border-solix-border bg-black/20 hover:bg-solix-border/30'
                 }`}
               >
@@ -780,7 +604,7 @@ function VersionsTab({ open }: { open: boolean }): JSX.Element {
   );
 }
 
-function DiffView({ diff }: { diff: GalaxyManifestDiff }): JSX.Element {
+function ManifestDiffView({ diff }: { diff: GalaxyManifestDiff }): JSX.Element {
   const empty =
     diff.advisors.added.length === 0 &&
     diff.advisors.removed.length === 0 &&
@@ -874,7 +698,7 @@ function PendingImportPanel({
         </div>
       )}
       {diff ? (
-        <DiffView diff={diff} />
+        <ManifestDiffView diff={diff} />
       ) : manifest ? (
         <div className="text-xs text-slate-400 italic">
           Could not compute a diff against the current galaxy. Apply will
@@ -890,9 +714,9 @@ function PendingImportPanel({
         <button
           onClick={onConfirm}
           disabled={busy}
-          className="flex-1 py-1.5 rounded bg-amber-500/20 border border-amber-300 text-amber-100 text-xs hover:bg-amber-500/30 disabled:opacity-50"
+          className="flex-1 py-1.5 rounded bg-solix-accent/20 border border-solix-accent text-solix-accent text-xs hover:bg-solix-accent/30 disabled:opacity-50"
         >
-          Apply
+          Import galaxy
         </button>
         <button
           onClick={onCancel}

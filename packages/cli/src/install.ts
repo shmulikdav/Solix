@@ -19,6 +19,7 @@ import {
   HOOK_NAMES,
   HOOKS_DIR,
   SOLIX_HOME,
+  SOLIX_INSTALL_STAMP,
   SOLIX_SKILLS_DIR,
   SOLIX_TOKEN_FILE,
   packagedAgentsDir,
@@ -178,6 +179,81 @@ function installSolixSkills(): number {
   return copied;
 }
 
+// Injected at build time by tsup, same define as index.ts / start.ts.
+declare const __SOLIX_VERSION__: string;
+
+/**
+ * Can this platform run Solix's hooks at all?
+ *
+ * The hooks are POSIX `sh` and lean on `$PPID`, `date +%s`, `pwd` and `curl`.
+ * Native Windows `cmd` cannot execute them, so on win32 they are written,
+ * registered, and then never fire — the user watches an empty galaxy with
+ * nothing saying why. Better to decline loudly.
+ *
+ * Rewriting them in Node would be portable but is not free: measured here,
+ * `sh` starts in ~2ms and `node` in ~37ms, and PreToolUse/PostToolUse fire on
+ * every single tool call, in the agent's blocking path. Paying ~70ms per tool
+ * call on every platform to serve one is the wrong trade; the right fix is
+ * native `.cmd` hooks, verified by someone actually on Windows.
+ *
+ * WSL reports as linux, so Windows users have a working path today.
+ */
+export function hooksSupported(): boolean {
+  return process.platform !== 'win32';
+}
+
+/** Has Claude Code ever run on this machine? */
+export function claudeCodePresent(): boolean {
+  return existsSync(CLAUDE_DIR);
+}
+
+/**
+ * Which Solix version wrote the hooks currently on disk, or null if they
+ * predate the stamp (or were never written).
+ */
+export function installedVersion(): string | null {
+  try {
+    const v = readFileSync(SOLIX_INSTALL_STAMP, 'utf8').trim();
+    return v.length > 0 ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Are the hooks on disk the ones this build ships?
+ *
+ * "Do the files exist" is not enough. The hook scripts are part of the
+ * product and change between releases, so an existence check means an
+ * upgrade never rewrites them: `solix start` sees "installed", skips, and the
+ * user keeps running the previous release's hooks for good. In a beta, where
+ * the whole point is shipping fixes, that turns every fix into "it's still
+ * broken" with no way for either side to tell why.
+ */
+export function hooksUpToDate(): boolean {
+  return hooksInstalled() && installedVersion() === __SOLIX_VERSION__;
+}
+
+/**
+ * Are Solix's hooks actually in place?
+ *
+ * Both halves have to be true: the scripts must exist on disk, and Claude
+ * Code's settings must point at them. Checking only one of them is how you
+ * get the failure this guards — `solix start` printed "start any claude
+ * session to see your first planet appear" whether or not anything was wired,
+ * so a user with no hooks watched an empty galaxy forever with nothing
+ * explaining why.
+ */
+export function hooksInstalled(): boolean {
+  for (const name of HOOK_NAMES) {
+    if (!existsSync(join(HOOKS_DIR, `${name}.sh`))) return false;
+  }
+  if (!existsSync(CLAUDE_SETTINGS)) return false;
+  const settings = readSettings();
+  const wired = JSON.stringify(settings.hooks ?? {});
+  return wired.includes(HOOKS_DIR);
+}
+
 export interface InstallOptions {
   force?: boolean;
 }
@@ -217,4 +293,9 @@ export function install(opts: InstallOptions = {}): void {
   const next: ClaudeSettings = { ...existing, hooks: merged };
   writeFileSync(CLAUDE_SETTINGS, JSON.stringify(next, null, 2) + '\n');
   console.log(`[solix] merged hooks into ${CLAUDE_SETTINGS}`);
+
+  // Last, and only on success: the stamp is what lets a later start tell
+  // "these hooks are current" from "these hooks are from two releases ago".
+  // Writing it before the work above would claim an install that failed.
+  writeFileSync(SOLIX_INSTALL_STAMP, `${__SOLIX_VERSION__}\n`);
 }

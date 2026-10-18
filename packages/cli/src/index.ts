@@ -20,7 +20,7 @@ import {
   installFromRegistryCmd,
   publishGalaxyCmd,
 } from './galaxy.js';
-import { install } from './install.js';
+import { hooksSupported, install } from './install.js';
 import { installShim } from './install-shim.js';
 import { runWrapped } from './run.js';
 import { installSkillCmd, listSkillsCmd } from './skills.js';
@@ -62,6 +62,18 @@ program
   .description('Install Solix hooks into ~/.claude/settings.json')
   .option('--force', 'overwrite even if hooks already present')
   .action((opts: { force?: boolean }) => {
+    // Refuse rather than install hooks the platform cannot execute. Writing
+    // them and reporting success is how a Windows user ends up convinced
+    // Solix is broken rather than unsupported.
+    if (!hooksSupported()) {
+      console.error(
+        '[solix] native Windows is not supported yet — the hooks are POSIX\n' +
+          '        shell scripts and will not run here. Install Solix inside\n' +
+          '        WSL, where it works today.',
+      );
+      process.exitCode = 1;
+      return;
+    }
     install({ force: opts.force });
     console.log('\n[solix] install complete. Run `solix start` next.');
   });

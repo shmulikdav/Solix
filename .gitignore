@@ -13,3 +13,6 @@ coverage/
 
 # Headless browser smoke-check screenshots (pnpm smoke:browser)
 .smoke/
+
+# npm pack output from `pnpm rehearse`
+*.tgz

@@ -50,6 +50,15 @@ export interface SolixServerOptions {
   /** Product version, surfaced at /api/health. The CLI passes its own
    * package version; defaults to "unknown" when embedded directly. */
   version?: string;
+  /** Hook install state for /api/diagnostics. Only the CLI can answer this
+   *  honestly, since it owns the install; omitted when embedded. */
+  hookStatus?: () => {
+    installed: boolean;
+    upToDate: boolean;
+    stampedVersion: string | null;
+    claudeCodePresent: boolean;
+    supported: boolean;
+  };
 }
 
 export interface SolixServerHandle {
@@ -191,6 +200,7 @@ export async function createSolixServer(
     orchestrator,
     token,
     version: opts.version,
+    hookStatus: opts.hookStatus,
     fireSchedule: fireScheduleNow,
   });
 

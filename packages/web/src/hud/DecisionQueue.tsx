@@ -1,5 +1,10 @@
-import { useEffect, useState } from 'react';
-import { useSolixStore } from '../store/index.js';
+import { useEffect, useRef, useState } from 'react';
+import {
+  selectPendingPermissionsOrdered,
+  useSolixStore,
+} from '../store/index.js';
+import { Button } from '../ui/Button.js';
+import { PanelHeader, RightDock } from '../panels/RightDock.js';
 import type { Mission, Session } from '@solix/shared';
 import { suggestForPermission } from '../suggestions.js';
 
@@ -15,13 +20,7 @@ import { suggestForPermission } from '../suggestions.js';
  * Sorted newest-first so the most recent block is at the top of the
  * queue.
  */
-export function DecisionQueue({
-  panelOffsetPx = 0,
-}: {
-  /** Width of the currently-open right-side panel, so the queue sits
-   * beside it instead of overlapping. 0 when no panel is open. */
-  panelOffsetPx?: number;
-} = {}): JSX.Element {
+export function DecisionQueue(): JSX.Element | null {
   const pending = useSolixStore((s) => s.pendingPermissions);
   const budgetAlerts = useSolixStore((s) => s.budgetAlerts);
   const sessions = useSolixStore((s) => s.sessions);
@@ -30,66 +29,59 @@ export function DecisionQueue({
   const raiseBudget = useSolixStore((s) => s.raiseBudget);
   const dismissBudgetAlert = useSolixStore((s) => s.dismissBudgetAlert);
   const selectSession = useSolixStore((s) => s.selectSession);
+  const activePanel = useSolixStore((s) => s.activePanel);
+  const closePanel = useSolixStore((s) => s.closePanel);
 
-  const items = Object.values(pending).sort(
-    (a, b) => b.receivedAt - a.receivedAt,
-  );
+  // Shared with the Y/N key handler in App.tsx — see
+  // selectPendingPermissionsOrdered. Do not re-sort locally.
+  const items = useSolixStore(selectPendingPermissionsOrdered);
   const alerts = Object.values(budgetAlerts).sort(
     (a, b) => b.receivedAt - a.receivedAt,
   );
-  const [collapsed, setCollapsed] = useState(false);
-
-  // When a new item arrives, force-expand the queue so the user sees it.
   const count = items.length + alerts.length;
-  useEffect(() => {
-    if (count > 0) setCollapsed(false);
-  }, [count]);
 
   const onAsk = (sessionId: string): void => {
     selectSession(sessionId);
-    setCollapsed(true);
   };
 
-  // When the queue is empty, collapse to a single quiet strip — no need
-  // for a separate "All clear" panel taking real estate when nothing's
-  // waiting on the user.
+  // There used to be a collapse toggle and an effect that force-expanded the
+  // queue whenever a new request arrived. Both existed because the queue was
+  // always on screen and had to get out of the way. As a panel it is open or
+  // it is not, and that is the user's choice — nothing re-opens it behind
+  // their back, which is what B2 was about.
+
   if (count === 0) {
     return (
-      <div
-        className="absolute top-20 z-30 pointer-events-none"
-        style={{ right: `${panelOffsetPx + 16}px` }}
-      >
-        <div className="pointer-events-auto rounded-full border border-solix-border bg-solix-panel/60 backdrop-blur px-3 py-1 text-[10px] text-slate-500 flex items-center gap-2">
-          <span className="uppercase tracking-widest">decisions</span>
-          <span className="font-bold">0</span>
-          <span className="italic opacity-80">— all clear</span>
-        </div>
-      </div>
+      <RightDock>
+        <PanelHeader
+          eyebrow="decisions"
+          title="Nothing waiting"
+          onClose={closePanel}
+        >
+          No agent is blocked on you right now.
+        </PanelHeader>
+      </RightDock>
     );
   }
 
+  // A dock panel rather than a positioned overlay. Twice this column was found
+  // underneath something (B6, B7) because the arithmetic keeping it clear had
+  // to be re-derived every time the layout moved. A panel cannot be covered by
+  // its siblings, so that class of bug goes away rather than being
+  // recalculated.
   return (
-    <div
-      className="absolute top-20 z-30 w-80 flex flex-col gap-2 pointer-events-none"
-      style={{ right: `${panelOffsetPx + 16}px` }}
-    >
-      <div className="pointer-events-auto rounded border border-solix-border bg-solix-panel/85 backdrop-blur px-3 py-2 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] uppercase tracking-widest text-slate-400">
-            Decisions
-          </span>
-          <span className="text-xs font-bold text-solix-danger">{count}</span>
-        </div>
-        <button
-          onClick={() => setCollapsed((v) => !v)}
-          className="text-[10px] text-slate-400 hover:text-slate-100"
-        >
-          {collapsed ? 'show' : 'hide'}
-        </button>
-      </div>
+    <RightDock>
+      <PanelHeader
+        eyebrow="decisions"
+        title={`${count} waiting on you`}
+        onClose={closePanel}
+      >
+        Nothing runs until you answer — the agent is paused, not working around
+        it.
+      </PanelHeader>
+      <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-2">
 
-      {!collapsed &&
-        alerts.map((a) => (
+      {alerts.map((a) => (
           <BudgetCard
             key={`budget-${a.sessionId}`}
             name={
@@ -97,20 +89,12 @@ export function DecisionQueue({
             }
             costUsd={a.costUsd}
             budgetUsd={a.budgetUsd}
-            onRaise={() => {
-              const next = window.prompt(
-                `New budget cap (USD) for this agent — current $${a.budgetUsd.toFixed(2)}, spent $${a.costUsd.toFixed(2)}:`,
-                (a.budgetUsd * 2).toFixed(2),
-              );
-              const n = next ? parseFloat(next) : NaN;
-              if (Number.isFinite(n) && n > 0) raiseBudget(a.sessionId, n);
-            }}
+            onRaise={(next) => raiseBudget(a.sessionId, next)}
             onDismiss={() => dismissBudgetAlert(a.sessionId)}
           />
         ))}
 
-      {!collapsed &&
-        items.map((p) => {
+      {items.map((p) => {
           const session = sessions[p.sessionId];
           const mission =
             session?.currentMissionId
@@ -129,7 +113,8 @@ export function DecisionQueue({
             />
           );
         })}
-    </div>
+      </div>
+    </RightDock>
   );
 }
 
@@ -143,9 +128,17 @@ function BudgetCard({
   name: string;
   costUsd: number;
   budgetUsd: number;
-  onRaise: () => void;
+  onRaise: (next: number) => void;
   onDismiss: () => void;
 }): JSX.Element {
+  // Was a window.prompt() whose string went through parseFloat, so "20 dollars"
+  // became 20 and "twenty" silently did nothing. A number input cannot produce
+  // either, and the new cap is visible before you commit to it.
+  const [raising, setRaising] = useState(false);
+  const [next, setNext] = useState('');
+  const parsed = Number.parseFloat(next);
+  const valid = Number.isFinite(parsed) && parsed > budgetUsd;
+
   return (
     <div className="pointer-events-auto rounded border border-solix-danger bg-solix-panel p-3 backdrop-blur shadow-lg">
       <div className="flex items-center justify-between">
@@ -165,20 +158,58 @@ function BudgetCard({
       <div className="mt-1 text-[11px] text-slate-400 leading-snug">
         Solix-launched agents won't be sent more prompts until you raise the cap.
       </div>
-      <div className="mt-3 flex gap-1.5">
-        <button
-          onClick={onRaise}
-          className="flex-1 py-1.5 rounded bg-solix-ok/20 border border-solix-ok text-solix-ok text-xs hover:bg-solix-ok/30"
-        >
-          Raise cap
-        </button>
-        <button
-          onClick={onDismiss}
-          className="px-2.5 py-1.5 rounded border border-solix-border text-slate-300 text-xs hover:text-white hover:bg-solix-border/30"
-        >
-          Dismiss
-        </button>
-      </div>
+      {raising ? (
+        <div className="mt-3 space-y-1.5">
+          <div className="flex gap-1.5 items-center">
+            <span className="text-xs text-slate-400">$</span>
+            <input
+              type="number"
+              min={budgetUsd}
+              step="1"
+              value={next}
+              onChange={(e) => setNext(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && valid) onRaise(parsed);
+                if (e.key === 'Escape') setRaising(false);
+              }}
+              autoFocus
+              aria-label="New budget cap in dollars"
+              className="flex-1 min-w-0 px-2 py-1 rounded bg-black/40 border border-solix-border text-sm text-slate-100 focus:outline-none focus:border-solix-warn"
+            />
+          </div>
+          <div className="flex gap-1.5">
+            {/* Raising a cap lets an agent spend more, so it is the caution
+                colour. It was green, which read as "this is the safe one". */}
+            <Button
+              variant="warn"
+              onClick={() => onRaise(parsed)}
+              disabled={!valid}
+              className="flex-1"
+            >
+              Allow up to ${valid ? parsed.toFixed(2) : '—'}
+            </Button>
+            <Button variant="ghost" onClick={() => setRaising(false)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-3 flex gap-1.5">
+          <Button
+            variant="warn"
+            className="flex-1"
+            onClick={() => {
+              setNext((budgetUsd * 2).toFixed(2));
+              setRaising(true);
+            }}
+          >
+            Raise cap
+          </Button>
+          <Button variant="ghost" onClick={onDismiss}>
+            Dismiss
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

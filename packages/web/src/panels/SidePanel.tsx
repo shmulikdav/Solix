@@ -3,6 +3,8 @@ import { useSolixStore } from '../store/index.js';
 import { statusLabel } from '../scene/colors.js';
 import { suggestForSession } from '../suggestions.js';
 import { GLOSSARY } from '../glossary.js';
+import { RightDock, TabButton } from './RightDock.js';
+import { Button } from '../ui/Button.js';
 
 type Tab = 'chat' | 'missions' | 'files';
 
@@ -69,7 +71,7 @@ export function SidePanel(): JSX.Element | null {
   };
 
   return (
-    <div className="absolute top-16 right-0 bottom-0 w-full sm:w-[460px] bg-solix-panel border-l border-solix-border backdrop-blur-md flex flex-col z-20">
+    <RightDock layer="contextual">
       <div className="px-4 py-3 border-b border-solix-border flex items-start justify-between">
         <div className="min-w-0">
           <div className="text-xs uppercase tracking-wide text-slate-400">
@@ -212,7 +214,7 @@ export function SidePanel(): JSX.Element | null {
 
       <div className="px-4 py-2 border-b border-solix-border">
         <div className="flex items-center justify-between text-xs text-slate-400">
-          <span>context</span>
+          <span>context pressure</span>
           <span>{session.contextUsagePct.toFixed(0)}%</span>
         </div>
         <div className="mt-1 h-1.5 rounded-full bg-slate-800 overflow-hidden">
@@ -274,13 +276,13 @@ export function SidePanel(): JSX.Element | null {
                   rows={2}
                   className="flex-1 text-sm bg-black/40 border border-solix-border rounded p-2 text-slate-100 placeholder-slate-600 focus:outline-none focus:border-solix-accent resize-none"
                 />
-                <button
+                <Button
+                  variant="warn"
                   onClick={onSend}
                   disabled={!composer.trim()}
-                  className="px-3 py-2 rounded bg-solix-accent/20 border border-solix-accent text-solix-accent text-sm hover:bg-solix-accent/30 disabled:opacity-40"
                 >
                   Send
-                </button>
+                </Button>
               </div>
               {isWrapped && (
                 <div className="text-[10px] text-slate-500 italic mt-1.5">
@@ -298,30 +300,7 @@ export function SidePanel(): JSX.Element | null {
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}): JSX.Element {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex-1 px-3 py-2 ${
-        active
-          ? 'text-solix-accent border-b-2 border-solix-accent'
-          : 'text-slate-400 hover:text-slate-200 border-b-2 border-transparent'
-      }`}
-    >
-      {children}
-    </button>
+    </RightDock>
   );
 }
 
