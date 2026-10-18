@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSolixStore } from '../store/index.js';
+import { RightDock } from './RightDock.js';
 
 interface EnvelopePreview {
   prompt: string;
@@ -59,7 +60,7 @@ export function AdvisorPanel(): JSX.Element | null {
   };
 
   return (
-    <div className="absolute top-16 right-0 bottom-0 w-[420px] bg-solix-panel border-l border-solix-border backdrop-blur-md flex flex-col z-20">
+    <RightDock layer="contextual">
       <div className="px-4 py-3 border-b border-solix-border flex items-start justify-between">
         <div>
           <div className="text-xs uppercase tracking-wide text-amber-200/70">
@@ -210,6 +211,6 @@ export function AdvisorPanel(): JSX.Element | null {
           </button>
         </div>
       )}
-    </div>
+    </RightDock>
   );
 }

@@ -187,6 +187,29 @@ async function main() {
     await page.keyboard.press('Escape');
   });
 
+  // Regression guard for B6: two dock panels used to be able to paint over each
+  // other, because one group was local component state and the other was the
+  // store, and the two never coordinated. The panel on top wins visually but
+  // the Decision Queue's offset is computed from the *other* one, so a pending
+  // permission prompt can end up underneath a panel. Permission prompts are
+  // what unblock stuck agents, so this is a safety surface going missing.
+  // Only one dock panel may exist in the DOM at a time.
+  await step('opening a second dock panel closes the first', async () => {
+    await page.keyboard.press('p');
+    await page.waitForSelector('text=Plan a build', { timeout: 10000 });
+    await page.click('text=\u26b7 Connections');
+    await page.waitForSelector('text=Notifications', { timeout: 10000 });
+    const docks = await page.locator('[data-dock-panel]').count();
+    if (docks !== 1) {
+      throw new Error(`expected exactly 1 dock panel open, found ${docks}`);
+    }
+    if (await page.locator('text=Plan a build').count()) {
+      throw new Error('plan panel is still mounted behind the connections panel');
+    }
+    await page.screenshot({ path: `${SHOT_DIR}/06-single-dock.png` });
+    await page.keyboard.press('Escape');
+  });
+
   // Regression guard: the top bar grows every time a surface is added, and an
   // overflowing bar silently pushes its right-most control (the help button)
   // off the viewport — invisible to typecheck and to jsdom tests, and only

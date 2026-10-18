@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useSolixStore } from '../store/index.js';
+import { RightDock } from './RightDock.js';
 
 interface SkillDetail {
   id: string;
@@ -72,7 +73,7 @@ export function SkillPanel(): JSX.Element | null {
   const isUser = skillSummary.source === 'user';
 
   return (
-    <div className="absolute top-16 right-0 bottom-0 w-[480px] bg-solix-panel border-l border-solix-border backdrop-blur-md flex flex-col z-20">
+    <RightDock layer="contextual">
       <div className="px-4 py-3 border-b border-solix-border flex items-start justify-between">
         <div>
           <div className="text-xs uppercase tracking-wide text-cyan-300/70">
@@ -145,7 +146,7 @@ export function SkillPanel(): JSX.Element | null {
           ? 'Not installed in any project yet.'
           : `Installed in ${skillSummary.installedInProjects.length} project(s).`}
       </div>
-    </div>
+    </RightDock>
   );
 }
 
@@ -169,7 +170,7 @@ function NewSkillForm({ onClose }: { onClose: () => void }): JSX.Element {
   };
 
   return (
-    <div className="absolute top-16 right-0 bottom-0 w-[480px] bg-solix-panel border-l border-solix-border backdrop-blur-md flex flex-col z-20">
+    <RightDock layer="contextual">
       <div className="px-4 py-3 border-b border-solix-border flex items-start justify-between">
         <div>
           <div className="text-xs uppercase tracking-wide text-cyan-300/70">
@@ -212,7 +213,7 @@ function NewSkillForm({ onClose }: { onClose: () => void }): JSX.Element {
           {busy ? 'Creating…' : 'Create skill'}
         </button>
       </div>
-    </div>
+    </RightDock>
   );
 }
 

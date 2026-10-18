@@ -12,6 +12,7 @@ import {
   selectTaskThread,
   useSolixStore,
 } from '../store/index.js';
+import { RightDock } from './RightDock.js';
 
 interface PlanPanelProps {
   open: boolean;
@@ -134,7 +135,7 @@ export function PlanPanel({ open, onClose }: PlanPanelProps): JSX.Element | null
   };
 
   return (
-    <div className="absolute top-16 right-0 bottom-0 w-full sm:w-[480px] bg-solix-panel border-l border-solix-border backdrop-blur-md flex flex-col z-30">
+    <RightDock>
       <div className="px-5 py-4 border-b border-solix-border flex items-start justify-between shrink-0">
         <div>
           <div className="flex items-center gap-2">
@@ -390,7 +391,7 @@ export function PlanPanel({ open, onClose }: PlanPanelProps): JSX.Element | null
           </div>
         )}
       </div>
-    </div>
+    </RightDock>
   );
 }
 

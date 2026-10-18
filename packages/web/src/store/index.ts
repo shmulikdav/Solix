@@ -18,6 +18,7 @@ import type {
   ToolCall,
 } from '@solix/shared';
 import { chime, notify } from '../notifications.js';
+import { RIGHT_DOCK_WIDTH_PX, type PanelId } from '../panels/dock.js';
 
 export interface PendingPermission {
   requestId: string;
@@ -211,11 +212,13 @@ interface SolixState {
   pendingPermissions: Record<string, PendingPermission>;
   // Per-session chat log, in arrival order. Capped at 200 entries per session.
   chatBySessionId: Record<string, ChatEntry[]>;
+  /** The single open right-dock panel, or null. Source of dock exclusivity. */
+  activePanel: PanelId | null;
+  /** Remembered tab for a tabbed panel, so reopening returns you where you were. */
+  activePanelTab: string | null;
   selectedSessionId: string | null;
   selectedAdvisorId: string | null;
   selectedSkillId: string | null;
-  workspaceOpen: boolean;
-  planPanelOpen: boolean;
   motionEnabled: boolean;
   viewMode: 'galaxy' | 'list' | 'missions';
   playback: PlaybackState;
@@ -223,6 +226,8 @@ interface SolixState {
 
   setConnected: (c: boolean) => void;
   applyMessage: (msg: ServerMessage) => void;
+  openPanel: (id: PanelId, tab?: string) => void;
+  closePanel: () => void;
   selectSession: (id: string | null) => void;
   selectAdvisor: (id: string | null) => void;
   selectSkill: (id: string | null) => void;
@@ -384,6 +389,31 @@ function writeViewPref(m: 'galaxy' | 'list' | 'missions'): void {
   }
 }
 
+/**
+ * The one place dock exclusivity is expressed: set the active panel and clear
+ * every selection, then apply whichever selection belongs to the new panel.
+ * Returning a partial keeps all callers a single `set(...)`.
+ */
+function panelPatch(
+  next: PanelId | null,
+  ids: Partial<
+    Pick<
+      SolixState,
+      'selectedSessionId' | 'selectedAdvisorId' | 'selectedSkillId'
+    >
+  >,
+  tab?: string,
+): Partial<SolixState> {
+  return {
+    activePanel: next,
+    activePanelTab: tab ?? null,
+    selectedSessionId: null,
+    selectedAdvisorId: null,
+    selectedSkillId: null,
+    ...ids,
+  };
+}
+
 export const useSolixStore = create<SolixState>((set, get) => ({
   connected: false,
   projects: {},
@@ -403,11 +433,11 @@ export const useSolixStore = create<SolixState>((set, get) => ({
   chatBySessionId: {},
   recentToolCalls: [],
   pendingPermissions: {},
+  activePanel: null,
+  activePanelTab: null,
   selectedSessionId: null,
   selectedAdvisorId: null,
   selectedSkillId: null,
-  workspaceOpen: false,
-  planPanelOpen: false,
   motionEnabled: readMotionPref(),
   viewMode: readViewPref(),
   playback: EMPTY_PLAYBACK,
@@ -753,56 +783,56 @@ export const useSolixStore = create<SolixState>((set, get) => ({
     }
   },
 
+  // ── Right dock ────────────────────────────────────────────────────
+  // `activePanel` is the single source of dock exclusivity. The three
+  // selection ids are kept as denormalised projections of it rather than
+  // folded into a discriminated union: they're read in ~15 places including
+  // hot react-three-fiber render paths and ClickRipple's store.subscribe, and
+  // collapsing them would force every one of those to re-derive.
+
+  openPanel: (id, tab) => set(panelPatch(id, {}, tab)),
+
+  closePanel: () => set(panelPatch(null, {})),
+
   selectSession: (id) =>
-    set({
-      selectedSessionId: id,
-      selectedAdvisorId: id ? null : get().selectedAdvisorId,
-      selectedSkillId: id ? null : get().selectedSkillId,
-      workspaceOpen: id ? false : get().workspaceOpen,
-      planPanelOpen: id ? false : get().planPanelOpen,
-    }),
+    set((s) =>
+      id
+        ? panelPatch('session', { selectedSessionId: id })
+        : // Clearing a selection that isn't on screen must stay a no-op —
+          // previously `selectSession(null)` deliberately left the workspace
+          // and plan panels open, and widening that would close panels the
+          // user never asked to close.
+          s.activePanel === 'session'
+          ? panelPatch(null, {})
+          : {},
+    ),
 
   selectAdvisor: (id) =>
-    set({
-      selectedAdvisorId: id,
-      selectedSessionId: id ? null : get().selectedSessionId,
-      selectedSkillId: id ? null : get().selectedSkillId,
-      workspaceOpen: id ? false : get().workspaceOpen,
-      planPanelOpen: id ? false : get().planPanelOpen,
-    }),
+    set((s) =>
+      id
+        ? panelPatch('advisor', { selectedAdvisorId: id })
+        : s.activePanel === 'advisor'
+          ? panelPatch(null, {})
+          : {},
+    ),
 
   selectSkill: (id) =>
-    set({
-      selectedSkillId: id,
-      selectedSessionId: id ? null : get().selectedSessionId,
-      selectedAdvisorId: id ? null : get().selectedAdvisorId,
-      workspaceOpen: id ? false : get().workspaceOpen,
-      planPanelOpen: id ? false : get().planPanelOpen,
-    }),
+    set((s) =>
+      id
+        ? panelPatch('skill', { selectedSkillId: id })
+        : s.activePanel === 'skill'
+          ? panelPatch(null, {})
+          : {},
+    ),
 
-  // The sun opens Mission Control; keep it mutually exclusive with the
-  // planet/advisor/skill side panels so only one right-dock is ever open.
-  openWorkspace: () =>
-    set({
-      workspaceOpen: true,
-      planPanelOpen: false,
-      selectedSessionId: null,
-      selectedAdvisorId: null,
-      selectedSkillId: null,
-    }),
-
-  closeWorkspace: () => set({ workspaceOpen: false }),
-
-  openPlanPanel: () =>
-    set({
-      planPanelOpen: true,
-      workspaceOpen: false,
-      selectedSessionId: null,
-      selectedAdvisorId: null,
-      selectedSkillId: null,
-    }),
-
-  closePlanPanel: () => set({ planPanelOpen: false }),
+  // Kept as thin aliases so the 3D scene (Sun.tsx, Scene.tsx) and the keymap
+  // don't change in this phase. Removed in the cleanup phase.
+  openWorkspace: () => set(panelPatch('workspace', {})),
+  closeWorkspace: () =>
+    set((s) => (s.activePanel === 'workspace' ? panelPatch(null, {}) : {})),
+  openPlanPanel: () => set(panelPatch('plan', {})),
+  closePlanPanel: () =>
+    set((s) => (s.activePanel === 'plan' ? panelPatch(null, {}) : {})),
 
   createPlanFromGoal: async (goal, cwd, opts) => {
     try {
@@ -1458,6 +1488,15 @@ export function selectSkillsArray(state: SolixState): Skill[] {
  * on screen. Approving an agent action the human never saw is the worst failure
  * this product can have, so both callers now read this one function.
  */
+/**
+ * How far the Decision Queue (and the scene controls) must sit from the right
+ * edge. Derived from the single open panel rather than a hardcoded if-chain
+ * that re-stated three different CSS widths and assumed one panel was open.
+ */
+export function selectDockOffsetPx(state: SolixState): number {
+  return state.activePanel ? RIGHT_DOCK_WIDTH_PX : 0;
+}
+
 export function selectPendingPermissionsOrdered(
   state: SolixState,
 ): PendingPermission[] {

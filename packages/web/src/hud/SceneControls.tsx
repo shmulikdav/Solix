@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { useSolixStore } from '../store/index.js';
+import { selectDockOffsetPx, useSolixStore } from '../store/index.js';
 
 const HINT_KEY = 'solix.scenehint.dismissed.v1';
 
 export function SceneControls(): JSX.Element {
   const motionEnabled = useSolixStore((s) => s.motionEnabled);
   const viewMode = useSolixStore((s) => s.viewMode);
+  const dockOffsetPx = useSolixStore(selectDockOffsetPx);
   const toggleMotion = useSolixStore((s) => s.toggleMotion);
   const [hintDismissed, setHintDismissed] = useState(true);
 
@@ -63,7 +64,12 @@ export function SceneControls(): JSX.Element {
           List and Missions too, where nothing orbits and pressing it did
           nothing visible. */}
       {viewMode === 'galaxy' && (
-      <div className="pointer-events-none absolute bottom-4 right-4 z-20">
+      <div
+        className="pointer-events-none absolute bottom-4 z-20"
+        // Consume the same dock offset the Decision Queue uses — this control
+        // previously sat behind every open panel.
+        style={{ right: dockOffsetPx + 16 }}
+      >
         <button
           onClick={toggleMotion}
           title={`${motionEnabled ? 'Pause' : 'Play'} orbital motion (Space)`}

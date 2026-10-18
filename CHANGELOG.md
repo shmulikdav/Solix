@@ -78,6 +78,14 @@ additive and backward-compatible; the paid tier ships dormant (free public beta
 
 These affect anyone upgrading from 1.11.8:
 
+- **A pending permission prompt could be hidden behind a panel.** Two groups of
+  side panels tracked their open state separately — one in component state, one
+  in the store — and never coordinated, so two panels could be open at once.
+  The one on top won visually, but the Decision Queue positioned itself from the
+  other one's width and slid partly underneath. Approving or denying an agent's
+  action is how you unblock a stuck agent, so the prompt going missing was a
+  safety problem, not a cosmetic one. There is now exactly one open panel at a
+  time, and the queue's offset is derived from that single source.
 - **A missing texture could blank the entire UI.** The 3D scene wrapped its
   textured planets in `<Suspense>` with a procedural fallback — but Suspense
   covers the *pending* state, not failures. A failed texture load threw past it

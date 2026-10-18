@@ -9,6 +9,7 @@ import type {
 } from '@solix/shared';
 import { diffManifests } from '@solix/shared';
 import { useSolixStore } from '../store/index.js';
+import { RightDock, TabButton } from './RightDock.js';
 
 interface ImportResponse {
   ok: boolean;
@@ -158,7 +159,7 @@ export function GalaxyPanel({
   };
 
   return (
-    <div className="absolute top-16 right-0 bottom-0 w-full sm:w-[480px] bg-solix-panel border-l border-solix-border backdrop-blur-md flex flex-col z-30">
+    <RightDock>
       <div className="px-4 py-3 border-b border-solix-border flex items-start justify-between">
         <div>
           <div className="text-xs uppercase tracking-wide text-solix-accent">
@@ -289,30 +290,7 @@ export function GalaxyPanel({
             ? 'Each export snapshots a version. Identical re-exports are deduped.'
             : "Imports never spawn pinned advisors or run shell commands. You're in control."}
       </div>
-    </div>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}): JSX.Element {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex-1 px-3 py-2 ${
-        active
-          ? 'text-solix-accent border-b-2 border-solix-accent'
-          : 'text-slate-400 hover:text-slate-200 border-b-2 border-transparent'
-      }`}
-    >
-      {children}
-    </button>
+    </RightDock>
   );
 }
 

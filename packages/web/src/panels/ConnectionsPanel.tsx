@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Connection, Notifier, NotifyEvent } from '@solix/shared';
+import { RightDock } from './RightDock.js';
 
 interface Props {
   open: boolean;
@@ -47,7 +48,7 @@ export function ConnectionsPanel({ open, onClose }: Props): JSX.Element | null {
   };
 
   return (
-    <div className="absolute top-16 right-0 bottom-0 w-full sm:w-[480px] bg-solix-panel border-l border-solix-border backdrop-blur-md flex flex-col z-30">
+    <RightDock>
       <div className="px-5 py-4 border-b border-solix-border flex items-start justify-between shrink-0">
         <div>
           <div className="text-xs uppercase tracking-widest text-solix-accent">
@@ -119,7 +120,7 @@ export function ConnectionsPanel({ open, onClose }: Props): JSX.Element | null {
           <NotifiersSection open={open} />
         </div>
       </div>
-    </div>
+    </RightDock>
   );
 }
 

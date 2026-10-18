@@ -22,6 +22,7 @@ import { SkillPanel } from './panels/SkillPanel.js';
 import { NewTaskModal } from './panels/NewTaskModal.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
 import {
+  selectDockOffsetPx,
   selectPendingPermissionsOrdered,
   useSolixStore,
 } from './store/index.js';
@@ -59,38 +60,33 @@ const ConnectionsPanel = lazy(() =>
 );
 
 export default function App(): JSX.Element {
-  const [galaxyOpen, setGalaxyOpen] = useState(false);
+  // Centred modals and the bottom drawer legitimately coexist with a dock
+  // panel, so they stay local. Everything that occupies the right dock goes
+  // through the store's `activePanel` instead.
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [crewOpen, setCrewOpen] = useState(false);
-  const [connectionsOpen, setConnectionsOpen] = useState(false);
 
-  // Width of whichever right-side panel is open, so the DecisionQueue can
-  // sit beside it instead of overlapping. Numbers match each panel's w-[…].
-  const selectedSessionId = useSolixStore((s) => s.selectedSessionId);
-  const selectedAdvisorId = useSolixStore((s) => s.selectedAdvisorId);
-  const selectedSkillId = useSolixStore((s) => s.selectedSkillId);
-  const workspaceOpen = useSolixStore((s) => s.workspaceOpen);
-  const closeWorkspace = useSolixStore((s) => s.closeWorkspace);
-  const planPanelOpen = useSolixStore((s) => s.planPanelOpen);
-  const openPlanPanel = useSolixStore((s) => s.openPlanPanel);
-  const closePlanPanel = useSolixStore((s) => s.closePlanPanel);
-  const panelOffsetPx = selectedSessionId
-    ? 460
-    : selectedAdvisorId
-      ? 420
-      : selectedSkillId
-        ? 480
-        : galaxyOpen
-          ? 480
-          : workspaceOpen
-            ? 480
-            : planPanelOpen
-              ? 480
-              : connectionsOpen
-                ? 480
-                : 0;
+  const activePanel = useSolixStore((s) => s.activePanel);
+  const openPanel = useSolixStore((s) => s.openPanel);
+  const closePanel = useSolixStore((s) => s.closePanel);
+  // One derived number instead of an if-chain that re-stated three CSS widths
+  // and assumed a single panel was open. A wrong value here can push the
+  // Decision Queue behind a panel and hide a pending permission request.
+  const panelOffsetPx = useSolixStore(selectDockOffsetPx);
+
+  const galaxyOpen = activePanel === 'galaxy';
+  const connectionsOpen = activePanel === 'connections';
+  const workspaceOpen = activePanel === 'workspace';
+  const planPanelOpen = activePanel === 'plan';
+  const setGalaxyOpen = (v: boolean): void =>
+    v ? openPanel('galaxy') : closePanel();
+  const setConnectionsOpen = (v: boolean): void =>
+    v ? openPanel('connections') : closePanel();
+  const closeWorkspace = (): void => closePanel();
+  const openPlanPanel = (): void => openPanel('plan');
+  const closePlanPanel = (): void => closePanel();
 
   useEffect(() => {
     startWsClient();
@@ -112,16 +108,13 @@ export default function App(): JSX.Element {
       const top = selectPendingPermissionsOrdered(state)[0];
 
       if (e.key === 'Escape') {
-        state.selectSession(null);
-        state.selectAdvisor(null);
-        state.selectSkill(null);
-        state.closeWorkspace();
-        state.closePlanPanel();
-        setGalaxyOpen(false);
+        // One call closes whichever dock panel is open — previously this had
+        // to enumerate every panel, and adding one meant remembering to add it
+        // here too.
+        state.closePanel();
         setNewTaskOpen(false);
         setHelpOpen(false);
         setCrewOpen(false);
-        setConnectionsOpen(false);
         // Esc also exits Timeline Playback — the only mode where the rest of
         // the UI feels frozen because state is derived from past events.
         // Cheap escape hatch when the "× Live" button isn't clickable for
@@ -133,12 +126,13 @@ export default function App(): JSX.Element {
       } else if (!isTextField && e.key === '?') {
         setHelpOpen((v) => !v);
       } else if (!isTextField && (e.key === 'g' || e.key === 'G')) {
-        setGalaxyOpen((v) => !v);
+        if (state.activePanel === 'galaxy') state.closePanel();
+        else state.openPanel('galaxy');
       } else if (!isTextField && (e.key === 'c' || e.key === 'C')) {
         setCrewOpen((v) => !v);
       } else if (!isTextField && (e.key === 'p' || e.key === 'P')) {
-        if (state.planPanelOpen) state.closePlanPanel();
-        else state.openPlanPanel();
+        if (state.activePanel === 'plan') state.closePanel();
+        else state.openPanel('plan');
       } else if (!isTextField && (e.key === 'l' || e.key === 'L')) {
         setNewTaskOpen(true);
         // Camera + motion keys only do something in the galaxy view. They were
@@ -168,8 +162,8 @@ export default function App(): JSX.Element {
       } else if (!isTextField && (e.key === 't' || e.key === 'T')) {
         setTimelineOpen((v) => !v);
       } else if (!isTextField && (e.key === 'w' || e.key === 'W')) {
-        if (state.workspaceOpen) state.closeWorkspace();
-        else state.openWorkspace();
+        if (state.activePanel === 'workspace') state.closePanel();
+        else state.openPanel('workspace');
       } else if (!isTextField && top && (e.key === 'y' || e.key === 'Y')) {
         state.resolvePermission(top.requestId, true);
       } else if (!isTextField && top && (e.key === 'n' || e.key === 'N')) {

@@ -3,6 +3,7 @@ import { useSolixStore } from '../store/index.js';
 import { statusLabel } from '../scene/colors.js';
 import { suggestForSession } from '../suggestions.js';
 import { GLOSSARY } from '../glossary.js';
+import { RightDock, TabButton } from './RightDock.js';
 
 type Tab = 'chat' | 'missions' | 'files';
 
@@ -69,7 +70,7 @@ export function SidePanel(): JSX.Element | null {
   };
 
   return (
-    <div className="absolute top-16 right-0 bottom-0 w-full sm:w-[460px] bg-solix-panel border-l border-solix-border backdrop-blur-md flex flex-col z-20">
+    <RightDock layer="contextual">
       <div className="px-4 py-3 border-b border-solix-border flex items-start justify-between">
         <div className="min-w-0">
           <div className="text-xs uppercase tracking-wide text-slate-400">
@@ -298,30 +299,7 @@ export function SidePanel(): JSX.Element | null {
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}): JSX.Element {
-  return (
-    <button
-      onClick={onClick}
-      className={`flex-1 px-3 py-2 ${
-        active
-          ? 'text-solix-accent border-b-2 border-solix-accent'
-          : 'text-slate-400 hover:text-slate-200 border-b-2 border-transparent'
-      }`}
-    >
-      {children}
-    </button>
+    </RightDock>
   );
 }
 
