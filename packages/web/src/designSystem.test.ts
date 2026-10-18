@@ -107,14 +107,16 @@ describe('design system — colour is semantic', () => {
   });
 
   // The specific inversion the audit found: the biggest spend in the product
-  // wearing the colour that everywhere else means "free".
+  // wearing the colour that everywhere else means "free". Asserted on the
+  // variant rather than a class string, because the whole point of Button is
+  // that call sites no longer carry colours.
   it('does not paint a spend action with the free/ok colour', () => {
     const plan = readFileSync(join(SRC, 'panels/PlanPanel.tsx'), 'utf8');
-    const approveBlock = plan.slice(
-      plan.indexOf("'Approve & run'") - 600,
-      plan.indexOf("'Approve & run'"),
-    );
-    expect(approveBlock).toContain('solix-warn');
+    const at = plan.indexOf('Approve & run');
+    expect(at).toBeGreaterThan(-1);
+    const approveBlock = plan.slice(at - 400, at);
+    expect(approveBlock).toContain('variant="warn"');
+    expect(approveBlock).not.toContain('variant="ok"');
     expect(approveBlock).not.toContain('solix-ok');
   });
 

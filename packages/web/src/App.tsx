@@ -5,6 +5,8 @@ import { TopBar } from './hud/TopBar.js';
 import { Toasts } from './hud/Toasts.js';
 import { Welcome } from './hud/Welcome.js';
 import { HelpPanel } from './hud/HelpPanel.js';
+import { FirstSunHint } from './hud/FirstSunHint.js';
+import { readDismissed } from './hud/onboarding.js';
 import { DecisionQueue } from './hud/DecisionQueue.js';
 import { SceneControls } from './hud/SceneControls.js';
 import { UpdateBanner } from './hud/UpdateBanner.js';
@@ -64,6 +66,8 @@ export default function App(): JSX.Element {
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  // Mirrors Welcome's own gate so the sun hint can wait its turn.
+  const [welcomeOpen, setWelcomeOpen] = useState(() => !readDismissed());
 
   const activePanel = useSolixStore((s) => s.activePanel);
   const openPanel = useSolixStore((s) => s.openPanel);
@@ -230,8 +234,10 @@ export default function App(): JSX.Element {
       <Welcome
         onPlanBuild={() => openPanel('plan')}
         onOpenCrew={() => openFleet('crew')}
+        onDismissed={() => setWelcomeOpen(false)}
       />
       <HelpPanel open={helpOpen} onClose={() => setHelpOpen(false)} />
+      <FirstSunHint suppressed={welcomeOpen || helpOpen} />
       <Toasts />
       <EmptyHint />
       <UpdateBanner />

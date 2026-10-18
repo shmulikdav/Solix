@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useSolixStore } from '../store/index.js';
 import { RightDock } from './RightDock.js';
+import { Button } from '../ui/Button.js';
 
 interface EnvelopePreview {
   prompt: string;
@@ -171,44 +172,35 @@ export function AdvisorPanel(): JSX.Element | null {
           >
             ＋ Add to crew
           </button>
-          <button
-            onClick={onInvoke}
-            className="w-full py-1.5 rounded border border-solix-border text-slate-300 text-xs hover:text-white hover:bg-solix-border/30"
-          >
+          <Button variant="ghost" block onClick={onInvoke}>
             Invoke once without adding
-          </button>
+          </Button>
         </div>
       ) : (
         <div className="px-4 py-3 border-t border-solix-border flex gap-2">
-          <button
-            onClick={onInvoke}
-            className="flex-1 py-2 rounded bg-solix-warn/20 border border-solix-warn text-solix-warn text-sm hover:bg-solix-warn/30"
-          >
+          <Button variant="warn" onClick={onInvoke} className="flex-1">
             Invoke
-          </button>
+          </Button>
           {advisor.pinned ? (
-            <button
-              onClick={() => unpinAdvisor(advisor.id)}
-              className="px-3 py-2 rounded bg-solix-warn/20 border border-solix-warn/50 text-solix-warn text-sm hover:bg-solix-warn/30"
-            >
+            <Button variant="warn" onClick={() => unpinAdvisor(advisor.id)}>
               Unpin
-            </button>
+            </Button>
           ) : (
-            <button
+            <Button
+              variant="warn"
               onClick={() => pinAdvisor(advisor.id)}
-              className="px-3 py-2 rounded bg-solix-warn/10 border border-solix-warn/30 text-solix-warn/90 text-sm hover:bg-solix-warn/20"
               title="Spawn an always-on session for this advisor"
             >
               Pin
-            </button>
+            </Button>
           )}
-          <button
+          <Button
+            variant="ghost"
             onClick={() => disableAdvisor(advisor.id)}
-            className="px-3 py-2 rounded border border-solix-border text-slate-400 text-sm hover:text-white hover:bg-solix-border/30"
             title="Remove from crew (keeps it available as opt-in)"
           >
             Disable
-          </button>
+          </Button>
         </div>
       )}
     </RightDock>

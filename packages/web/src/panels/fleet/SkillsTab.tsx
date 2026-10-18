@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useSolixStore } from '../../store/index.js';
+import { Button } from '../../ui/Button.js';
 
 /**
  * Skills — the authoring half.
@@ -136,13 +137,15 @@ function NewSkillForm(): JSX.Element {
         className="w-full text-xs font-mono bg-black/40 border border-solix-border rounded p-2 text-slate-100 placeholder-slate-600 focus:outline-none focus:border-solix-accent resize-none"
       />
       {error && <div className="text-[11px] text-solix-danger">{error}</div>}
-      <button
+      <Button
+        variant="primary"
         onClick={() => void onCreate()}
-        disabled={busy || !name.trim() || !body.trim()}
-        className="px-3 py-1.5 rounded bg-solix-accent/15 border border-solix-accent/40 text-solix-accent text-xs hover:bg-solix-accent/25 disabled:opacity-40"
+        disabled={!name.trim() || !body.trim()}
+        busy={busy}
+        busyLabel="Creating…"
       >
-        {busy ? 'Creating…' : 'Create skill'}
-      </button>
+        Create skill
+      </Button>
     </div>
   );
 }

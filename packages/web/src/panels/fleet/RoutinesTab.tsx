@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { ScheduledTask, ScheduleRun, TriggerKind } from '@solix/shared';
 import { selectSchedulesArray, useSolixStore } from '../../store/index.js';
 import { ProjectPicker } from '../ProjectPicker.js';
+import { Button } from '../../ui/Button.js';
 
 /**
  * Routines — recurring, unsupervised agent runs.
@@ -152,70 +153,66 @@ function RoutineCard({ routine }: { routine: ScheduledTask }): JSX.Element {
             unsupervised session with a single click, so it confirms. */}
         {confirmFire ? (
           <>
-            <button
+            <Button
+              variant="warn"
+              size="sm"
               onClick={() => {
                 setConfirmFire(false);
                 void fireSchedule(routine.id).then((res) => {
                   if (!res.ok) setErr(res.error ?? 'Could not start it.');
                 });
               }}
-              className="px-2 py-1 rounded bg-solix-warn/20 border border-solix-warn/50 text-solix-warn text-[11px]"
             >
               Run it now — this costs money
-            </button>
-            <button
-              onClick={() => setConfirmFire(false)}
-              className="px-2 py-1 rounded border border-solix-border text-slate-400 text-[11px]"
-            >
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setConfirmFire(false)}>
               Cancel
-            </button>
+            </Button>
           </>
         ) : (
-          <button
+          <Button
+            variant="warn"
+            size="sm"
             onClick={() => {
               setErr(null);
               setConfirmFire(true);
             }}
-            className="px-2 py-1 rounded bg-solix-warn/10 border border-solix-warn/30 text-solix-warn/90 text-[11px] hover:bg-solix-warn/20"
             title="Start this routine now, without waiting for its schedule"
           >
             Run now
-          </button>
+          </Button>
         )}
 
-        <button
-          onClick={() => void toggleRuns()}
-          className="px-2 py-1 rounded border border-solix-border text-slate-300 text-[11px] hover:bg-solix-border/30"
-        >
+        <Button variant="ghost" size="sm" onClick={() => void toggleRuns()}>
           {runs ? 'Hide history' : 'History'}
-        </button>
+        </Button>
 
         {confirmDelete ? (
           <>
-            <button
+            <Button
+              variant="danger"
+              size="sm"
               onClick={() => {
                 setConfirmDelete(false);
                 void deleteSchedule(routine.id);
               }}
-              className="px-2 py-1 rounded bg-solix-danger/20 border border-solix-danger/50 text-solix-danger text-[11px]"
             >
               Delete for good
-            </button>
-            <button
-              onClick={() => setConfirmDelete(false)}
-              className="px-2 py-1 rounded border border-solix-border text-slate-400 text-[11px]"
-            >
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>
               Keep
-            </button>
+            </Button>
           </>
         ) : (
-          <button
+          <Button
+            variant="ghost"
+            size="sm"
             onClick={() => setConfirmDelete(true)}
-            className="px-2 py-1 rounded border border-solix-border text-slate-400 text-[11px] hover:text-solix-danger hover:border-solix-danger/40"
+            className="hover:!text-solix-danger"
             title="Deleting also discards this routine's run history and its webhook URL"
           >
             Delete
-          </button>
+          </Button>
         )}
       </div>
 
@@ -337,13 +334,15 @@ function NewRoutineForm(): JSX.Element {
         {consequence}
       </div>
       {err && <div className="text-[11px] text-solix-danger">{err}</div>}
-      <button
+      <Button
+        variant="warn"
         onClick={() => void submit()}
-        disabled={busy || !cwd.trim() || !prompt.trim()}
-        className="px-3 py-1.5 rounded bg-solix-warn/15 border border-solix-warn/40 text-solix-warn text-xs hover:bg-solix-warn/25 disabled:opacity-40"
+        disabled={!cwd.trim() || !prompt.trim()}
+        busy={busy}
+        busyLabel="Creating…"
       >
-        {busy ? 'Creating…' : 'Create routine'}
-      </button>
+        Create routine
+      </Button>
     </div>
   );
 }

@@ -78,6 +78,23 @@ additive and backward-compatible; the paid tier ships dormant (free public beta
 
 These affect anyone upgrading from 1.11.8:
 
+- **The connection indicator looked like a button and wasn't one.** `CONNECTED`
+  / `OFFLINE` was a bordered pill styled exactly like the controls beside it,
+  and clicking it did nothing — which teaches people to distrust the styling
+  everywhere else. It is a dot now: solid when connected, hollow and pulsing
+  when not, so the state does not depend on telling green from red. Hovering
+  or focusing it says what the chip had no room for — that the socket retries
+  every 1.5s on its own, and that the galaxy on screen is stale until it
+  succeeds.
+- **A first-run hint that the sun is clickable.** `EmptyHint` explains the
+  metaphor while the system is empty and then vanishes at exactly the moment
+  you first have something to click. A one-time hint fills that gap, and
+  stands down while a permission is pending.
+- **Three buttons said less than they did.** "Plan", next to a field reading
+  "Refine or add a follow-up goal", created a brand new plan rather than
+  refining the existing one — it is "New plan" now, and the field says what it
+  does. "Add" meant add-a-connection in one panel and add-a-goal in another;
+  "Apply" meant import-a-galaxy.
 - **One project picker instead of three.** The plan panel, the team installer
   and the routine form each had their own project `<select>` and working-
   directory input, with near-identical styling and three different wordings

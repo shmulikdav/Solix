@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useSolixStore } from '../store/index.js';
+import { Button } from '../ui/Button.js';
 
 interface NewTaskModalProps {
   open: boolean;
@@ -420,7 +421,7 @@ export function NewTaskModal({
                     disabled={!newGoalName.trim()}
                     className="text-xs px-2.5 py-1.5 rounded border border-solix-border text-slate-200 hover:bg-solix-border/30 disabled:opacity-40"
                   >
-                    Add
+                    Add goal
                   </button>
                 </div>
               )}
@@ -458,17 +459,17 @@ export function NewTaskModal({
           <span className="text-[10px] text-slate-500 mr-2">
             Cmd/Ctrl+Enter
           </span>
-          <button
+          <Button
+            variant="warn"
             onClick={onLaunch}
             disabled={
               !cwd.trim() ||
               !prompt.trim() ||
               preflight?.claudeAvailable === false
             }
-            className="px-4 py-1.5 rounded bg-solix-warn/20 border border-solix-warn text-solix-warn text-sm hover:bg-solix-warn/30 disabled:opacity-40"
           >
             Launch
-          </button>
+          </Button>
         </div>
       </div>
     </div>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useSolixStore } from '../../store/index.js';
+import { Button } from '../../ui/Button.js';
 
 const DEFAULT_ORG_ID = 'org-default';
 
@@ -77,17 +78,16 @@ export function OrgsTab(): JSX.Element {
                 </div>
                 <div className="flex gap-1.5 shrink-0">
                   {!active && (
-                    <button
-                      onClick={() => void setCurrentOrg(o.id)}
-                      className="px-2 py-1 rounded border border-solix-border text-slate-300 text-[11px] hover:bg-solix-border/30"
-                    >
+                    <Button variant="ghost" size="sm" onClick={() => void setCurrentOrg(o.id)}>
                       Switch to it
-                    </button>
+                    </Button>
                   )}
                   {o.id !== DEFAULT_ORG_ID &&
                     (confirmDelete === o.id ? (
                       <>
-                        <button
+                        <Button
+                          variant="danger"
+                          size="sm"
                           onClick={() => {
                             setConfirmDelete(null);
                             void deleteOrg(o.id).then((res) => {
@@ -96,24 +96,22 @@ export function OrgsTab(): JSX.Element {
                               }
                             });
                           }}
-                          className="px-2 py-1 rounded bg-solix-danger/20 border border-solix-danger/50 text-solix-danger text-[11px]"
                         >
                           Delete for good
-                        </button>
-                        <button
-                          onClick={() => setConfirmDelete(null)}
-                          className="px-2 py-1 rounded border border-solix-border text-slate-400 text-[11px]"
-                        >
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(null)}>
                           Keep
-                        </button>
+                        </Button>
                       </>
                     ) : (
-                      <button
+                      <Button
+                        variant="ghost"
+                        size="sm"
                         onClick={() => setConfirmDelete(o.id)}
-                        className="px-2 py-1 rounded border border-solix-border text-slate-400 text-[11px] hover:text-solix-danger hover:border-solix-danger/40"
+                        className="hover:!text-solix-danger"
                       >
                         Delete
-                      </button>
+                      </Button>
                     ))}
                 </div>
               </div>
@@ -138,31 +136,30 @@ export function OrgsTab(): JSX.Element {
               className="w-full px-2 py-1.5 rounded bg-black/30 border border-solix-border text-sm focus:outline-none focus:border-solix-accent/60"
             />
             <div className="flex gap-2">
-              <button
+              <Button
+                variant="primary"
                 onClick={() => void submit()}
-                disabled={busy || !name.trim()}
-                className="px-3 py-1.5 rounded bg-solix-accent/15 border border-solix-accent/40 text-solix-accent text-xs hover:bg-solix-accent/25 disabled:opacity-40"
+                disabled={!name.trim()}
+                busy={busy}
+                busyLabel="Creating…"
               >
-                {busy ? 'Creating…' : 'Create org'}
-              </button>
-              <button
+                Create org
+              </Button>
+              <Button
+                variant="ghost"
                 onClick={() => {
                   setAdding(false);
                   setName('');
                 }}
-                className="px-3 py-1.5 rounded border border-solix-border text-slate-400 text-xs"
               >
                 Cancel
-              </button>
+              </Button>
             </div>
           </div>
         ) : (
-          <button
-            onClick={() => setAdding(true)}
-            className="px-3 py-1.5 rounded border border-solix-border text-slate-300 text-xs hover:bg-solix-border/30"
-          >
+          <Button variant="ghost" onClick={() => setAdding(true)}>
             New org
-          </button>
+          </Button>
         )}
       </div>
     </div>

@@ -6,6 +6,11 @@ interface WelcomeProps {
   onPlanBuild: () => void;
   /** Opens Fleet on the Crew tab. */
   onOpenCrew: () => void;
+  /** Fired when this closes, by any route. App needs to know because the
+   *  first-run sun hint must not appear behind this modal, and reading the
+   *  dismissed flag from App would go stale — closing this re-renders only
+   *  this component. */
+  onDismissed?: () => void;
 }
 
 /**
@@ -26,7 +31,11 @@ interface WelcomeProps {
  * The reference material it used to carry — the full shortcut legend, the
  * vocabulary, the checklist — lives in HelpPanel, which is always reachable.
  */
-export function Welcome({ onPlanBuild, onOpenCrew }: WelcomeProps): JSX.Element | null {
+export function Welcome({
+  onPlanBuild,
+  onOpenCrew,
+  onDismissed,
+}: WelcomeProps): JSX.Element | null {
   // Read synchronously. Hydrating this in an effect showed returning users a
   // frame of the modal on every load.
   const [dismissed, setDismissed] = useState(readDismissed);
@@ -41,16 +50,18 @@ export function Welcome({ onPlanBuild, onOpenCrew }: WelcomeProps): JSX.Element 
       if (e.key !== 'Escape') return;
       writeDismissed();
       setDismissed(true);
+      onDismissed?.();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [dismissed]);
+  }, [dismissed, onDismissed]);
 
   if (dismissed) return null;
 
   const close = (): void => {
     writeDismissed();
     setDismissed(true);
+    onDismissed?.();
   };
 
   const copyDemo = (): void => {

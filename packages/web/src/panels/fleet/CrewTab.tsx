@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import type { Advisor, Session } from '@solix/shared';
 import { selectAllAdvisors, useSolixStore } from '../../store/index.js';
+import { Button } from '../../ui/Button.js';
 
 /**
  * Crew — the advisor roster.
@@ -146,49 +147,46 @@ function CrewSection({
 
               <div className="flex flex-wrap gap-1.5 mt-2">
                 {a.enabled ? (
-                  <button
-                    onClick={() => disableAdvisor(a.id)}
-                    className="px-2.5 py-1 rounded border border-solix-border text-slate-400 text-xs hover:text-white hover:bg-solix-border/30"
-                  >
+                  <Button variant="ghost" size="sm" onClick={() => disableAdvisor(a.id)}>
                     Disable
-                  </button>
+                  </Button>
                 ) : (
-                  <button
+                  <Button
+                    variant="ok"
+                    size="sm"
                     onClick={() => enableAdvisor(a.id)}
-                    className="px-2.5 py-1 rounded bg-solix-ok/15 border border-solix-ok/40 text-solix-ok text-xs hover:bg-solix-ok/25"
                     title="Free — adds it to the ring and the task picker, makes no API calls"
                   >
                     Add to crew
-                  </button>
+                  </Button>
                 )}
                 {a.enabled &&
                   (a.pinned ? (
-                    <button
+                    <Button
+                      variant="warn"
+                      size="sm"
                       onClick={() => unpinAdvisor(a.id)}
-                      className="px-2.5 py-1 rounded bg-solix-warn/20 border border-solix-warn/50 text-solix-warn text-xs hover:bg-solix-warn/30"
                       title="Ends the always-on session and stops its spend"
                     >
                       Unpin
-                    </button>
+                    </Button>
                   ) : (
-                    <button
+                    <Button
+                      variant="warn"
+                      size="sm"
                       onClick={() => pinAdvisor(a.id)}
-                      className="px-2.5 py-1 rounded bg-solix-warn/10 border border-solix-warn/30 text-solix-warn/90 text-xs hover:bg-solix-warn/20"
                       title="Spawns an always-on session — it costs money for as long as it runs"
                     >
                       Pin · costs money
-                    </button>
+                    </Button>
                   ))}
                 {/* No onClose here, deliberately. In the old modal this was
                     `selectAdvisor(id); onClose();`. Now that Crew is a dock tab,
                     closing would shut the advisor panel selectAdvisor just
                     opened. */}
-                <button
-                  onClick={() => selectAdvisor(a.id)}
-                  className="px-2.5 py-1 rounded border border-solix-border text-slate-300 text-xs hover:text-white hover:bg-solix-border/30"
-                >
+                <Button variant="ghost" size="sm" onClick={() => selectAdvisor(a.id)}>
                   Details
-                </button>
+                </Button>
               </div>
             </div>
           );

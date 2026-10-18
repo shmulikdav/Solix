@@ -13,6 +13,7 @@
  */
 
 const DISMISSED_KEY = 'solix.welcome.dismissed.v1';
+const SUN_HINT_KEY = 'solix.hint.sun.v1';
 
 export function readDismissed(): boolean {
   try {
@@ -29,6 +30,25 @@ export function writeDismissed(): void {
     localStorage.setItem(DISMISSED_KEY, '1');
   } catch {
     /* nothing to do; the modal will show again next load */
+  }
+}
+
+/** Whether the one-time "the sun is clickable" hint has already been shown. */
+export function readSunHintSeen(): boolean {
+  try {
+    return localStorage.getItem(SUN_HINT_KEY) === '1';
+  } catch {
+    // Blocked storage: treat as seen. Showing a hint twice is worse than not
+    // showing it, and unlike onboarding there is no way back to this one.
+    return true;
+  }
+}
+
+export function writeSunHintSeen(): void {
+  try {
+    localStorage.setItem(SUN_HINT_KEY, '1');
+  } catch {
+    /* nothing to do */
   }
 }
 

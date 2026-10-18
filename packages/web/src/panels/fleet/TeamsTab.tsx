@@ -3,6 +3,7 @@ import type { TeamTemplate } from '@solix/shared';
 import { useSolixStore } from '../../store/index.js';
 import { ProjectPicker } from '../ProjectPicker.js';
 import { describeRoutineCost } from './routineCost.js';
+import { Button } from '../../ui/Button.js';
 
 /** P2 #7 — ready-made team templates: pick a project, install an advisor+skill+
  *  routine bundle in one click. */
@@ -106,13 +107,16 @@ export function TeamsTab({ open }: { open: boolean }): JSX.Element {
                 </span>
               </label>
             )}
-            <button
+            <Button
               onClick={() => void onInstall(t.id)}
-              disabled={busy === t.id}
-              className="mt-2 w-full py-1.5 rounded bg-solix-warn/20 border border-solix-warn/60 text-solix-warn text-xs hover:bg-solix-warn/30 disabled:opacity-40"
+              variant="warn"
+              block
+              className="mt-2"
+              busy={busy === t.id}
+              busyLabel="Installing…"
             >
-              {busy === t.id ? 'Installing…' : 'Install team'}
-            </button>
+              Install team
+            </Button>
           </div>
         ))}
         {templates.length === 0 && (

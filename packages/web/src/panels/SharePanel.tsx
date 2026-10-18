@@ -539,7 +539,7 @@ function VersionsTab({ open }: { open: boolean }): JSX.Element {
         </div>
       )}
 
-      {diff && <DiffView diff={diff.diff} />}
+      {diff && <ManifestDiffView diff={diff.diff} />}
 
       {loading && (
         <div className="text-xs text-slate-500 italic">Loading…</div>
@@ -603,7 +603,7 @@ function VersionsTab({ open }: { open: boolean }): JSX.Element {
   );
 }
 
-function DiffView({ diff }: { diff: GalaxyManifestDiff }): JSX.Element {
+function ManifestDiffView({ diff }: { diff: GalaxyManifestDiff }): JSX.Element {
   const empty =
     diff.advisors.added.length === 0 &&
     diff.advisors.removed.length === 0 &&
@@ -697,7 +697,7 @@ function PendingImportPanel({
         </div>
       )}
       {diff ? (
-        <DiffView diff={diff} />
+        <ManifestDiffView diff={diff} />
       ) : manifest ? (
         <div className="text-xs text-slate-400 italic">
           Could not compute a diff against the current galaxy. Apply will
@@ -715,7 +715,7 @@ function PendingImportPanel({
           disabled={busy}
           className="flex-1 py-1.5 rounded bg-solix-accent/20 border border-solix-accent text-solix-accent text-xs hover:bg-solix-accent/30 disabled:opacity-50"
         >
-          Apply
+          Import galaxy
         </button>
         <button
           onClick={onCancel}

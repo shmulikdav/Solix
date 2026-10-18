@@ -3,6 +3,7 @@ import {
   selectPendingPermissionsOrdered,
   useSolixStore,
 } from '../store/index.js';
+import { Button } from '../ui/Button.js';
 import type { Mission, Session } from '@solix/shared';
 import { suggestForPermission } from '../suggestions.js';
 
@@ -195,40 +196,36 @@ function BudgetCard({
             />
           </div>
           <div className="flex gap-1.5">
-            <button
+            {/* Raising a cap lets an agent spend more, so it is the caution
+                colour. It was green, which read as "this is the safe one". */}
+            <Button
+              variant="warn"
               onClick={() => onRaise(parsed)}
               disabled={!valid}
-              /* Raising a cap lets an agent spend more, so it is the caution
-                 colour. It was green, which read as "this is the safe one". */
-              className="flex-1 py-1.5 rounded bg-solix-warn/20 border border-solix-warn text-solix-warn text-xs hover:bg-solix-warn/30 disabled:opacity-40"
+              className="flex-1"
             >
               Allow up to ${valid ? parsed.toFixed(2) : '—'}
-            </button>
-            <button
-              onClick={() => setRaising(false)}
-              className="px-2.5 py-1.5 rounded border border-solix-border text-slate-300 text-xs hover:text-white"
-            >
+            </Button>
+            <Button variant="ghost" onClick={() => setRaising(false)}>
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       ) : (
         <div className="mt-3 flex gap-1.5">
-          <button
+          <Button
+            variant="warn"
+            className="flex-1"
             onClick={() => {
               setNext((budgetUsd * 2).toFixed(2));
               setRaising(true);
             }}
-            className="flex-1 py-1.5 rounded bg-solix-warn/15 border border-solix-warn/50 text-solix-warn text-xs hover:bg-solix-warn/25"
           >
             Raise cap
-          </button>
-          <button
-            onClick={onDismiss}
-            className="px-2.5 py-1.5 rounded border border-solix-border text-slate-300 text-xs hover:text-white hover:bg-solix-border/30"
-          >
+          </Button>
+          <Button variant="ghost" onClick={onDismiss}>
             Dismiss
-          </button>
+          </Button>
         </div>
       )}
     </div>

@@ -1,7 +1,10 @@
 import type { ClientMessage, ServerMessage } from '@solix/shared';
 import { useSolixStore } from '../store/index.js';
 
-const RECONNECT_DELAY_MS = 1500;
+/** How long the client waits before retrying a dropped socket. Exported so the
+ *  connection indicator can tell the user how often it is retrying instead of
+ *  restating the number. */
+export const RECONNECT_DELAY_MS = 1500;
 
 function wsUrl(): string {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';

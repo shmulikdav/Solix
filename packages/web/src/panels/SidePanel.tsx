@@ -4,6 +4,7 @@ import { statusLabel } from '../scene/colors.js';
 import { suggestForSession } from '../suggestions.js';
 import { GLOSSARY } from '../glossary.js';
 import { RightDock, TabButton } from './RightDock.js';
+import { Button } from '../ui/Button.js';
 
 type Tab = 'chat' | 'missions' | 'files';
 
@@ -275,13 +276,13 @@ export function SidePanel(): JSX.Element | null {
                   rows={2}
                   className="flex-1 text-sm bg-black/40 border border-solix-border rounded p-2 text-slate-100 placeholder-slate-600 focus:outline-none focus:border-solix-accent resize-none"
                 />
-                <button
+                <Button
+                  variant="warn"
                   onClick={onSend}
                   disabled={!composer.trim()}
-                  className="px-3 py-2 rounded bg-solix-warn/20 border border-solix-warn text-solix-warn text-sm hover:bg-solix-warn/30 disabled:opacity-40"
                 >
                   Send
-                </button>
+                </Button>
               </div>
               {isWrapped && (
                 <div className="text-[10px] text-slate-500 italic mt-1.5">

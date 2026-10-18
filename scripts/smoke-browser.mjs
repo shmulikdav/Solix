@@ -186,6 +186,27 @@ async function main() {
     await page.keyboard.press('Escape');
   });
 
+  // The CONNECTED chip was a bordered pill that looked exactly like the
+  // controls beside it and did nothing when clicked. It is a dot now, and the
+  // detail it could not fit — that the socket retries on its own, and the
+  // galaxy is stale until it does — moved into a hover tooltip.
+  await step('connection status is a dot with a tooltip, not a fake button', async () => {
+    const body = await page.textContent('[data-topbar]');
+    if (/CONNECTED|OFFLINE/.test(body ?? '')) {
+      throw new Error('the CONNECTED chip is still in the top bar');
+    }
+    const dot = page.locator('[data-topbar] [role="status"]');
+    if ((await dot.count()) !== 1) {
+      throw new Error(`expected one status dot, found ${await dot.count()}`);
+    }
+    await dot.hover();
+    await page.waitForSelector('[role="tooltip"]', { timeout: 5000 });
+    const tip = await page.textContent('[role="tooltip"]');
+    if (!/live updates/.test(tip ?? '')) {
+      throw new Error(`tooltip did not describe the state: ${tip}`);
+    }
+  });
+
   await step('Maestro plan panel opens (P)', async () => {
     await page.keyboard.press('p');
     await page.waitForSelector('text=Plan a build', { timeout: 10000 });

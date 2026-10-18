@@ -13,6 +13,7 @@ import {
   useSolixStore,
 } from '../store/index.js';
 import { ProjectPicker } from './ProjectPicker.js';
+import { Button } from '../ui/Button.js';
 import { RightDock } from './RightDock.js';
 
 interface PlanPanelProps {
@@ -489,13 +490,16 @@ function PlanCard({ plan }: { plan: Plan }): JSX.Element {
 
       {plan.status === 'awaiting_approval' && (
         <>
-          <button
+          <Button
+            variant="warn"
+            block
+            className="mt-3"
             onClick={() => void onApprove()}
-            disabled={busy}
-            className="mt-3 w-full py-1.5 rounded bg-solix-warn/20 border border-solix-warn text-solix-warn text-xs hover:bg-solix-warn/30 disabled:opacity-40"
+            busy={busy}
+            busyLabel="Approving…"
           >
-            {busy ? 'Approving…' : 'Approve & run'}
-          </button>
+            Approve & run
+          </Button>
           <div className="mt-1 text-[10px] text-solix-warn/80 leading-snug">
             Starts {tasks.length === 1 ? 'an agent' : `${tasks.length} agents`},
             one per task. Each run costs money
@@ -507,13 +511,16 @@ function PlanCard({ plan }: { plan: Plan }): JSX.Element {
       )}
 
       {plan.status === 'paused' && (
-        <button
+        <Button
+          variant="warn"
+          block
+          className="mt-3"
           onClick={() => void onResume()}
-          disabled={busy}
-          className="mt-3 w-full py-1.5 rounded bg-solix-warn/15 border border-solix-warn/60 text-solix-warn text-xs hover:bg-solix-warn/25 disabled:opacity-40"
+          busy={busy}
+          busyLabel="Resuming…"
         >
-          {busy ? 'Resuming…' : 'Resume run'}
-        </button>
+          Resume run
+        </Button>
       )}
 
       {runError && (
@@ -555,13 +562,16 @@ function PlanCard({ plan }: { plan: Plan }): JSX.Element {
       )}
 
       {plan.status === 'running' && (
-        <button
+        <Button
+          variant="danger"
+          block
+          className="mt-3"
           onClick={() => void onAbort()}
-          disabled={busy}
-          className="mt-3 w-full py-1.5 rounded bg-solix-danger/15 border border-solix-danger/60 text-solix-danger text-xs hover:bg-solix-danger/25 disabled:opacity-40"
+          busy={busy}
+          busyLabel="Stopping…"
         >
-          {busy ? 'Stopping…' : 'Abort run (stop agents)'}
-        </button>
+          Abort run (stop agents)
+        </Button>
       )}
 
       {plan.status !== 'draft' && plan.status !== 'awaiting_approval' && (
@@ -591,7 +601,7 @@ function PlanCard({ plan }: { plan: Plan }): JSX.Element {
               onKeyDown={(e) => {
                 if (e.key === 'Enter') void onRefine();
               }}
-              placeholder="Refine or add a follow-up goal…"
+              placeholder="Follow-up goal for this project…"
               className="flex-1 text-xs bg-black/40 border border-solix-border rounded p-2 text-slate-100 placeholder-slate-600 focus:outline-none focus:border-solix-accent"
             />
             <button
@@ -599,7 +609,7 @@ function PlanCard({ plan }: { plan: Plan }): JSX.Element {
               disabled={refining || !refine.trim()}
               className="px-3 rounded bg-solix-warn/20 border border-solix-warn/60 text-solix-warn text-xs hover:bg-solix-warn/30 disabled:opacity-40"
             >
-              {refining ? '…' : 'Plan'}
+              {refining ? '…' : 'New plan'}
             </button>
           </div>
         </div>
@@ -665,7 +675,7 @@ function PlanReviewSection({ planId }: { planId: string }): JSX.Element {
                   />
                 ))}
               </ul>
-              <DiffView diff={review.diff} truncated={review.truncated} />
+              <PlanDiffView diff={review.diff} truncated={review.truncated} />
             </>
           )}
         </div>
@@ -782,7 +792,7 @@ function FileReviewRow({
 }
 
 /** Minimal unified-diff renderer: red/green lines in a scrollable monospace box. */
-function DiffView({
+function PlanDiffView({
   diff,
   truncated,
 }: {

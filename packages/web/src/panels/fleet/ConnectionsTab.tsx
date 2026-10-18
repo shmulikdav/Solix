@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Connection, Notifier, NotifyEvent } from '@solix/shared';
+import { Button } from '../../ui/Button.js';
 interface Props {
   open: boolean;
 }
@@ -73,13 +74,14 @@ export function ConnectionsTab({ open }: Props): JSX.Element | null {
               <option value="env">env</option>
               <option value="mcp">mcp</option>
             </select>
-            <button
+            <Button
+              variant="primary"
               onClick={() => void addConnection()}
-              disabled={busy || !newName.trim()}
-              className="px-3 rounded bg-solix-accent/15 border border-solix-accent/50 text-solix-accent text-xs hover:bg-solix-accent/25 disabled:opacity-40"
+              disabled={!newName.trim()}
+              busy={busy}
             >
-              Add
-            </button>
+              Add connection
+            </Button>
           </div>
         </div>
 
@@ -239,13 +241,15 @@ function NotifiersSection({ open }: { open: boolean }): JSX.Element {
             </button>
           ))}
         </div>
-        <button
+        <Button
+          variant="primary"
+          block
           onClick={() => void add()}
-          disabled={busy || !name.trim()}
-          className="w-full py-1.5 rounded bg-solix-accent/15 border border-solix-accent/50 text-solix-accent text-xs hover:bg-solix-accent/25 disabled:opacity-40"
+          disabled={!name.trim()}
+          busy={busy}
         >
           Add notifier
-        </button>
+        </Button>
       </div>
 
       {list.map((n) => (
@@ -304,12 +308,14 @@ function ConnectionCard({
             {conn.kind}
           </span>
         </div>
-        <button
+        <Button
+          variant="ghost"
+          size="sm"
           onClick={() => void call('', undefined, 'DELETE')}
-          className="text-[10px] text-solix-danger/80 hover:text-solix-danger"
+          className="!border-transparent !text-solix-danger/80 hover:!text-solix-danger"
         >
           Delete
-        </button>
+        </Button>
       </div>
 
       <div className="text-[11px] text-slate-400">
@@ -348,7 +354,7 @@ function ConnectionCard({
           placeholder="value (write-only)"
           className="flex-1 text-[11px] bg-black/40 border border-solix-border rounded p-1.5 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-solix-accent"
         />
-        <button
+        <Button variant="primary" size="sm"
           onClick={() => {
             if (key.trim() && value) {
               void call('/secrets', { key: key.trim(), value }).then(() => {
@@ -358,10 +364,9 @@ function ConnectionCard({
             }
           }}
           disabled={!key.trim() || !value}
-          className="px-2 rounded bg-solix-accent/15 border border-solix-accent/50 text-solix-accent text-[11px] hover:bg-solix-accent/25 disabled:opacity-40"
         >
           Set
-        </button>
+        </Button>
       </div>
 
       <div className="text-[11px] text-slate-400">
@@ -393,16 +398,15 @@ function ConnectionCard({
           placeholder="advisor role, plan id, or *"
           className="flex-1 text-[11px] bg-black/40 border border-solix-border rounded p-1.5 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-solix-accent"
         />
-        <button
+        <Button variant="ghost" size="sm"
           onClick={() => {
             if (scope.trim())
               void call('/grants', { scope: scope.trim() }).then(() => setScope(''));
           }}
           disabled={!scope.trim()}
-          className="px-2 rounded bg-black/30 border border-solix-border text-slate-300 text-[11px] hover:bg-black/50 disabled:opacity-40"
         >
           Grant
-        </button>
+        </Button>
       </div>
     </div>
   );

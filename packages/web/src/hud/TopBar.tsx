@@ -1,4 +1,5 @@
 import { useSolixStore, selectPlanets } from '../store/index.js';
+import { ConnectionDot } from './ConnectionDot.js';
 
 interface TopBarProps {
   onOpenShare?: () => void;
@@ -19,7 +20,6 @@ export function TopBar({
   onOpenFleet,
   onOpenWorkspace,
 }: TopBarProps = {}): JSX.Element {
-  const connected = useSolixStore((s) => s.connected);
   const planets = useSolixStore(selectPlanets);
   const viewMode = useSolixStore((s) => s.viewMode);
   const playbackActive = useSolixStore((s) => s.playback.active);
@@ -64,15 +64,7 @@ export function TopBar({
         <div className="hidden md:block text-xs text-slate-400">
           a solar-system command center
         </div>
-        <div
-          className={`ml-1 sm:ml-3 px-2 py-1 rounded text-[10px] border ${
-            connected
-              ? 'border-solix-ok text-solix-ok'
-              : 'border-solix-danger text-solix-danger solix-pulse'
-          }`}
-        >
-          {connected ? 'CONNECTED' : 'OFFLINE'}
-        </div>
+        <ConnectionDot />
         {playbackActive && (
           <button
             onClick={exitPlayback}
