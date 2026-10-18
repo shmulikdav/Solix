@@ -19,7 +19,8 @@
     "clean": "pnpm -r exec rm -rf dist node_modules .turbo",
     "pack:dry": "pnpm -r build && cd packages/cli && npm pack --dry-run",
     "release": "pnpm --filter @solix/web prepare-assets && pnpm -r build && cd packages/cli && npm publish",
-    "smoke:browser": "node scripts/smoke-browser.mjs"
+    "smoke:browser": "node scripts/smoke-browser.mjs",
+    "rehearse": "cd packages/cli && npm pack --silent >/dev/null && cd ../.. && node scripts/rehearse-install.mjs"
   },
   "devDependencies": {
     "@testing-library/dom": "10.4.0",

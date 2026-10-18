@@ -122,6 +122,12 @@ These affect anyone upgrading from 1.11.8:
 
   `npm i -g @shmulikdav/solix` then `solix` is the whole install.
   `solix install` remains for scripted setups and `--force` re-wiring.
+- **`pnpm rehearse` installs the tarball on a throwaway machine.** The test
+  suite exercises the repo; this exercises what a beta tester actually
+  receives. It packs the CLI, installs it globally into a temporary prefix
+  against a temporary HOME, starts it, fires a real hook script, checks the
+  session arrives, and uninstalls — covering the failures only packaging can
+  produce, like a file that builds locally but never reaches `dist`.
 - **"Report a problem" in the rail.** There was no way to report anything
   from inside Solix — you had to find the repo yourself, run `solix doctor`
   in a terminal and work out which parts mattered. It now collects the same
