@@ -1,4 +1,8 @@
-import { selectPlanets, useSolixStore } from '../store/index.js';
+import {
+  selectPendingPermissionsOrdered,
+  selectPlanets,
+  useSolixStore,
+} from '../store/index.js';
 import {
   RAIL_GROUPS,
   RAIL_ID_TO_PANEL,
@@ -33,6 +37,7 @@ export function NavRail({
   const openPanel = useSolixStore((s) => s.openPanel);
   const closePanel = useSolixStore((s) => s.closePanel);
   const planets = useSolixStore(selectPlanets);
+  const pending = useSolixStore(selectPendingPermissionsOrdered).length;
 
   // Only the count that means "a human is needed" earns a badge. Active and
   // idle are context; attention is an instruction.
@@ -44,9 +49,9 @@ export function NavRail({
   ).length;
 
   const isActive = (item: RailItem): boolean => {
-    if (item.group === 'watch') return viewMode === item.id && !activePanel;
     const panel = RAIL_ID_TO_PANEL[item.id];
-    return panel != null && activePanel === panel;
+    if (panel) return activePanel === panel;
+    return viewMode === item.id && !activePanel;
   };
 
   const activate = (item: RailItem): void => {
@@ -115,9 +120,11 @@ export function NavRail({
                       aria-current={active ? 'page' : undefined}
                       title={item.hint ? `${item.label}  (${item.hint})` : item.label}
                       className={`group w-full flex items-baseline gap-2 py-1.5 text-left transition-colors ${
-                        active
-                          ? 'text-slate-50'
-                          : 'text-slate-500 hover:text-slate-200'
+                        item.id === 'decisions' && pending > 0 && !active
+                          ? 'text-solix-warn solix-pulse'
+                          : active
+                            ? 'text-slate-50'
+                            : 'text-slate-500 hover:text-slate-200'
                       }`}
                     >
                       <span
@@ -139,6 +146,14 @@ export function NavRail({
                           title={`${attention} agent(s) need you`}
                         >
                           {attention}
+                        </span>
+                      )}
+                      {item.id === 'decisions' && pending > 0 && (
+                        <span
+                          className="shrink-0 rounded-full bg-solix-warn px-1.5 text-[11px] font-semibold text-black"
+                          title={`${pending} waiting on your approval`}
+                        >
+                          {pending}
                         </span>
                       )}
                     </button>

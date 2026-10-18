@@ -4,7 +4,7 @@ import {
   useSolixStore,
 } from '../store/index.js';
 import { Button } from '../ui/Button.js';
-import { RAIL_WIDTH_PX, TOP_BAR_HEIGHT_PX } from '../shell/surfaces.js';
+import { PanelHeader, RightDock } from '../panels/RightDock.js';
 import type { Mission, Session } from '@solix/shared';
 import { suggestForPermission } from '../suggestions.js';
 
@@ -20,13 +20,7 @@ import { suggestForPermission } from '../suggestions.js';
  * Sorted newest-first so the most recent block is at the top of the
  * queue.
  */
-export function DecisionQueue({
-  panelOffsetPx = 0,
-}: {
-  /** Width of the currently-open right-side panel, so the queue sits
-   * beside it instead of overlapping. 0 when no panel is open. */
-  panelOffsetPx?: number;
-} = {}): JSX.Element {
+export function DecisionQueue(): JSX.Element | null {
   const pending = useSolixStore((s) => s.pendingPermissions);
   const budgetAlerts = useSolixStore((s) => s.budgetAlerts);
   const sessions = useSolixStore((s) => s.sessions);
@@ -35,6 +29,8 @@ export function DecisionQueue({
   const raiseBudget = useSolixStore((s) => s.raiseBudget);
   const dismissBudgetAlert = useSolixStore((s) => s.dismissBudgetAlert);
   const selectSession = useSolixStore((s) => s.selectSession);
+  const activePanel = useSolixStore((s) => s.activePanel);
+  const closePanel = useSolixStore((s) => s.closePanel);
 
   // Shared with the Y/N key handler in App.tsx — see
   // selectPendingPermissionsOrdered. Do not re-sort locally.
@@ -42,79 +38,50 @@ export function DecisionQueue({
   const alerts = Object.values(budgetAlerts).sort(
     (a, b) => b.receivedAt - a.receivedAt,
   );
-  const [collapsed, setCollapsed] = useState(false);
-
-  // Force-expand when something NEW arrives, so a pending decision is never
-  // hidden. Deliberately only on an increase: the previous version fired on any
-  // change while count > 0, so resolving one of three requests (3 → 2) also
-  // re-expanded a queue the user had just collapsed, and there was no way to
-  // keep it shut while work was in flight.
   const count = items.length + alerts.length;
-  const prevCount = useRef(count);
-  useEffect(() => {
-    if (count > prevCount.current) setCollapsed(false);
-    prevCount.current = count;
-  }, [count]);
 
   const onAsk = (sessionId: string): void => {
     selectSession(sessionId);
-    setCollapsed(true);
   };
 
-  // When the queue is empty, collapse to a single quiet strip — no need
-  // for a separate "All clear" panel taking real estate when nothing's
-  // waiting on the user.
+  // There used to be a collapse toggle and an effect that force-expanded the
+  // queue whenever a new request arrived. Both existed because the queue was
+  // always on screen and had to get out of the way. As a panel it is open or
+  // it is not, and that is the user's choice — nothing re-opens it behind
+  // their back, which is what B2 was about.
+
   if (count === 0) {
     return (
-      <div
-        className="absolute z-30 pointer-events-none flex justify-end"
-        style={{
-          top: TOP_BAR_HEIGHT_PX + 12,
-          left: RAIL_WIDTH_PX + 16,
-          right: panelOffsetPx + 16,
-        }}
-      >
-        <div className="pointer-events-auto rounded-full border border-solix-border bg-solix-panel/60 backdrop-blur px-3 py-1 text-[10px] text-slate-500 flex items-center gap-2">
-          <span className="uppercase tracking-widest">decisions</span>
-          <span className="font-bold">0</span>
-          <span className="italic opacity-80">— all clear</span>
-        </div>
-      </div>
+      <RightDock>
+        <PanelHeader
+          eyebrow="decisions"
+          title="Nothing waiting"
+          onClose={closePanel}
+        >
+          No agent is blocked on you right now.
+        </PanelHeader>
+      </RightDock>
     );
   }
 
-  // Bounded on BOTH sides: the rail on the left, the contextual dock on the
-  // right. Anchoring only to the right was fine when there was no rail, but a
-  // right-anchored 320px column slides underneath one at narrow widths — and
-  // this is the surface that unblocks a stuck agent, so it must never be the
-  // thing that goes missing.
+  // A dock panel rather than a positioned overlay. Twice this column was found
+  // underneath something (B6, B7) because the arithmetic keeping it clear had
+  // to be re-derived every time the layout moved. A panel cannot be covered by
+  // its siblings, so that class of bug goes away rather than being
+  // recalculated.
   return (
-    <div
-      className="absolute z-30 flex justify-end pointer-events-none"
-      style={{
-        top: TOP_BAR_HEIGHT_PX + 12,
-        left: RAIL_WIDTH_PX + 16,
-        right: panelOffsetPx + 16,
-      }}
-    >
-     <div className="w-80 max-w-full flex flex-col gap-2">
-      <div className="pointer-events-auto rounded border border-solix-border bg-solix-panel/85 backdrop-blur px-3 py-2 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-[10px] uppercase tracking-widest text-slate-400">
-            Decisions
-          </span>
-          <span className="text-xs font-bold text-solix-danger">{count}</span>
-        </div>
-        <button
-          onClick={() => setCollapsed((v) => !v)}
-          className="text-[10px] text-slate-400 hover:text-slate-100"
-        >
-          {collapsed ? 'show' : 'hide'}
-        </button>
-      </div>
+    <RightDock>
+      <PanelHeader
+        eyebrow="decisions"
+        title={`${count} waiting on you`}
+        onClose={closePanel}
+      >
+        Nothing runs until you answer — the agent is paused, not working around
+        it.
+      </PanelHeader>
+      <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-2">
 
-      {!collapsed &&
-        alerts.map((a) => (
+      {alerts.map((a) => (
           <BudgetCard
             key={`budget-${a.sessionId}`}
             name={
@@ -127,8 +94,7 @@ export function DecisionQueue({
           />
         ))}
 
-      {!collapsed &&
-        items.map((p) => {
+      {items.map((p) => {
           const session = sessions[p.sessionId];
           const mission =
             session?.currentMissionId
@@ -147,8 +113,8 @@ export function DecisionQueue({
             />
           );
         })}
-     </div>
-    </div>
+      </div>
+    </RightDock>
   );
 }
 

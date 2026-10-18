@@ -78,6 +78,18 @@ additive and backward-compatible; the paid tier ships dormant (free public beta
 
 These affect anyone upgrading from 1.11.8:
 
+- **Pending decisions moved into the rail.** The queue used to float over the
+  galaxy permanently, taking a 320px column whether or not anything was
+  waiting, and twice it was found underneath something because the arithmetic
+  keeping it clear had to be re-derived every time the layout moved. It is a
+  rail destination now — "Decisions" under Watch, with the pending count beside
+  it — and the panel opens when you click it. The count is the signal, and it
+  cannot be covered, because the rail is always there.
+- **`Y` and `N` now refuse to act unless the card is on screen.** They resolved
+  the top pending request from a global key handler with no visibility check.
+  That was survivable while the queue was always visible; with it behind a
+  click it would mean approving a command you never read. The shortcuts are
+  gated on the Decisions panel being open.
 - **Navigation moved out of the top bar into a left rail.** One 44px strip was
   carrying four unrelated jobs — identity, live status, the view switch, and
   seven destinations, two with their own sub-tabs — so it wrapped onto a second

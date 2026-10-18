@@ -24,6 +24,11 @@ export type PanelId =
   // deliberate — opened from the top bar or a shortcut
   | 'workspace'
   | 'plan'
+  // Pending permissions. A dock panel rather than a free-floating column:
+  // as an overlay it was twice found underneath something (B6, B7), and the
+  // arithmetic that kept it clear had to be re-derived every time the layout
+  // changed. A panel cannot be covered by its own siblings.
+  | 'decisions'
   // Export / import / versions / audit. Named 'share' rather than 'galaxy'
   // because that word already means the 3D view mode.
   | 'share'

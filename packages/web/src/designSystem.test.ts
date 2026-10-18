@@ -88,10 +88,16 @@ describe('design system — colour is semantic', () => {
   // the top bar into the rail.
   it('keeps navigation neutral', () => {
     const src = readFileSync(join(SRC, 'shell/NavRail.tsx'), 'utf8');
-    const coloured = buttonTags(src)
+    // A destination may never be coloured for WHAT IT IS — "Fleet" is not a
+    // warning. It may be coloured for live state: "three agents are blocked
+    // on you" has to shout, and with Decisions behind a click the rail row is
+    // the only in-app signal left. So warn is legal here only behind a count
+    // check, exactly as accent is legal only behind an active check.
+    const offenders = buttonTags(src)
       .filter(({ tag }) => /(bg|text|border)-solix-(warn|danger)\b/.test(tag))
+      .filter(({ tag }) => !/(pending|attention)\s*>\s*0/.test(tag))
       .map(({ line }) => line);
-    expect(coloured).toEqual([]);
+    expect(offenders).toEqual([]);
   });
 
   // Accent in the rail means "this is where you are", not "this is the

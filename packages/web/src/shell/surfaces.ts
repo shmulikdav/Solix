@@ -55,6 +55,7 @@ export const RAIL_ITEMS: RailItem[] = [
   { id: 'galaxy', label: 'Galaxy', glyph: '🪐', group: 'watch', hint: 'V' },
   { id: 'list', label: 'List', glyph: '☰', group: 'watch' },
   { id: 'missions', label: 'Missions', glyph: '◎', group: 'watch', hint: 'M' },
+  { id: 'decisions', label: 'Decisions', glyph: '◉', group: 'watch' },
 
   { id: 'task', label: 'New task', glyph: '＋', group: 'build', hint: 'L' },
   { id: 'plan', label: 'Maestro', glyph: '✷', group: 'build', hint: 'P' },
@@ -74,6 +75,7 @@ export const RAIL_ITEMS: RailItem[] = [
 
 /** Rail ids that map onto a dock panel, for highlighting the active row. */
 export const RAIL_ID_TO_PANEL: Partial<Record<string, PanelId>> = {
+  decisions: 'decisions',
   plan: 'plan',
   overview: 'workspace',
   fleet: 'fleet',

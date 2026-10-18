@@ -186,6 +186,47 @@ async function main() {
     await page.keyboard.press('Escape');
   });
 
+  // Decisions moved out of a permanently-floating column into a rail
+  // destination. Two things have to hold: the rail carries the count, and the
+  // keyboard shortcuts refuse to act on a card that is not on screen.
+  await step('Decisions opens from the rail and carries its count', async () => {
+    const badge = page.locator('[data-nav-rail] [title$="waiting on your approval"]');
+    if ((await badge.count()) === 0) {
+      throw new Error('rail shows no pending-decision count');
+    }
+    await page.click('[data-nav-rail] >> text="Decisions"');
+    await page.waitForSelector('[data-dock-panel] >> text=/waiting on you/', {
+      timeout: 10000,
+    });
+    await page.screenshot({ path: `${SHOT_DIR}/08-decisions.png` });
+    await page.keyboard.press('Escape');
+  });
+
+  // The B1 failure mode, which closing the panel would otherwise bring back:
+  // Y resolving a real tool call the user never read.
+  await step('Y does nothing while the Decisions panel is closed', async () => {
+    await page.keyboard.press('Escape');
+    await page.waitForTimeout(300);
+    const before = await page.evaluate(
+      () =>
+        document.querySelector('[data-nav-rail] [title$="waiting on your approval"]')
+          ?.textContent ?? '0',
+    );
+    await page.keyboard.press('y');
+    await page.keyboard.press('y');
+    await page.waitForTimeout(600);
+    const after = await page.evaluate(
+      () =>
+        document.querySelector('[data-nav-rail] [title$="waiting on your approval"]')
+          ?.textContent ?? '0',
+    );
+    if (before !== after) {
+      throw new Error(
+        `Y resolved a permission with the panel closed: ${before} -> ${after}`,
+      );
+    }
+  });
+
   // The CONNECTED chip was a bordered pill that looked exactly like the
   // controls beside it and did nothing when clicked. It is a dot now, and the
   // detail it could not fit — that the socket retries on its own, and the
@@ -363,7 +404,7 @@ async function main() {
   // The rail is the navigation now, so every destination must be in it.
   await step('every rail destination is present', async () => {
     for (const label of [
-      'Galaxy', 'List', 'Missions', 'New task', 'Maestro',
+      'Galaxy', 'List', 'Missions', 'Decisions', 'New task', 'Maestro',
       'Mission Control', 'Fleet', 'Share', 'Timeline', 'Help',
     ]) {
       const n = await page.locator(`[data-nav-rail] >> text="${label}"`).count();

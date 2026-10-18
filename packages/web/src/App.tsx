@@ -27,6 +27,7 @@ import { SkillPanel } from './panels/SkillPanel.js';
 import { NewTaskModal } from './panels/NewTaskModal.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
 import {
+  selectCanResolveByKey,
   selectDockOffsetPx,
   selectPendingPermissionsOrdered,
   useSolixStore,
@@ -81,6 +82,7 @@ export default function App(): JSX.Element {
 
   const shareOpen = activePanel === 'share';
   const fleetOpen = activePanel === 'fleet';
+  const decisionsOpen = activePanel === 'decisions';
   const workspaceOpen = activePanel === 'workspace';
   const planPanelOpen = activePanel === 'plan';
   const setShareOpen = (v: boolean): void =>
@@ -108,6 +110,7 @@ export default function App(): JSX.Element {
       // user is actually looking at. Both read one selector so they cannot
       // drift apart again.
       const top = selectPendingPermissionsOrdered(state)[0];
+      const decisionsVisible = selectCanResolveByKey(state);
 
       if (e.key === 'Escape') {
         // One call closes whichever dock panel is open — previously this had
@@ -171,9 +174,19 @@ export default function App(): JSX.Element {
       } else if (!isTextField && (e.key === 'w' || e.key === 'W')) {
         if (state.activePanel === 'workspace') state.closePanel();
         else state.openPanel('workspace');
-      } else if (!isTextField && top && (e.key === 'y' || e.key === 'Y')) {
+      } else if (
+        !isTextField &&
+        top &&
+        decisionsVisible &&
+        (e.key === 'y' || e.key === 'Y')
+      ) {
         state.resolvePermission(top.requestId, true);
-      } else if (!isTextField && top && (e.key === 'n' || e.key === 'N')) {
+      } else if (
+        !isTextField &&
+        top &&
+        decisionsVisible &&
+        (e.key === 'n' || e.key === 'N')
+      ) {
         state.resolvePermission(top.requestId, false);
       }
     };
@@ -199,7 +212,7 @@ export default function App(): JSX.Element {
         onOpenHelp={() => setHelpOpen(true)}
       />
       <TopBar />
-      <DecisionQueue panelOffsetPx={panelOffsetPx} />
+      {decisionsOpen && <DecisionQueue />}
       <SidePanel />
       <AdvisorPanel />
       <SkillPanel />

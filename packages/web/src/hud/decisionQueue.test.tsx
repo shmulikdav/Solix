@@ -1,18 +1,22 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { act, cleanup, render, screen } from '@testing-library/react';
-import { useSolixStore } from '../store/index.js';
+import {
+  selectCanResolveByKey,
+  useSolixStore,
+} from '../store/index.js';
 import { DecisionQueue } from './DecisionQueue.js';
+import { NavRail } from '../shell/NavRail.js';
 
 /**
- * The Decision Queue is the surface that unblocks stuck agents, so two
- * behaviours matter more than they look:
+ * Decisions is the surface that unblocks stuck agents, so it carries more
+ * regression tests than its size suggests.
  *
- *  - it must render in the SAME order the Y/N shortcut acts on (newest first),
- *    otherwise the key approves a request the user never saw;
- *  - collapsing it must stick while work is in flight. It used to force-expand
- *    on ANY count change while count > 0, so resolving one of three requests
- *    (3 → 2) re-opened a queue the user had just closed.
+ * It is a dock panel now, opened from the rail, rather than a column that
+ * always floated over the canvas. That is a better arrangement — the column
+ * was twice found underneath something — but it moves the "something is
+ * waiting" signal onto the rail and makes the keyboard shortcuts dangerous if
+ * left ungated. Both are covered below.
  */
 function perm(id: string, receivedAt: number) {
   return {
@@ -34,47 +38,95 @@ function seed(perms: Record<string, ReturnType<typeof perm>>) {
 }
 
 afterEach(cleanup);
-beforeEach(() => seed({}));
+beforeEach(() => {
+  seed({});
+  useSolixStore.setState({ activePanel: null, activePanelTab: null });
+});
 
 describe('DecisionQueue', () => {
+  // B1: the key handler takes [0] of the ordered selector, so the list must
+  // render in that same order or Y approves a card the user never saw.
   it('renders pending requests newest-first', () => {
     seed({ older: perm('older', 1000), newer: perm('newer', 9000) });
-    render(<DecisionQueue panelOffsetPx={0} />);
+    render(<DecisionQueue />);
     const text = document.body.textContent ?? '';
-    // Both present, newest appearing before oldest in the DOM.
     expect(text).toContain('echo newer');
     expect(text).toContain('echo older');
     expect(text.indexOf('echo newer')).toBeLessThan(text.indexOf('echo older'));
   });
 
-  it('stays collapsed when a request is resolved (count drops)', () => {
-    seed({ a: perm('a', 1), b: perm('b', 2), c: perm('c', 3) });
-    render(<DecisionQueue panelOffsetPx={0} />);
-
-    act(() => {
-      (screen.getByText('hide') as HTMLElement).click();
-    });
-    expect(screen.getByText('show')).toBeTruthy();
-
-    // Resolve one — 3 → 2. The queue must NOT re-expand.
-    act(() => {
-      seed({ a: perm('a', 1), b: perm('b', 2) });
-    });
-    expect(screen.getByText('show')).toBeTruthy();
+  it('says so plainly when nothing is waiting', () => {
+    render(<DecisionQueue />);
+    expect(screen.getByText('Nothing waiting')).toBeTruthy();
   });
 
-  it('re-expands when something genuinely new arrives', () => {
+  it('states that the agent is blocked, not working around it', () => {
     seed({ a: perm('a', 1) });
-    render(<DecisionQueue panelOffsetPx={0} />);
-    act(() => {
-      (screen.getByText('hide') as HTMLElement).click();
-    });
-    expect(screen.getByText('show')).toBeTruthy();
+    render(<DecisionQueue />);
+    expect(
+      screen.getByText(/the agent is paused, not working around it/),
+    ).toBeTruthy();
+  });
+});
 
-    // A new request must surface even over an explicit collapse.
+describe('Y / N are gated on the card being visible', () => {
+  // B1 would come straight back without this. With Decisions behind a rail
+  // click, an ungated shortcut resolves a real tool call the user never read.
+  it('refuses to resolve while the panel is closed', () => {
+    seed({ a: perm('a', 1) });
+    useSolixStore.setState({ activePanel: null });
+    expect(selectCanResolveByKey(useSolixStore.getState())).toBe(false);
+  });
+
+  it('allows it while the panel is open', () => {
+    seed({ a: perm('a', 1) });
+    useSolixStore.setState({ activePanel: 'decisions' });
+    expect(selectCanResolveByKey(useSolixStore.getState())).toBe(true);
+  });
+
+  it('refuses while a different panel is open', () => {
+    seed({ a: perm('a', 1) });
+    useSolixStore.setState({ activePanel: 'fleet' });
+    expect(selectCanResolveByKey(useSolixStore.getState())).toBe(false);
+  });
+});
+
+describe('the rail carries the signal', () => {
+  const railProps = {
+    onNewTask: () => {},
+    onOpenTimeline: () => {},
+    onOpenHelp: () => {},
+  };
+
+  it('shows the pending count beside Decisions', () => {
+    seed({ a: perm('a', 1), b: perm('b', 2) });
+    render(<NavRail {...railProps} />);
+    expect(screen.getByTitle('2 waiting on your approval')).toBeTruthy();
+  });
+
+  it('shows no count when nothing is pending', () => {
+    render(<NavRail {...railProps} />);
+    expect(screen.queryByTitle(/waiting on your approval/)).toBeNull();
+  });
+
+  // chime() is off unless opted into and notify() only fires when the tab is
+  // hidden, so while you are looking at the app this row IS the alert.
+  it('turns the row the caution colour while requests are waiting', () => {
+    seed({ a: perm('a', 1) });
+    const { container } = render(<NavRail {...railProps} />);
+    const row = [...container.querySelectorAll('button')].find((b) =>
+      b.textContent?.startsWith('Decisions'),
+    );
+    expect(row?.className).toContain('text-solix-warn');
+    expect(row?.className).toContain('solix-pulse');
+  });
+
+  // B2, translated: nothing may re-open the panel behind the user's back.
+  it('an arrival does not force the panel open', () => {
+    render(<NavRail {...railProps} />);
     act(() => {
-      seed({ a: perm('a', 1), b: perm('b', 2) });
+      seed({ a: perm('a', 1) });
     });
-    expect(screen.getByText('hide')).toBeTruthy();
+    expect(useSolixStore.getState().activePanel).toBeNull();
   });
 });

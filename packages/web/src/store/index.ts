@@ -1618,6 +1618,19 @@ export function selectRailWidthPx(_state: SolixState): number {
   return RAIL_WIDTH_PX;
 }
 
+/**
+ * Whether the Y / N shortcuts are allowed to resolve a permission.
+ *
+ * They act on a real agent request, so they may only fire while the card is
+ * actually on screen. Decisions opens from the rail now, so an ungated
+ * shortcut would approve a command the user never read — the B1 failure mode
+ * again, and worse, because it would be unavoidable rather than a
+ * mis-ordering between two lists.
+ */
+export function selectCanResolveByKey(state: SolixState): boolean {
+  return state.activePanel === 'decisions';
+}
+
 export function selectPendingPermissionsOrdered(
   state: SolixState,
 ): PendingPermission[] {

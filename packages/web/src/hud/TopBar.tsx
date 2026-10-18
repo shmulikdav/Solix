@@ -110,6 +110,7 @@ function Stat({
 
 const PANEL_LABELS: Record<string, string> = {
   session: 'Agent',
+  decisions: 'Decisions',
   advisor: 'Advisor',
   skill: 'Skill',
   workspace: 'Mission Control',
