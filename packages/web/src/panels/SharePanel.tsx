@@ -233,7 +233,7 @@ export function SharePanel({
           <button
             onClick={onImportUrl}
             disabled={busy || !importUrl.trim()}
-            className="mt-2 w-full py-2 rounded bg-cyan-500/15 border border-cyan-400/40 text-cyan-200 text-sm hover:bg-cyan-500/25 disabled:opacity-50"
+            className="mt-2 w-full py-2 rounded bg-solix-accent/15 border border-solix-accent/40 text-solix-accent text-sm hover:bg-solix-accent/25 disabled:opacity-50"
           >
             Pull and import
           </button>
@@ -253,7 +253,7 @@ export function SharePanel({
           <button
             onClick={onImportText}
             disabled={busy || !importText.trim()}
-            className="mt-2 w-full py-2 rounded bg-cyan-500/15 border border-cyan-400/40 text-cyan-200 text-sm hover:bg-cyan-500/25 disabled:opacity-50"
+            className="mt-2 w-full py-2 rounded bg-solix-accent/15 border border-solix-accent/40 text-solix-accent text-sm hover:bg-solix-accent/25 disabled:opacity-50"
           >
             Apply manifest
           </button>
@@ -567,7 +567,7 @@ function VersionsTab({ open }: { open: boolean }): JSX.Element {
                   role === 'from'
                     ? 'border-solix-accent bg-solix-accent/10'
                     : role === 'to'
-                      ? 'border-cyan-400 bg-cyan-400/10'
+                      ? 'border-solix-accent bg-solix-accent/10'
                       : 'border-solix-border bg-black/20 hover:bg-solix-border/30'
                 }`}
               >
@@ -713,7 +713,7 @@ function PendingImportPanel({
         <button
           onClick={onConfirm}
           disabled={busy}
-          className="flex-1 py-1.5 rounded bg-amber-500/20 border border-amber-300 text-amber-100 text-xs hover:bg-amber-500/30 disabled:opacity-50"
+          className="flex-1 py-1.5 rounded bg-solix-accent/20 border border-solix-accent text-solix-accent text-xs hover:bg-solix-accent/30 disabled:opacity-50"
         >
           Apply
         </button>

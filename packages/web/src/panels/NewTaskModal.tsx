@@ -47,6 +47,8 @@ export function NewTaskModal({
   const [worktreeBaseRef, setWorktreeBaseRef] = useState('');
   const [budget, setBudget] = useState('');
   const [goalId, setGoalId] = useState<string | null>(null);
+  const [addingGoal, setAddingGoal] = useState(false);
+  const [newGoalName, setNewGoalName] = useState('');
   const goalList = Object.values(goalsMap);
   const [preflight, setPreflight] = useState<
     {
@@ -126,18 +128,23 @@ export function NewTaskModal({
     onClose();
   };
 
+  // Was a window.prompt(). A browser prompt looks like the browser talking,
+  // not the app, is unstyled, and cannot be cancelled with Escape without
+  // losing what you typed.
   const onNewGoal = async (): Promise<void> => {
-    const name = window.prompt('New goal name:');
-    if (!name?.trim()) return;
+    const name = newGoalName.trim();
+    if (!name) return;
     try {
       const res = await fetch('/api/goals', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: name.trim() }),
+        body: JSON.stringify({ name }),
       });
       if (res.ok) {
         const g = (await res.json()) as { id: string };
         setGoalId(g.id);
+        setNewGoalName('');
+        setAddingGoal(false);
       }
     } catch {
       /* offline; ignore */
@@ -293,7 +300,7 @@ export function NewTaskModal({
                     title={a.description}
                     className={`text-xs px-3 py-1.5 rounded border flex items-center gap-1.5 ${
                       advisorId === a.id
-                        ? 'border-amber-300 text-amber-100 bg-amber-500/15'
+                        ? 'border-solix-accent text-solix-accent bg-solix-accent/15'
                         : 'border-solix-border text-slate-300 hover:bg-solix-border/30'
                     }`}
                   >
@@ -386,12 +393,37 @@ export function NewTaskModal({
                   </button>
                 ))}
                 <button
-                  onClick={onNewGoal}
+                  onClick={() => setAddingGoal(true)}
                   className="text-xs px-2.5 py-1.5 rounded border border-dashed border-solix-border text-slate-400 hover:text-slate-100"
                 >
                   + new
                 </button>
               </div>
+              {addingGoal && (
+                <div className="flex gap-2 mt-2">
+                  <input
+                    value={newGoalName}
+                    onChange={(e) => setNewGoalName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void onNewGoal();
+                      if (e.key === 'Escape') {
+                        setAddingGoal(false);
+                        setNewGoalName('');
+                      }
+                    }}
+                    placeholder="Goal name"
+                    autoFocus
+                    className="flex-1 min-w-0 text-sm bg-black/40 border border-solix-border rounded p-2 text-slate-100 placeholder-slate-600 focus:outline-none focus:border-solix-accent"
+                  />
+                  <button
+                    onClick={() => void onNewGoal()}
+                    disabled={!newGoalName.trim()}
+                    className="text-xs px-2.5 py-1.5 rounded border border-solix-border text-slate-200 hover:bg-solix-border/30 disabled:opacity-40"
+                  >
+                    Add
+                  </button>
+                </div>
+              )}
             </label>
           </div>
 
@@ -433,7 +465,7 @@ export function NewTaskModal({
               !prompt.trim() ||
               preflight?.claudeAvailable === false
             }
-            className="px-4 py-1.5 rounded bg-solix-accent/20 border border-solix-accent text-solix-accent text-sm hover:bg-solix-accent/30 disabled:opacity-40"
+            className="px-4 py-1.5 rounded bg-solix-warn/20 border border-solix-warn text-solix-warn text-sm hover:bg-solix-warn/30 disabled:opacity-40"
           >
             Launch
           </button>

@@ -106,14 +106,7 @@ export function DecisionQueue({
             }
             costUsd={a.costUsd}
             budgetUsd={a.budgetUsd}
-            onRaise={() => {
-              const next = window.prompt(
-                `New budget cap (USD) for this agent — current $${a.budgetUsd.toFixed(2)}, spent $${a.costUsd.toFixed(2)}:`,
-                (a.budgetUsd * 2).toFixed(2),
-              );
-              const n = next ? parseFloat(next) : NaN;
-              if (Number.isFinite(n) && n > 0) raiseBudget(a.sessionId, n);
-            }}
+            onRaise={(next) => raiseBudget(a.sessionId, next)}
             onDismiss={() => dismissBudgetAlert(a.sessionId)}
           />
         ))}
@@ -152,9 +145,17 @@ function BudgetCard({
   name: string;
   costUsd: number;
   budgetUsd: number;
-  onRaise: () => void;
+  onRaise: (next: number) => void;
   onDismiss: () => void;
 }): JSX.Element {
+  // Was a window.prompt() whose string went through parseFloat, so "20 dollars"
+  // became 20 and "twenty" silently did nothing. A number input cannot produce
+  // either, and the new cap is visible before you commit to it.
+  const [raising, setRaising] = useState(false);
+  const [next, setNext] = useState('');
+  const parsed = Number.parseFloat(next);
+  const valid = Number.isFinite(parsed) && parsed > budgetUsd;
+
   return (
     <div className="pointer-events-auto rounded border border-solix-danger bg-solix-panel p-3 backdrop-blur shadow-lg">
       <div className="flex items-center justify-between">
@@ -174,20 +175,62 @@ function BudgetCard({
       <div className="mt-1 text-[11px] text-slate-400 leading-snug">
         Solix-launched agents won't be sent more prompts until you raise the cap.
       </div>
-      <div className="mt-3 flex gap-1.5">
-        <button
-          onClick={onRaise}
-          className="flex-1 py-1.5 rounded bg-solix-ok/20 border border-solix-ok text-solix-ok text-xs hover:bg-solix-ok/30"
-        >
-          Raise cap
-        </button>
-        <button
-          onClick={onDismiss}
-          className="px-2.5 py-1.5 rounded border border-solix-border text-slate-300 text-xs hover:text-white hover:bg-solix-border/30"
-        >
-          Dismiss
-        </button>
-      </div>
+      {raising ? (
+        <div className="mt-3 space-y-1.5">
+          <div className="flex gap-1.5 items-center">
+            <span className="text-xs text-slate-400">$</span>
+            <input
+              type="number"
+              min={budgetUsd}
+              step="1"
+              value={next}
+              onChange={(e) => setNext(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && valid) onRaise(parsed);
+                if (e.key === 'Escape') setRaising(false);
+              }}
+              autoFocus
+              aria-label="New budget cap in dollars"
+              className="flex-1 min-w-0 px-2 py-1 rounded bg-black/40 border border-solix-border text-sm text-slate-100 focus:outline-none focus:border-solix-warn"
+            />
+          </div>
+          <div className="flex gap-1.5">
+            <button
+              onClick={() => onRaise(parsed)}
+              disabled={!valid}
+              /* Raising a cap lets an agent spend more, so it is the caution
+                 colour. It was green, which read as "this is the safe one". */
+              className="flex-1 py-1.5 rounded bg-solix-warn/20 border border-solix-warn text-solix-warn text-xs hover:bg-solix-warn/30 disabled:opacity-40"
+            >
+              Allow up to ${valid ? parsed.toFixed(2) : '—'}
+            </button>
+            <button
+              onClick={() => setRaising(false)}
+              className="px-2.5 py-1.5 rounded border border-solix-border text-slate-300 text-xs hover:text-white"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-3 flex gap-1.5">
+          <button
+            onClick={() => {
+              setNext((budgetUsd * 2).toFixed(2));
+              setRaising(true);
+            }}
+            className="flex-1 py-1.5 rounded bg-solix-warn/15 border border-solix-warn/50 text-solix-warn text-xs hover:bg-solix-warn/25"
+          >
+            Raise cap
+          </button>
+          <button
+            onClick={onDismiss}
+            className="px-2.5 py-1.5 rounded border border-solix-border text-slate-300 text-xs hover:text-white hover:bg-solix-border/30"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
     </div>
   );
 }

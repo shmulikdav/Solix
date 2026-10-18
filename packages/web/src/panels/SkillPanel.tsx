@@ -234,7 +234,7 @@ function UserSkillEditor({
           <button
             onClick={() => void onSave()}
             disabled={busy}
-            className="flex-1 py-1.5 rounded bg-amber-500/20 border border-amber-400/60 text-amber-100 text-xs hover:bg-amber-500/30 disabled:opacity-40"
+            className="flex-1 py-1.5 rounded bg-solix-accent/20 border border-solix-accent/60 text-solix-accent text-xs hover:bg-solix-accent/30 disabled:opacity-40"
           >
             {busy ? 'Saving…' : 'Save'}
           </button>
@@ -261,7 +261,7 @@ function UserSkillEditor({
               </span>
               <button
                 onClick={() => void onRestore(v.id)}
-                className="text-amber-300 hover:text-amber-200"
+                className="text-solix-accent hover:text-solix-accent/80"
               >
                 Restore
               </button>

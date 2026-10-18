@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { TimelineEvent } from '@solix/shared';
-import { useSolixStore } from '../store/index.js';
+import { selectDockOffsetPx, useSolixStore } from '../store/index.js';
 
 interface TimelineRange {
   earliest: number;
@@ -31,6 +31,7 @@ export function TimelineDrawer({
   onClose,
 }: TimelineDrawerProps): JSX.Element | null {
   const playback = useSolixStore((s) => s.playback);
+  const dockOffsetPx = useSolixStore(selectDockOffsetPx);
   const enterPlayback = useSolixStore((s) => s.enterPlayback);
   const exitPlayback = useSolixStore((s) => s.exitPlayback);
   const setPlaybackTime = useSolixStore((s) => s.setPlaybackTime);
@@ -103,8 +104,16 @@ export function TimelineDrawer({
     (e) => e.ts <= playback.currentMs,
   );
 
+  // Stop at the dock's edge instead of running under it. The drawer and the
+  // dock panels are both z-30 and the drawer renders later, so on a tie it
+  // won — covering the bottom of whatever panel was open, which for the plan
+  // panel is its Approve and Abort buttons.
+
   return (
-    <div className="absolute bottom-0 inset-x-0 z-30 bg-solix-panel/95 backdrop-blur border-t border-solix-border">
+    <div
+      className="absolute bottom-0 left-0 z-30 bg-solix-panel/95 backdrop-blur border-t border-solix-border"
+      style={{ right: dockOffsetPx }}
+    >
       <div className="px-4 py-3 max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-3">

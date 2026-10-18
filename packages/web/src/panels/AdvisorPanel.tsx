@@ -147,7 +147,7 @@ export function AdvisorPanel(): JSX.Element | null {
               className="w-full text-left px-2 py-1.5 text-xs flex items-center justify-between text-slate-400 hover:text-slate-100"
             >
               <span>
-                Context envelope · {preview.recentMissionsCount} mission(s)
+                Context pressure · {preview.recentMissionsCount} mission(s)
                 {preview.contextUsagePct !== null &&
                   ` · target at ${preview.contextUsagePct.toFixed(0)}%`}
               </span>
@@ -166,7 +166,7 @@ export function AdvisorPanel(): JSX.Element | null {
         <div className="px-4 py-3 border-t border-solix-border flex flex-col gap-2">
           <button
             onClick={() => enableAdvisor(advisor.id)}
-            className="w-full py-2 rounded bg-cyan-500/20 border border-cyan-400/60 text-cyan-100 text-sm hover:bg-cyan-500/30"
+            className="w-full py-2 rounded bg-solix-warn/20 border border-solix-warn/60 text-solix-warn text-sm hover:bg-solix-warn/30"
             title="Add this advisor to your crew (renders in the inner ring, selectable in + Task)"
           >
             ＋ Add to crew
@@ -182,21 +182,21 @@ export function AdvisorPanel(): JSX.Element | null {
         <div className="px-4 py-3 border-t border-solix-border flex gap-2">
           <button
             onClick={onInvoke}
-            className="flex-1 py-2 rounded bg-solix-accent/20 border border-solix-accent text-solix-accent text-sm hover:bg-solix-accent/30"
+            className="flex-1 py-2 rounded bg-solix-warn/20 border border-solix-warn text-solix-warn text-sm hover:bg-solix-warn/30"
           >
             Invoke
           </button>
           {advisor.pinned ? (
             <button
               onClick={() => unpinAdvisor(advisor.id)}
-              className="px-3 py-2 rounded bg-amber-500/15 border border-amber-400/50 text-amber-200 text-sm hover:bg-amber-500/25"
+              className="px-3 py-2 rounded bg-solix-warn/20 border border-solix-warn/50 text-solix-warn text-sm hover:bg-solix-warn/30"
             >
               Unpin
             </button>
           ) : (
             <button
               onClick={() => pinAdvisor(advisor.id)}
-              className="px-3 py-2 rounded bg-amber-500/10 border border-amber-400/30 text-amber-200/80 text-sm hover:bg-amber-500/20"
+              className="px-3 py-2 rounded bg-solix-warn/10 border border-solix-warn/30 text-solix-warn/90 text-sm hover:bg-solix-warn/20"
               title="Spawn an always-on session for this advisor"
             >
               Pin

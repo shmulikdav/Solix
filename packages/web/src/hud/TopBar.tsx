@@ -115,7 +115,7 @@ export function TopBar({
         {onNewTask && (
           <button
             onClick={onNewTask}
-            className="px-2 py-1 rounded bg-solix-ok/15 border border-solix-ok/40 text-solix-ok hover:bg-solix-ok/25"
+            className="px-2 py-1 rounded bg-solix-accent/15 border border-solix-accent/40 text-solix-accent hover:bg-solix-accent/25"
             title="Launch a new Claude Code task (L)"
           >
             + Task
@@ -133,7 +133,7 @@ export function TopBar({
         {onOpenPlan && (
           <button
             onClick={onOpenPlan}
-            className="px-2 py-1 rounded bg-amber-400/15 border border-amber-300/50 text-amber-100 hover:bg-amber-400/25"
+            className="px-2 py-1 rounded bg-slate-500/15 border border-slate-400/40 text-slate-200 hover:bg-slate-500/25"
             title="Maestro: describe a goal, get a plan you approve (P)"
           >
             ✷ Maestro
@@ -151,7 +151,7 @@ export function TopBar({
         {onOpenShare && (
           <button
             onClick={onOpenShare}
-            className="px-2 py-1 rounded bg-solix-accent/15 border border-solix-accent/40 text-solix-accent hover:bg-solix-accent/25"
+            className="px-2 py-1 rounded bg-slate-500/15 border border-slate-400/40 text-slate-200 hover:bg-slate-500/25"
             title="Share: export, import, versions and audit (G)"
           >
             ⌬ Share

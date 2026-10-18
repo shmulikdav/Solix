@@ -122,7 +122,7 @@ export function TeamsTab({ open }: { open: boolean }): JSX.Element {
             <button
               onClick={() => void onInstall(t.id)}
               disabled={busy === t.id}
-              className="mt-2 w-full py-1.5 rounded bg-amber-500/20 border border-amber-400/60 text-amber-100 text-xs hover:bg-amber-500/30 disabled:opacity-40"
+              className="mt-2 w-full py-1.5 rounded bg-solix-warn/20 border border-solix-warn/60 text-solix-warn text-xs hover:bg-solix-warn/30 disabled:opacity-40"
             >
               {busy === t.id ? 'Installing…' : 'Install team'}
             </button>

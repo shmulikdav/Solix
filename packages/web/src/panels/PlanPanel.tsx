@@ -184,7 +184,7 @@ export function PlanPanel({ open, onClose }: PlanPanelProps): JSX.Element | null
             </div>
             <button
               onClick={() => setShowNew((v) => !v)}
-              className="text-[11px] text-amber-300 hover:text-amber-200"
+              className="text-[11px] text-solix-accent hover:text-solix-accent/80"
             >
               {showNew ? 'Cancel' : '＋ New project'}
             </button>
@@ -213,7 +213,7 @@ export function PlanPanel({ open, onClose }: PlanPanelProps): JSX.Element | null
                 <button
                   onClick={() => void onCreateProject()}
                   disabled={creating || !newName.trim()}
-                  className="px-3 rounded bg-amber-500/20 border border-amber-400/60 text-amber-100 text-xs hover:bg-amber-500/30 disabled:opacity-40"
+                  className="px-3 rounded bg-solix-accent/20 border border-solix-accent/60 text-solix-accent text-xs hover:bg-solix-accent/30 disabled:opacity-40"
                 >
                   {creating ? 'Creating…' : 'Create'}
                 </button>
@@ -365,7 +365,7 @@ export function PlanPanel({ open, onClose }: PlanPanelProps): JSX.Element | null
           <button
             onClick={() => void onPlan()}
             disabled={busy || !goal.trim() || !effectiveCwd.trim()}
-            className="w-full py-2 rounded bg-amber-500/20 border border-amber-400/60 text-amber-100 text-sm hover:bg-amber-500/30 disabled:opacity-40"
+            className="w-full py-2 rounded bg-solix-warn/20 border border-solix-warn/60 text-solix-warn text-sm hover:bg-solix-warn/30 disabled:opacity-40"
           >
             {busy
               ? 'Planning…'
@@ -515,20 +515,29 @@ function PlanCard({ plan }: { plan: Plan }): JSX.Element {
       )}
 
       {plan.status === 'awaiting_approval' && (
-        <button
-          onClick={() => void onApprove()}
-          disabled={busy}
-          className="mt-3 w-full py-1.5 rounded bg-solix-ok/20 border border-solix-ok text-solix-ok text-xs hover:bg-solix-ok/30 disabled:opacity-40"
-        >
-          {busy ? 'Approving…' : 'Approve & run'}
-        </button>
+        <>
+          <button
+            onClick={() => void onApprove()}
+            disabled={busy}
+            className="mt-3 w-full py-1.5 rounded bg-solix-warn/20 border border-solix-warn text-solix-warn text-xs hover:bg-solix-warn/30 disabled:opacity-40"
+          >
+            {busy ? 'Approving…' : 'Approve & run'}
+          </button>
+          <div className="mt-1 text-[10px] text-solix-warn/80 leading-snug">
+            Starts {tasks.length === 1 ? 'an agent' : `${tasks.length} agents`},
+            one per task. Each run costs money
+            {plan.budgetUsd
+              ? `, capped at $${plan.budgetUsd.toFixed(2)}.`
+              : ' and there is no budget cap on this plan.'}
+          </div>
+        </>
       )}
 
       {plan.status === 'paused' && (
         <button
           onClick={() => void onResume()}
           disabled={busy}
-          className="mt-3 w-full py-1.5 rounded bg-solix-accent/15 border border-solix-accent/60 text-solix-accent text-xs hover:bg-solix-accent/25 disabled:opacity-40"
+          className="mt-3 w-full py-1.5 rounded bg-solix-warn/15 border border-solix-warn/60 text-solix-warn text-xs hover:bg-solix-warn/25 disabled:opacity-40"
         >
           {busy ? 'Resuming…' : 'Resume run'}
         </button>
@@ -559,7 +568,7 @@ function PlanCard({ plan }: { plan: Plan }): JSX.Element {
                 <button
                   onClick={() => void onActivate()}
                   disabled={!licenseKey.trim()}
-                  className="px-3 rounded bg-amber-500/20 border border-amber-400/60 text-amber-100 text-[11px] hover:bg-amber-500/30 disabled:opacity-40"
+                  className="px-3 rounded bg-solix-accent/20 border border-solix-accent/60 text-solix-accent text-[11px] hover:bg-solix-accent/30 disabled:opacity-40"
                 >
                   Activate
                 </button>
@@ -615,7 +624,7 @@ function PlanCard({ plan }: { plan: Plan }): JSX.Element {
             <button
               onClick={() => void onRefine()}
               disabled={refining || !refine.trim()}
-              className="px-3 rounded bg-amber-500/20 border border-amber-400/60 text-amber-100 text-xs hover:bg-amber-500/30 disabled:opacity-40"
+              className="px-3 rounded bg-solix-warn/20 border border-solix-warn/60 text-solix-warn text-xs hover:bg-solix-warn/30 disabled:opacity-40"
             >
               {refining ? '…' : 'Plan'}
             </button>
@@ -761,7 +770,7 @@ function FileReviewRow({
         )}
         <button
           onClick={() => setOpen((v) => !v)}
-          className="shrink-0 text-slate-500 hover:text-amber-200"
+          className="shrink-0 text-slate-500 hover:text-slate-200"
           title="Comment on this file → follow-up task"
           aria-label="Comment on this file"
         >
@@ -782,7 +791,7 @@ function FileReviewRow({
           <button
             onClick={() => void onSubmit()}
             disabled={busy || !body.trim()}
-            className="px-2.5 rounded bg-amber-500/20 border border-amber-400/60 text-amber-100 text-[11px] hover:bg-amber-500/30 disabled:opacity-40"
+            className="px-2.5 rounded bg-solix-warn/20 border border-solix-warn/60 text-solix-warn text-[11px] hover:bg-solix-warn/30 disabled:opacity-40"
           >
             {busy ? '…' : 'Fix it'}
           </button>
@@ -986,7 +995,7 @@ function TaskThread({ task }: { task: PlanTask }): JSX.Element {
         <button
           onClick={() => void onSend()}
           disabled={sending || !comment.trim()}
-          className="px-2.5 rounded bg-amber-500/20 border border-amber-400/60 text-amber-100 text-[11px] hover:bg-amber-500/30 disabled:opacity-40"
+          className="px-2.5 rounded bg-solix-warn/20 border border-solix-warn/60 text-solix-warn text-[11px] hover:bg-solix-warn/30 disabled:opacity-40"
         >
           {sending ? '…' : 'Post'}
         </button>

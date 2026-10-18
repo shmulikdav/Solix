@@ -78,6 +78,25 @@ additive and backward-compatible; the paid tier ships dormant (free public beta
 
 These affect anyone upgrading from 1.11.8:
 
+- **"Approve & run" was green.** It dispatches one agent per task and is the
+  largest single spend in the product, wearing the same colour as "enabling an
+  advisor is free". Colour now means something: amber is "this spends money",
+  red is "this stops or destroys something", green is "free or succeeded",
+  purple is the one primary action on a surface, and navigation is neutral —
+  opening a panel never costs anything. Approve & run also states how many
+  agents it will start and whether the plan has a budget cap.
+- **Two spend controls were disguised and three free ones were not.** Pin,
+  Invoke, Launch, Send, Plan, Fix it, Post and Install team are all amber now;
+  creating a project, saving a skill and activating a license are not, because
+  they cost nothing. A test enforces this on every button so the palette cannot
+  drift back.
+- **"Raise cap" was a browser prompt feeding parseFloat.** Typing "20 dollars"
+  silently set the cap to 20 and typing "twenty" silently did nothing. It is a
+  number input that shows the new cap before you commit, and it is amber rather
+  than green, because raising a cap lets an agent spend more.
+- **The timeline drawer covered the plan panel's Approve and Abort buttons.**
+  Both are z-30 and the drawer renders later, so it won on the tie. It now
+  stops at the dock's edge.
 - **The first command the README suggests destroyed onboarding.** The welcome
   modal only rendered when there were zero sessions, and `solix demo` — the
   quick start's first step — seeds about thirty. Anyone who followed the

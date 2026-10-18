@@ -213,7 +213,7 @@ export function SidePanel(): JSX.Element | null {
 
       <div className="px-4 py-2 border-b border-solix-border">
         <div className="flex items-center justify-between text-xs text-slate-400">
-          <span>context</span>
+          <span>context pressure</span>
           <span>{session.contextUsagePct.toFixed(0)}%</span>
         </div>
         <div className="mt-1 h-1.5 rounded-full bg-slate-800 overflow-hidden">
@@ -278,7 +278,7 @@ export function SidePanel(): JSX.Element | null {
                 <button
                   onClick={onSend}
                   disabled={!composer.trim()}
-                  className="px-3 py-2 rounded bg-solix-accent/20 border border-solix-accent text-solix-accent text-sm hover:bg-solix-accent/30 disabled:opacity-40"
+                  className="px-3 py-2 rounded bg-solix-warn/20 border border-solix-warn text-solix-warn text-sm hover:bg-solix-warn/30 disabled:opacity-40"
                 >
                   Send
                 </button>
