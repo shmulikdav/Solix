@@ -178,6 +178,31 @@ function installSolixSkills(): number {
   return copied;
 }
 
+/** Has Claude Code ever run on this machine? */
+export function claudeCodePresent(): boolean {
+  return existsSync(CLAUDE_DIR);
+}
+
+/**
+ * Are Solix's hooks actually in place?
+ *
+ * Both halves have to be true: the scripts must exist on disk, and Claude
+ * Code's settings must point at them. Checking only one of them is how you
+ * get the failure this guards — `solix start` printed "start any claude
+ * session to see your first planet appear" whether or not anything was wired,
+ * so a user with no hooks watched an empty galaxy forever with nothing
+ * explaining why.
+ */
+export function hooksInstalled(): boolean {
+  for (const name of HOOK_NAMES) {
+    if (!existsSync(join(HOOKS_DIR, `${name}.sh`))) return false;
+  }
+  if (!existsSync(CLAUDE_SETTINGS)) return false;
+  const settings = readSettings();
+  const wired = JSON.stringify(settings.hooks ?? {});
+  return wired.includes(HOOKS_DIR);
+}
+
 export interface InstallOptions {
   force?: boolean;
 }

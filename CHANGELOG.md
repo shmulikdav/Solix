@@ -78,6 +78,18 @@ additive and backward-compatible; the paid tier ships dormant (free public beta
 
 These affect anyone upgrading from 1.11.8:
 
+- **Installing is one command now.** `solix start` never checked whether its
+  Claude Code hooks were wired — it booted the server, opened the browser and
+  printed "start any `claude` session to see your first planet appear", which
+  simply never happened if you had skipped `solix install`. An empty galaxy,
+  forever, with no error explaining it. First run now wires the hooks itself
+  and says exactly what it changed, where the backup went, and that
+  `solix uninstall` reverses it. On a machine with no Claude Code it wires
+  nothing and points at `solix demo` instead of creating a config directory
+  for software that isn't there.
+
+  `npm i -g @shmulikdav/solix` then `solix` is the whole install.
+  `solix install` remains for scripted setups and `--force` re-wiring.
 - **Pending decisions moved into the rail.** The queue used to float over the
   galaxy permanently, taking a 320px column whether or not anything was
   waiting, and twice it was found underneath something because the arithmetic
