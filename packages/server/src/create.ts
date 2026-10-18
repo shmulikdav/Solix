@@ -151,7 +151,15 @@ export async function createSolixServer(
       return;
     }
     try {
-      launcher.launch({ cwd: schedule.cwd, initialPrompt: schedule.prompt });
+      // A routine fires unattended, so it launches as an autonomous session:
+      // correlated via --session-id and governed by the containment denylist
+      // (dangerous tool calls hard-denied, safe ones auto-allowed) rather than
+      // queueing a permission prompt for a human who isn't watching.
+      launcher.launch({
+        cwd: schedule.cwd,
+        initialPrompt: schedule.prompt,
+        sessionRole: 'routine',
+      });
       recordScheduleRun(db, {
         scheduleId: schedule.id,
         trigger,

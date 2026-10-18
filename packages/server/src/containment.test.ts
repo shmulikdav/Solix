@@ -145,3 +145,47 @@ describe('fullAutoContainmentStatus (safe-by-default)', () => {
     expect(fullAutoContainmentStatus({ SOLIX_GATE_ENABLED: '0' }).ok).toBe(false);
   });
 });
+
+describe('routine sessions are contained (P2 #7 follow-up)', () => {
+  // A routine fires unattended — often overnight — so it must be governed by
+  // the denylist like a worker, not left ungoverned and not queued behind a
+  // permission prompt nobody is awake to answer.
+  it('blocks a destructive command from a routine', () => {
+    const d = evaluateContainment({
+      role: 'routine',
+      tool: 'Bash',
+      command: 'rm -rf /',
+      cwd: '/tmp/p',
+    });
+    expect(d.blocked).toBe(true);
+  });
+
+  it('blocks a write outside the project from a routine', () => {
+    const d = evaluateContainment({
+      role: 'routine',
+      tool: 'Write',
+      filePath: '/etc/passwd',
+      cwd: '/tmp/p',
+    });
+    expect(d.blocked).toBe(true);
+  });
+
+  it('allows ordinary work from a routine', () => {
+    expect(
+      evaluateContainment({
+        role: 'routine',
+        tool: 'Bash',
+        command: 'npm test',
+        cwd: '/tmp/p',
+      }).blocked,
+    ).toBe(false);
+  });
+
+  it('still leaves a human-started session ungoverned', () => {
+    // Containment governs what Solix launches, not what you run yourself.
+    expect(
+      evaluateContainment({ tool: 'Bash', command: 'rm -rf /', cwd: '/tmp/p' })
+        .blocked,
+    ).toBe(false);
+  });
+});

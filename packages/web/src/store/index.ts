@@ -281,6 +281,7 @@ interface SolixState {
   installTeamTemplate: (
     templateId: string,
     cwd: string,
+    includeRoutines?: boolean,
   ) => Promise<{ ok: boolean; warnings?: string[]; error?: string }>;
   /** Skill authoring (P3 #9). */
   createSkill: (input: {
@@ -915,7 +916,7 @@ export const useSolixStore = create<SolixState>((set, get) => ({
     }
   },
 
-  installTeamTemplate: async (templateId, cwd) => {
+  installTeamTemplate: async (templateId, cwd, includeRoutines = true) => {
     if (!cwd.trim()) return { ok: false, error: 'Pick a project first.' };
     try {
       const res = await fetch(
@@ -923,7 +924,7 @@ export const useSolixStore = create<SolixState>((set, get) => ({
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ cwd }),
+          body: JSON.stringify({ cwd, includeRoutines }),
         },
       );
       const data = (await res.json().catch(() => ({}))) as {

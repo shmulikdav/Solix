@@ -3,6 +3,7 @@ import { resetDbForTests, type DB } from '../db.js';
 import { seedAdvisors, getAdvisor } from './advisors.js';
 import { getSkill } from './skills.js';
 import { listSchedules } from './schedules.js';
+
 import {
   getTeamTemplate,
   installTeamTemplate,
@@ -65,6 +66,28 @@ describe('team templates (P2 #7)', () => {
     expect(res.skillsInstalled).toHaveLength(0);
     expect(res.warnings.length).toBeGreaterThan(0);
     // Routines still get created (they don't depend on a catalog).
+    expect(res.routinesCreated).toHaveLength(1);
+  });
+
+  it('can decline the routines while still taking advisors + skills', () => {
+    seedAdvisors(db);
+    seedSkill(db, 'mission-summary', 'mission-summary');
+    const res = installTeamTemplate(db, 'ship-fast', {
+      cwd: '/tmp/proj',
+      includeRoutines: false,
+    });
+    expect(res.ok).toBe(true);
+    // The parts with no ongoing effect still applied…
+    expect(res.advisorsEnabled.length).toBeGreaterThan(0);
+    expect(res.skillsInstalled).toEqual(['mission-summary']);
+    // …but no recurring agent run was scheduled.
+    expect(res.routinesCreated).toHaveLength(0);
+    expect(listSchedules(db)).toHaveLength(0);
+    expect(res.warnings.some((w) => /declined/.test(w))).toBe(true);
+  });
+
+  it('creates routines by default (unchanged behaviour)', () => {
+    const res = installTeamTemplate(db, 'ship-fast', { cwd: '/tmp/proj' });
     expect(res.routinesCreated).toHaveLength(1);
   });
 
