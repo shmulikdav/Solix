@@ -1,6 +1,12 @@
 import { createSolixServer } from '@solix/server/create';
 import open from 'open';
-import { claudeCodePresent, hooksInstalled, install } from './install.js';
+import {
+  claudeCodePresent,
+  hooksInstalled,
+  hooksUpToDate,
+  install,
+  installedVersion,
+} from './install.js';
 
 // Injected at build time by tsup (same define as index.ts). Lets the
 // server report the real product version at /api/health instead of a
@@ -36,7 +42,13 @@ const BANNER = `
  * than demanded.
  */
 function ensureWired(): void {
-  if (hooksInstalled()) return;
+  if (hooksUpToDate()) return;
+
+  // Hooks are present but were written by a different release. The scripts
+  // ship with the product and change between versions, so leaving them is
+  // how a user ends up running last release's hooks against this release's
+  // server — and never finds out.
+  const stale = hooksInstalled();
 
   if (!claudeCodePresent()) {
     // Nothing to wire into, and that is a legitimate state — the demo runs
@@ -50,7 +62,11 @@ function ensureWired(): void {
     return;
   }
 
-  console.log('[solix] first run — wiring Claude Code hooks');
+  console.log(
+    stale
+      ? `[solix] hooks are from ${installedVersion() ?? 'an older release'} — updating to ${__SOLIX_VERSION__}`
+      : '[solix] first run — wiring Claude Code hooks',
+  );
   try {
     install();
     console.log('[solix] undo any time with `solix uninstall`');

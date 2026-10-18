@@ -78,6 +78,22 @@ additive and backward-compatible; the paid tier ships dormant (free public beta
 
 These affect anyone upgrading from 1.11.8:
 
+- **Uninstalling could silently revert your Claude Code settings.**
+  `solix uninstall` restored the backup wholesale whenever one existed — and
+  that backup is taken *once*, at first install. Anything you added to
+  `~/.claude/settings.json` afterwards (your own hooks, MCP servers,
+  permissions, env) was quietly rolled back to the install-time snapshot.
+  Removing a tool is not consent to roll back a file the tool is a guest in.
+  It now always removes only its own hook entries, leaving everything else —
+  including other tools' hooks on the same events — untouched. The backup is
+  kept for the one case surgery cannot handle, a `settings.json` that no
+  longer parses, and that path says what it did.
+- **Upgrades left you on the previous release's hook scripts.** The first-run
+  check only asked whether the hook files existed, not which version wrote
+  them, so every release after the first would start up, see "installed", and
+  skip — running new server code against old hooks indefinitely. The install
+  is version-stamped now; a mismatch re-wires and says which version it is
+  coming from.
 - **Installing is one command now.** `solix start` never checked whether its
   Claude Code hooks were wired — it booted the server, opened the browser and
   printed "start any `claude` session to see your first planet appear", which

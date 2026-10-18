@@ -85,6 +85,35 @@ describe('hooksInstalled', () => {
     expect(hooksInstalled()).toBe(true);
   });
 
+  /**
+   * The upgrade bug. An existence check cannot tell "current" from "written
+   * by a release two versions ago", so `solix start` would skip the rewire
+   * and the user would keep running stale hook scripts indefinitely — every
+   * shipped fix landing on a machine that never picks it up.
+   */
+  it('reports out-of-date when the hooks were written by another version', async () => {
+    mkdirSync(join(home, '.claude'), { recursive: true });
+    const { hooksInstalled, hooksUpToDate, install } = await load();
+    install();
+    expect(hooksUpToDate()).toBe(true);
+
+    // Simulate an upgrade: same files on disk, older stamp.
+    writeFileSync(join(home, '.solix', 'installed-version'), '0.0.1\n');
+    expect(hooksInstalled()).toBe(true); // files are still there…
+    expect(hooksUpToDate()).toBe(false); // …but they are not ours
+  });
+
+  it('treats an unstamped install as out of date', async () => {
+    mkdirSync(join(home, '.claude'), { recursive: true });
+    const { hooksInstalled, hooksUpToDate, install, installedVersion } =
+      await load();
+    install();
+    rmSync(join(home, '.solix', 'installed-version'));
+    expect(installedVersion()).toBeNull();
+    expect(hooksInstalled()).toBe(true);
+    expect(hooksUpToDate()).toBe(false);
+  });
+
   // install() backs settings.json up before touching it, which is what makes
   // doing this without asking defensible — `solix uninstall` restores it.
   it('backs up an existing settings.json before merging', async () => {

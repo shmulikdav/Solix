@@ -19,6 +19,7 @@ import {
   HOOK_NAMES,
   HOOKS_DIR,
   SOLIX_HOME,
+  SOLIX_INSTALL_STAMP,
   SOLIX_SKILLS_DIR,
   SOLIX_TOKEN_FILE,
   packagedAgentsDir,
@@ -178,9 +179,39 @@ function installSolixSkills(): number {
   return copied;
 }
 
+// Injected at build time by tsup, same define as index.ts / start.ts.
+declare const __SOLIX_VERSION__: string;
+
 /** Has Claude Code ever run on this machine? */
 export function claudeCodePresent(): boolean {
   return existsSync(CLAUDE_DIR);
+}
+
+/**
+ * Which Solix version wrote the hooks currently on disk, or null if they
+ * predate the stamp (or were never written).
+ */
+export function installedVersion(): string | null {
+  try {
+    const v = readFileSync(SOLIX_INSTALL_STAMP, 'utf8').trim();
+    return v.length > 0 ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Are the hooks on disk the ones this build ships?
+ *
+ * "Do the files exist" is not enough. The hook scripts are part of the
+ * product and change between releases, so an existence check means an
+ * upgrade never rewrites them: `solix start` sees "installed", skips, and the
+ * user keeps running the previous release's hooks for good. In a beta, where
+ * the whole point is shipping fixes, that turns every fix into "it's still
+ * broken" with no way for either side to tell why.
+ */
+export function hooksUpToDate(): boolean {
+  return hooksInstalled() && installedVersion() === __SOLIX_VERSION__;
 }
 
 /**
@@ -242,4 +273,9 @@ export function install(opts: InstallOptions = {}): void {
   const next: ClaudeSettings = { ...existing, hooks: merged };
   writeFileSync(CLAUDE_SETTINGS, JSON.stringify(next, null, 2) + '\n');
   console.log(`[solix] merged hooks into ${CLAUDE_SETTINGS}`);
+
+  // Last, and only on success: the stamp is what lets a later start tell
+  // "these hooks are current" from "these hooks are from two releases ago".
+  // Writing it before the work above would claim an install that failed.
+  writeFileSync(SOLIX_INSTALL_STAMP, `${__SOLIX_VERSION__}\n`);
 }

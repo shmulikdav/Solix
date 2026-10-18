@@ -9,6 +9,14 @@ export const SOLIX_SKILLS_DIR = join(SOLIX_HOME, 'skills');
 // Shared secret written at install time; hooks send it as X-Solix-Token and
 // the server requires it on the /events ingestion surface.
 export const SOLIX_TOKEN_FILE = join(SOLIX_HOME, 'token');
+/**
+ * Which Solix version last wrote the hook scripts.
+ *
+ * Without this, "are the hooks installed?" can only mean "do the files
+ * exist?", and an upgrade that changes a hook script is never picked up —
+ * every release after the first would run against the first release's hooks.
+ */
+export const SOLIX_INSTALL_STAMP = join(SOLIX_HOME, 'installed-version');
 export const CLAUDE_DIR = join(homedir(), '.claude');
 export const CLAUDE_SETTINGS = join(CLAUDE_DIR, 'settings.json');
 export const CLAUDE_BACKUP = join(CLAUDE_DIR, 'settings.solix.backup.json');
