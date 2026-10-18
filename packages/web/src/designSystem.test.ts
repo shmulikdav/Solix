@@ -82,28 +82,39 @@ describe('design system — colour is semantic', () => {
     });
   }
 
-  // N3/C7: the bar had six unrelated colours and two different buttons sharing
-  // amber for unrelated reasons. Navigation never costs anything, so it is
-  // neutral; the one coloured control is the primary action.
-  it('keeps top-bar navigation neutral', () => {
-    const src = readFileSync(join(SRC, 'hud/TopBar.tsx'), 'utf8');
+  // N3/C7: the old bar had six unrelated colours and two different buttons
+  // sharing amber for unrelated reasons. Navigation never costs anything, so
+  // it carries no semantic colour — the rule followed the destinations from
+  // the top bar into the rail.
+  it('keeps navigation neutral', () => {
+    const src = readFileSync(join(SRC, 'shell/NavRail.tsx'), 'utf8');
     const coloured = buttonTags(src)
-      .filter(({ tag }) => /(bg|text|border)-solix-(warn|ok|danger)\b/.test(tag))
+      .filter(({ tag }) => /(bg|text|border)-solix-(warn|danger)\b/.test(tag))
       .map(({ line }) => line);
     expect(coloured).toEqual([]);
   });
 
-  it('leaves exactly one accented control in the actions cluster', () => {
+  // Accent in the rail means "this is where you are", not "this is the
+  // important one" — so it may only appear behind an active check.
+  it('uses accent in the rail only for the active destination', () => {
+    const src = readFileSync(join(SRC, 'shell/NavRail.tsx'), 'utf8');
+    for (const { line, tag } of buttonTags(src)) {
+      if (!/solix-accent/.test(tag)) continue;
+      const guarded =
+        /active\s*\?/.test(tag) || /childActive\s*\?/.test(tag);
+      expect(guarded, `NavRail.tsx:${line} uses accent unconditionally`).toBe(
+        true,
+      );
+    }
+  });
+
+  // The strip that is left carries context and status, not destinations.
+  it('keeps the top bar free of navigation buttons', () => {
     const src = readFileSync(join(SRC, 'hud/TopBar.tsx'), 'utf8');
-    // Only the persistent nav cluster. The left group's "exit playback" chip
-    // is a transient mode indicator and is meant to stand out.
-    const actions = src.slice(src.indexOf('data-topbar-actions'));
-    const accented = buttonTags(actions).filter(({ tag }) =>
-      /bg-solix-accent\//.test(tag),
+    const openers = buttonTags(src).filter(({ tag }) =>
+      /onOpen|openPanel|setViewMode/.test(tag),
     );
-    // + Task. Opening a panel is never the thing worth highlighting.
-    expect(accented).toHaveLength(1);
-    expect(accented[0]!.tag).toContain('onNewTask');
+    expect(openers).toEqual([]);
   });
 
   // The specific inversion the audit found: the biggest spend in the product

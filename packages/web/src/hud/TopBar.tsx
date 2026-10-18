@@ -1,34 +1,27 @@
-import { useSolixStore, selectPlanets } from '../store/index.js';
+import { selectPlanets, useSolixStore } from '../store/index.js';
+import { RAIL_WIDTH_PX, TOP_BAR_HEIGHT_PX } from '../shell/surfaces.js';
 import { ConnectionDot } from './ConnectionDot.js';
 
-interface TopBarProps {
-  onOpenShare?: () => void;
-  onNewTask?: () => void;
-  onOpenTimeline?: () => void;
-  onOpenHelp?: () => void;
-  onOpenPlan?: () => void;
-  onOpenFleet?: () => void;
-  onOpenWorkspace?: () => void;
-}
-
-export function TopBar({
-  onOpenShare,
-  onNewTask,
-  onOpenTimeline,
-  onOpenHelp,
-  onOpenPlan,
-  onOpenFleet,
-  onOpenWorkspace,
-}: TopBarProps = {}): JSX.Element {
-  const planets = useSolixStore(selectPlanets);
+/**
+ * The top strip, after the nav rail took the destinations.
+ *
+ * It used to carry four unrelated jobs — identity, status, the view switch and
+ * seven destinations — in one row, and wrapped onto a second line as a result.
+ * Identity moved to the rail header, destinations to the rail body. What is
+ * left is the two things that answer "where am I and is anything wrong":
+ * a breadcrumb and live status.
+ */
+export function TopBar(): JSX.Element {
   const viewMode = useSolixStore((s) => s.viewMode);
+  const activePanel = useSolixStore((s) => s.activePanel);
+  const activePanelTab = useSolixStore((s) => s.activePanelTab);
   const playbackActive = useSolixStore((s) => s.playback.active);
   const exitPlayback = useSolixStore((s) => s.exitPlayback);
   const orgs = useSolixStore((s) => s.orgs);
   const currentOrgId = useSolixStore((s) => s.currentOrgId);
+  const planets = useSolixStore(selectPlanets);
 
   const activeOrg = orgs.find((o) => o.id === currentOrgId);
-
   const counts = planets.reduce(
     (acc, s) => {
       if (s.status === 'active') acc.active += 1;
@@ -45,181 +38,121 @@ export function TopBar({
   );
 
   return (
-    <div
+    <header
       data-topbar=""
-      className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-4 z-40"
+      className="absolute top-0 right-0 z-30 flex items-center gap-3 border-b border-solix-border bg-solix-panel/80 px-4 backdrop-blur-md"
+      style={{ left: RAIL_WIDTH_PX, height: TOP_BAR_HEIGHT_PX }}
     >
-      <div className="pointer-events-auto flex items-center gap-2 sm:gap-3">
-        <div className="flex items-baseline gap-1.5">
-          <div className="text-xl font-bold tracking-widest text-solix-accent">
-            SOLIX
-          </div>
-          <span
-            className="text-[10px] font-mono text-slate-500"
-            title={`Solix v${__SOLIX_VERSION__} — built into this UI bundle`}
-          >
-            v{__SOLIX_VERSION__}
-          </span>
-        </div>
-        <div className="hidden md:block text-xs text-slate-400">
-          a solar-system command center
-        </div>
-        <ConnectionDot />
-        {playbackActive && (
-          <button
-            onClick={exitPlayback}
-            className="ml-2 px-2 py-1 rounded text-[10px] border border-solix-accent text-solix-accent solix-pulse hover:bg-solix-accent/15 cursor-pointer flex items-center gap-1.5"
-            title="Exit Timeline Playback (Esc)"
-            aria-label="Exit playback"
-          >
-            <span>▸ PLAYBACK</span>
-            <span className="opacity-70">· exit ✕</span>
-          </button>
-        )}
-      </div>
+      <Breadcrumb
+        viewMode={viewMode}
+        activePanel={activePanel}
+        activePanelTab={activePanelTab}
+      />
 
-      {/* flex-wrap + justify-end: this group grows every time a surface is
-          added, and without wrapping the overflow silently pushes the
-          right-most control (the help button) off the viewport edge. */}
-      {/* The actions cluster. This is the group that grows every time a
-          surface is added, so the browser smoke asserts it stays one row. */}
-      <div
-        data-topbar-actions=""
-        className="pointer-events-auto flex flex-wrap items-center justify-end gap-2 sm:gap-3 text-xs max-w-full"
-      >
-        {/* Counters and timeline are useful but not critical on mobile;
-            hide them at <sm to keep the topbar single-row. */}
-        <div className="hidden sm:flex items-center gap-2">
-          <Stat label="active" value={counts.active} color="text-solix-ok" />
-          <Stat label="attention" value={counts.attention} color="text-solix-warn" />
-          <Stat label="idle" value={counts.idle} color="text-slate-400" />
-        </div>
-        <ViewToggle viewMode={viewMode} />
-        {onOpenTimeline && (
-          <button
-            onClick={onOpenTimeline}
-            className="hidden sm:inline-block px-2 py-1 rounded bg-solix-panel border border-solix-border text-slate-300 hover:text-white hover:bg-solix-border/30"
-            title="Timeline playback (T)"
-          >
-            ⏱ Timeline
-          </button>
-        )}
-        {onNewTask && (
-          <button
-            onClick={onNewTask}
-            className="px-2 py-1 rounded bg-solix-accent/15 border border-solix-accent/40 text-solix-accent hover:bg-solix-accent/25"
-            title="Launch a new Claude Code task (L)"
-          >
-            + Task
-          </button>
-        )}
-        {onOpenWorkspace && (
-          <button
-            onClick={onOpenWorkspace}
-            className="px-2 py-1 rounded bg-slate-500/15 border border-slate-400/40 text-slate-200 hover:bg-slate-500/25"
-            title="Mission Control: whole-workspace overview (W) — also opens by clicking the sun"
-          >
-            ☀ Mission Control
-          </button>
-        )}
-        {onOpenPlan && (
-          <button
-            onClick={onOpenPlan}
-            className="px-2 py-1 rounded bg-slate-500/15 border border-slate-400/40 text-slate-200 hover:bg-slate-500/25"
-            title="Maestro: describe a goal, get a plan you approve (P)"
-          >
-            ✷ Maestro
-          </button>
-        )}
-        {onOpenFleet && (
-          <button
-            onClick={onOpenFleet}
-            className="px-2 py-1 rounded bg-slate-500/15 border border-slate-400/40 text-slate-200 hover:bg-slate-500/25"
-            title="Fleet: crew, skills, teams, routines, connections and orgs"
-          >
-            ⚙ Fleet
-          </button>
-        )}
-        {onOpenShare && (
-          <button
-            onClick={onOpenShare}
-            className="px-2 py-1 rounded bg-slate-500/15 border border-slate-400/40 text-slate-200 hover:bg-slate-500/25"
-            title="Share: export, import, versions and audit (G)"
-          >
-            ⌬ Share
-          </button>
-        )}
-        {/* Not a control. Switching, creating and deleting orgs live in
-            Fleet > Orgs, but the active org changes which plans Maestro shows,
-            so hiding it entirely would cost more than the button saves. */}
-        {activeOrg && orgs.length > 1 && (
-          <span
-            title="Active org — scopes which plans you see. Change it in Fleet › Orgs."
-            className="px-2 py-1 rounded bg-slate-500/10 border border-slate-400/20 text-slate-400 select-none"
-          >
-            ◭ {activeOrg.name}
-          </span>
-        )}
-        {onOpenHelp && (
-          <button
-            onClick={onOpenHelp}
-            className="w-7 h-7 rounded-full bg-solix-panel border border-solix-border text-slate-300 hover:text-white hover:bg-solix-border/30 text-sm"
-            title="Help (?)"
-            aria-label="Help"
-          >
-            ?
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
+      <div className="flex-1" />
 
-function ViewToggle({
-  viewMode,
-}: {
-  viewMode: 'galaxy' | 'list' | 'missions';
-}): JSX.Element {
-  const setViewMode = useSolixStore((s) => s.setViewMode);
-  const opts: { mode: 'galaxy' | 'list' | 'missions'; label: string }[] = [
-    { mode: 'galaxy', label: '🪐' },
-    { mode: 'list', label: '☰' },
-    { mode: 'missions', label: '◎' },
-  ];
-  return (
-    <div className="inline-flex rounded border border-solix-border bg-solix-panel overflow-hidden">
-      {opts.map((o) => (
+      {playbackActive && (
         <button
-          key={o.mode}
-          onClick={() => setViewMode(o.mode)}
-          className={`px-2 py-1 text-xs ${
-            viewMode === o.mode
-              ? 'bg-solix-border/50 text-white'
-              : 'text-slate-400 hover:text-slate-100'
-          }`}
-          title={`${o.mode} view (V)`}
+          onClick={exitPlayback}
+          className="rounded border border-solix-accent px-2 py-0.5 text-[10px] text-solix-accent solix-pulse hover:bg-solix-accent/15"
+          title="Exit Timeline Playback (Esc)"
+          aria-label="Exit playback"
         >
-          {o.label}{' '}
-          <span className="hidden sm:inline capitalize">{o.mode}</span>
+          ▸ PLAYBACK · exit ✕
         </button>
-      ))}
-    </div>
+      )}
+
+      {activeOrg && orgs.length > 1 && (
+        <span
+          title="Active org — scopes which plans you see. Change it in Fleet › Orgs."
+          className="select-none text-[11px] text-slate-500"
+        >
+          ◭ {activeOrg.name}
+        </span>
+      )}
+
+      {/* Plain text, not bordered pills. The pills had the same base classes
+          as a real button, so three readouts looked clickable and weren't. */}
+      <div
+        className="hidden items-center gap-3 text-[11px] sm:flex"
+        aria-label="Fleet status"
+      >
+        <Stat value={counts.active} label="active" color="text-solix-ok" />
+        <Stat
+          value={counts.attention}
+          label="need you"
+          color={counts.attention > 0 ? 'text-solix-warn' : 'text-slate-500'}
+        />
+        <Stat value={counts.idle} label="idle" color="text-slate-500" />
+      </div>
+
+      <ConnectionDot />
+    </header>
   );
 }
 
 function Stat({
-  label,
   value,
+  label,
   color,
 }: {
-  label: string;
   value: number;
+  label: string;
   color: string;
 }): JSX.Element {
   return (
-    <div className="px-2 py-1 rounded bg-solix-panel border border-solix-border">
-      <span className={`font-bold ${color}`}>{value}</span>
-      <span className="ml-1 opacity-60 uppercase tracking-wide">{label}</span>
+    <span className="whitespace-nowrap">
+      <span className={`font-semibold ${color}`}>{value}</span>
+      <span className="ml-1 text-slate-500">{label}</span>
+    </span>
+  );
+}
+
+const PANEL_LABELS: Record<string, string> = {
+  session: 'Agent',
+  advisor: 'Advisor',
+  skill: 'Skill',
+  workspace: 'Mission Control',
+  plan: 'Maestro',
+  share: 'Share',
+  fleet: 'Fleet',
+};
+
+const VIEW_LABELS: Record<string, string> = {
+  galaxy: 'Galaxy',
+  list: 'List',
+  missions: 'Missions',
+};
+
+/** Says where you are. Nothing in the old bar did. */
+function Breadcrumb({
+  viewMode,
+  activePanel,
+  activePanelTab,
+}: {
+  viewMode: string;
+  activePanel: string | null;
+  activePanelTab: string | null;
+}): JSX.Element {
+  const crumbs: string[] = [VIEW_LABELS[viewMode] ?? viewMode];
+  if (activePanel) {
+    crumbs.push(PANEL_LABELS[activePanel] ?? activePanel);
+    if (activePanel === 'fleet') {
+      crumbs.push(
+        (activePanelTab ?? 'crew').replace(/^./, (c) => c.toUpperCase()),
+      );
+    }
+  }
+  return (
+    <div className="flex items-center gap-1.5 text-xs text-slate-400">
+      {crumbs.map((c, i) => (
+        <span key={c} className="flex items-center gap-1.5">
+          {i > 0 && <span className="text-slate-600">›</span>}
+          <span className={i === crumbs.length - 1 ? 'text-slate-200' : ''}>
+            {c}
+          </span>
+        </span>
+      ))}
     </div>
   );
 }

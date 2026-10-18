@@ -227,7 +227,7 @@ async function main() {
       ['Connections', 'Notifications'],
       ['Orgs', 'An org scopes which plans you see'],
     ];
-    await page.click('text=⚙ Fleet');
+    await page.click('[data-nav-rail] >> text="Fleet"');
     await page.waitForSelector('[data-dock-panel]', { timeout: 10000 });
     for (const [tab, expected] of tabs) {
       await page.click(`[data-dock-panel] >> text="${tab}"`);
@@ -241,7 +241,7 @@ async function main() {
   // a team makes them) but only cancellable from a terminal, because the web
   // layer had one read-only selector and zero write actions for schedules.
   await step('a routine can be created and then stopped in-app (S4)', async () => {
-    await page.click('text=⚙ Fleet');
+    await page.click('[data-nav-rail] >> text="Fleet"');
     await page.waitForSelector('[data-dock-panel]', { timeout: 10000 });
     await page.click('[data-dock-panel] >> text="Routines"');
     await page.waitForSelector('text=New routine', { timeout: 10000 });
@@ -278,7 +278,7 @@ async function main() {
   });
 
   await step('Share panel still opens on its own tabs', async () => {
-    await page.click('text=⌬ Share');
+    await page.click('[data-nav-rail] >> text="Share"');
     await page.waitForSelector('text=Versions', { timeout: 10000 });
     await page.screenshot({ path: `${SHOT_DIR}/05-share.png` });
     await page.keyboard.press('Escape');
@@ -288,7 +288,7 @@ async function main() {
   // sun or pressing W — and the sun does not exist in List or Missions view, so
   // there the whole panel was keyboard-only and effectively undiscoverable.
   await step('Mission Control opens from the top bar (N6)', async () => {
-    await page.click('text=\u2600 Mission Control');
+    await page.click('[data-nav-rail] >> text="Mission Control"');
     // Wait on the dock itself, not on the text: the button carries the same
     // label, so a text selector resolves instantly against the button and the
     // assertion then races the lazy panel chunk.
@@ -312,7 +312,7 @@ async function main() {
   await step('opening a second dock panel closes the first', async () => {
     await page.keyboard.press('p');
     await page.waitForSelector('text=Plan a build', { timeout: 10000 });
-    await page.click('text=\u2699 Fleet');
+    await page.click('[data-nav-rail] >> text="Fleet"');
     await page.waitForSelector('text=Active crew', { timeout: 10000 });
     const docks = await page.locator('[data-dock-panel]').count();
     if (docks !== 1) {
@@ -329,38 +329,45 @@ async function main() {
   // overflowing bar silently pushes its right-most control (the help button)
   // off the viewport — invisible to typecheck and to jsdom tests, and only
   // noticed when a human squints at a screenshot. Check at a laptop width.
-  // Folding six surfaces into Fleet bought back top-bar width: the actions
-  // cluster went from 9 controls to 7, and from wrapping at every width up to
-  // 1920px to being one row from 1680px up. The clip guard below cannot see
-  // this, because the bar wraps instead of clipping and a two-row bar passes
-  // it, so assert the row count directly.
-  //
-  // 1680 is the measured threshold, not an aspiration. The cluster also holds
-  // the status readout (~254px) and the view toggle (~235px), which are not
-  // navigation; total bar content is ~1476px, so no amount of regrouping makes
-  // 1280px a single row — roughly 230px of content would have to go. Lowering
-  // this number means deciding what that is (abbreviating the status counts,
-  // moving Timeline, an overflow menu), which is a product decision rather than
-  // a layout fix. If you make it, lower the threshold here with it.
-  await step('the top bar actions stay one row at 1680px', async () => {
-    await page.setViewportSize({ width: 1680, height: 900 });
+  // Every previous attempt at this failed: the bar carried identity, status,
+  // a view switch and seven destinations, and wrapped at every width up to
+  // 1920px. Moving destinations to the rail is what finally makes a single
+  // row possible, so assert it at the narrowest width we support rather than
+  // at the width that happens to pass.
+  await step('the top bar is a single row at 1280px', async () => {
+    await page.setViewportSize({ width: 1280, height: 800 });
     await page.waitForTimeout(400);
-    const rows = await page.evaluate(() => {
-      const group = document.querySelector('[data-topbar-actions]');
-      if (!group) return -1;
-      const tops = [...group.querySelectorAll('button, select, span[title]')]
-        .filter((b) => {
-          const r = b.getBoundingClientRect();
-          return r.width > 0 && r.height > 0;
-        })
-        // Bucket by 8px so baseline differences between a 28px round button
-        // and a 26px pill don't read as a wrap.
-        .map((b) => Math.round(b.getBoundingClientRect().top / 8));
-      return new Set(tops).size;
+    const info = await page.evaluate(() => {
+      const bar = document.querySelector('[data-topbar]');
+      if (!bar) return null;
+      const kids = [...bar.querySelectorAll('button, span, kbd')].filter((b) => {
+        const r = b.getBoundingClientRect();
+        return r.width > 0 && r.height > 0;
+      });
+      return {
+        rows: new Set(
+          kids.map((b) => Math.round(b.getBoundingClientRect().top / 8)),
+        ).size,
+        height: Math.round(bar.getBoundingClientRect().height),
+      };
     });
-    if (rows === -1) throw new Error('top bar actions group not found');
-    if (rows > 1) {
-      throw new Error(`top bar actions wrapped to ${rows} rows at 1680px`);
+    if (!info) throw new Error('top bar not found');
+    if (info.rows > 1) {
+      throw new Error(`top bar wrapped to ${info.rows} rows at 1280px`);
+    }
+    if (info.height > 56) {
+      throw new Error(`top bar is ${info.height}px tall, expected one row`);
+    }
+  });
+
+  // The rail is the navigation now, so every destination must be in it.
+  await step('every rail destination is present', async () => {
+    for (const label of [
+      'Galaxy', 'List', 'Missions', 'New task', 'Maestro',
+      'Mission Control', 'Fleet', 'Share', 'Timeline', 'Help',
+    ]) {
+      const n = await page.locator(`[data-nav-rail] >> text="${label}"`).count();
+      if (n === 0) throw new Error(`rail is missing "${label}"`);
     }
   });
 
@@ -393,7 +400,7 @@ async function main() {
     if (strayLegacySelect > 0) {
       throw new Error('the org <select> is still in the top bar');
     }
-    await page.click('text=⚙ Fleet');
+    await page.click('[data-nav-rail] >> text="Fleet"');
     await page.waitForSelector('[data-dock-panel]', { timeout: 10000 });
     await page.click('[data-dock-panel] >> text="Orgs"');
     await page.waitForSelector('text=An org scopes which plans you see', {

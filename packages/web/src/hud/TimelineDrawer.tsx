@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { TimelineEvent } from '@solix/shared';
 import { selectDockOffsetPx, useSolixStore } from '../store/index.js';
+import { RAIL_WIDTH_PX } from '../shell/surfaces.js';
 
 interface TimelineRange {
   earliest: number;
@@ -111,8 +112,8 @@ export function TimelineDrawer({
 
   return (
     <div
-      className="absolute bottom-0 left-0 z-30 bg-solix-panel/95 backdrop-blur border-t border-solix-border"
-      style={{ right: dockOffsetPx }}
+      className="absolute bottom-0 z-30 bg-solix-panel/95 backdrop-blur border-t border-solix-border"
+      style={{ left: RAIL_WIDTH_PX, right: dockOffsetPx }}
     >
       <div className="px-4 py-3 max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-2">

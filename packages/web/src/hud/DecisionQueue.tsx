@@ -4,6 +4,7 @@ import {
   useSolixStore,
 } from '../store/index.js';
 import { Button } from '../ui/Button.js';
+import { RAIL_WIDTH_PX, TOP_BAR_HEIGHT_PX } from '../shell/surfaces.js';
 import type { Mission, Session } from '@solix/shared';
 import { suggestForPermission } from '../suggestions.js';
 
@@ -66,8 +67,12 @@ export function DecisionQueue({
   if (count === 0) {
     return (
       <div
-        className="absolute top-20 z-30 pointer-events-none"
-        style={{ right: `${panelOffsetPx + 16}px` }}
+        className="absolute z-30 pointer-events-none flex justify-end"
+        style={{
+          top: TOP_BAR_HEIGHT_PX + 12,
+          left: RAIL_WIDTH_PX + 16,
+          right: panelOffsetPx + 16,
+        }}
       >
         <div className="pointer-events-auto rounded-full border border-solix-border bg-solix-panel/60 backdrop-blur px-3 py-1 text-[10px] text-slate-500 flex items-center gap-2">
           <span className="uppercase tracking-widest">decisions</span>
@@ -78,11 +83,21 @@ export function DecisionQueue({
     );
   }
 
+  // Bounded on BOTH sides: the rail on the left, the contextual dock on the
+  // right. Anchoring only to the right was fine when there was no rail, but a
+  // right-anchored 320px column slides underneath one at narrow widths — and
+  // this is the surface that unblocks a stuck agent, so it must never be the
+  // thing that goes missing.
   return (
     <div
-      className="absolute top-20 z-30 w-80 flex flex-col gap-2 pointer-events-none"
-      style={{ right: `${panelOffsetPx + 16}px` }}
+      className="absolute z-30 flex justify-end pointer-events-none"
+      style={{
+        top: TOP_BAR_HEIGHT_PX + 12,
+        left: RAIL_WIDTH_PX + 16,
+        right: panelOffsetPx + 16,
+      }}
     >
+     <div className="w-80 max-w-full flex flex-col gap-2">
       <div className="pointer-events-auto rounded border border-solix-border bg-solix-panel/85 backdrop-blur px-3 py-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-[10px] uppercase tracking-widest text-slate-400">
@@ -132,6 +147,7 @@ export function DecisionQueue({
             />
           );
         })}
+     </div>
     </div>
   );
 }

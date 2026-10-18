@@ -4,6 +4,7 @@ import {
   selectPendingPermissionsOrdered,
   useSolixStore,
 } from '../store/index.js';
+import { RAIL_WIDTH_PX } from './../shell/surfaces.js';
 import { readSunHintSeen, writeSunHintSeen } from './onboarding.js';
 
 /** How long the hint stays up before fading on its own. */
@@ -67,8 +68,8 @@ export function FirstSunHint({
     // this is pointing at and to the Decision Queue. Respects the dock offset
     // for the same reason the queue does.
     <div
-      className="pointer-events-none absolute bottom-20 left-0 flex justify-center z-10"
-      style={{ right: dockOffsetPx }}
+      className="pointer-events-none absolute bottom-20 flex justify-center z-10"
+      style={{ left: RAIL_WIDTH_PX, right: dockOffsetPx }}
     >
       <div className="rounded-lg border border-solix-accent/40 bg-solix-panel/95 px-4 py-2.5 backdrop-blur text-center solix-fade-in">
         <div className="text-sm text-slate-100">

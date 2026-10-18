@@ -5,6 +5,8 @@ import { TopBar } from './hud/TopBar.js';
 import { Toasts } from './hud/Toasts.js';
 import { Welcome } from './hud/Welcome.js';
 import { HelpPanel } from './hud/HelpPanel.js';
+import { NavRail } from './shell/NavRail.js';
+import { RAIL_WIDTH_PX, TOP_BAR_HEIGHT_PX } from './shell/surfaces.js';
 import { FirstSunHint } from './hud/FirstSunHint.js';
 import { readDismissed } from './hud/onboarding.js';
 import { DecisionQueue } from './hud/DecisionQueue.js';
@@ -181,16 +183,22 @@ export default function App(): JSX.Element {
 
   return (
     <div className="relative h-full w-full">
-      <ViewSurface />
-      <TopBar
-        onOpenShare={() => setShareOpen(true)}
+      {/* The main area starts after the rail. Everything absolutely positioned
+          inside it — the canvas, the docks, the queue — is measured from this
+          box rather than from the window, so there is one place that knows the
+          rail exists. */}
+      <div
+        className="absolute inset-y-0 right-0"
+        style={{ left: RAIL_WIDTH_PX }}
+      >
+        <ViewSurface />
+      </div>
+      <NavRail
         onNewTask={() => setNewTaskOpen(true)}
         onOpenTimeline={() => setTimelineOpen(true)}
         onOpenHelp={() => setHelpOpen(true)}
-        onOpenPlan={openPlanPanel}
-        onOpenFleet={() => openFleet()}
-        onOpenWorkspace={() => openPanel('workspace')}
       />
+      <TopBar />
       <DecisionQueue panelOffsetPx={panelOffsetPx} />
       <SidePanel />
       <AdvisorPanel />

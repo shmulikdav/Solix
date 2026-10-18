@@ -78,6 +78,15 @@ additive and backward-compatible; the paid tier ships dormant (free public beta
 
 These affect anyone upgrading from 1.11.8:
 
+- **Navigation moved out of the top bar into a left rail.** One 44px strip was
+  carrying four unrelated jobs — identity, live status, the view switch, and
+  seven destinations, two with their own sub-tabs — so it wrapped onto a second
+  row at every window width, and no amount of shaving pixels fixed that.
+  Destinations are now a left rail grouped by what they are for: watch the
+  fleet, build with it, govern it. Fleet shows its six sections as rows instead
+  of a tab strip where "Connections" truncated. The strip that remains says
+  where you are and whether anything needs you, and is a single row at 1280px —
+  which it had never been.
 - **The connection indicator looked like a button and wasn't one.** `CONNECTED`
   / `OFFLINE` was a bordered pill styled exactly like the controls beside it,
   and clicking it did nothing — which teaches people to distrust the styling

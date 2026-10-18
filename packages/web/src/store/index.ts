@@ -21,6 +21,7 @@ import type {
 } from '@solix/shared';
 import { chime, notify } from '../notifications.js';
 import { RIGHT_DOCK_WIDTH_PX, type PanelId } from '../panels/dock.js';
+import { RAIL_WIDTH_PX } from '../shell/surfaces.js';
 
 export interface PendingPermission {
   requestId: string;
@@ -1602,6 +1603,19 @@ export function selectSkillsArray(state: SolixState): Skill[] {
  */
 export function selectDockOffsetPx(state: SolixState): number {
   return state.activePanel ? RIGHT_DOCK_WIDTH_PX : 0;
+}
+
+/**
+ * How far anything floating over the main area must sit from the LEFT edge.
+ *
+ * The companion to selectDockOffsetPx. Overlays now have two things to clear —
+ * the nav rail on one side and a contextual dock on the other — and the
+ * Decision Queue has to clear both. Getting either term wrong puts a pending
+ * permission request underneath something, which is the failure this pair of
+ * selectors exists to make impossible.
+ */
+export function selectRailWidthPx(_state: SolixState): number {
+  return RAIL_WIDTH_PX;
 }
 
 export function selectPendingPermissionsOrdered(

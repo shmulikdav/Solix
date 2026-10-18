@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { RIGHT_DOCK_WIDTH_PX } from './dock.js';
+import { TOP_BAR_HEIGHT_PX } from '../shell/surfaces.js';
 
 /**
  * The right-dock shell. Owns the chrome that was copy-pasted across seven
@@ -28,10 +29,10 @@ export function RightDock({
   return (
     <div
       data-dock-panel=""
-      className={`absolute top-16 bottom-0 right-0 bg-solix-panel border-l border-solix-border backdrop-blur-md flex flex-col ${
+      className={`absolute bottom-0 right-0 bg-solix-panel border-l border-solix-border backdrop-blur-md flex flex-col ${
         layer === 'contextual' ? 'z-20' : 'z-30'
       } ${className}`}
-      style={{ width: RIGHT_DOCK_WIDTH_PX }}
+      style={{ width: RIGHT_DOCK_WIDTH_PX, top: TOP_BAR_HEIGHT_PX }}
     >
       {children}
     </div>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { selectDockOffsetPx, useSolixStore } from '../store/index.js';
+import { RAIL_WIDTH_PX } from '../shell/surfaces.js';
 
 const HINT_KEY = 'solix.scenehint.dismissed.v1';
 
@@ -30,7 +31,12 @@ export function SceneControls(): JSX.Element {
   return (
     <>
       {viewMode === 'galaxy' && !hintDismissed && (
-        <div className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 z-20">
+        <div
+          className="pointer-events-none absolute bottom-4 z-20 flex justify-center"
+          // Centred within the main area, not the window — otherwise the rail
+          // pushes it visibly off-centre.
+          style={{ left: RAIL_WIDTH_PX, right: dockOffsetPx }}
+        >
           <div className="pointer-events-auto rounded-full border border-solix-border bg-solix-panel/85 backdrop-blur px-3 py-1.5 text-[11px] text-slate-300 flex items-center gap-3">
             <span>
               <kbd className="px-1 py-0.5 rounded bg-black/40 border border-solix-border text-[10px] mr-1">
