@@ -78,6 +78,15 @@ additive and backward-compatible; the paid tier ships dormant (free public beta
 
 These affect anyone upgrading from 1.11.8:
 
+- **Recurring spend could be started from the app but only stopped from a
+  terminal.** Installing a team creates interval routines, and each run launches
+  a real agent session that costs money. The web app had one read-only selector
+  for routines and no way to list, pause, fire or delete one — to stop a routine
+  you had to leave the app and run `solix schedules`. Fleet › Routines now shows
+  every routine (including disabled ones), says plainly how many are running on
+  a schedule and spending money, and can disable, run and delete them. Creating
+  one states the recurring cost before the button, and "Run now" takes a
+  confirm, since it starts an unsupervised session with one click.
 - **Mission Control had no button.** The whole-workspace overview opened only by
   clicking the 3D sun or pressing `W` — and the sun does not exist in List or
   Missions view, so there the panel was keyboard-only and effectively
@@ -108,6 +117,14 @@ These affect anyone upgrading from 1.11.8:
 
 ### Changed
 
+- **Crew, Connections, Skills, Teams, Orgs and Routines are now one Fleet
+  panel.** Four of these each had their own top-bar button, so configuration
+  competed for attention with the things you actually do, and the bar grew by
+  one control per feature. They are tabs now, behind `⚙ Fleet`. The `C`
+  shortcut still goes straight to Crew. Crew's cards were restructured for the
+  narrower column rather than just moved, and the org switcher's `window.prompt`
+  is gone — new orgs use an inline form, and the active org stays visible in the
+  bar as a label since it changes which plans Maestro lists.
 - **The Galaxy panel is now the Share panel.** "Galaxy" named two unrelated
   things five controls apart in the same bar: the 3D view (`V`) and the
   export/import panel (`G`). The panel is renamed to Share, which is what its

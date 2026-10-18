@@ -10,12 +10,14 @@ import type {
   PlanTask,
   Project,
   ScheduledTask,
+  ScheduleRun,
   ServerMessage,
   Session,
   Skill,
   TaskThreadEntry,
   TimelineEvent,
   ToolCall,
+  TriggerKind,
 } from '@solix/shared';
 import { chime, notify } from '../notifications.js';
 import { RIGHT_DOCK_WIDTH_PX, type PanelId } from '../panels/dock.js';
@@ -283,6 +285,26 @@ interface SolixState {
   deleteOrg: (orgId: string) => Promise<{ ok: boolean; error?: string }>;
   /** Install a ready-made team template (advisors+skills+routines) into a
    *  project (P2 #7). */
+  /** Routines (scheduled tasks). Every mutating route broadcasts over the
+   *  websocket, so none of these write optimistically — they POST and let the
+   *  snapshot land. There is deliberately no edit action: the server has no
+   *  PATCH /api/schedules/:id, and delete-and-recreate is not a substitute
+   *  because it drops run history and rotates the webhook token, which would
+   *  silently break any webhook already wired up. */
+  loadSchedules: () => Promise<void>;
+  createSchedule: (input: {
+    cwd: string;
+    prompt: string;
+    cadence?: string;
+    name?: string;
+    trigger?: TriggerKind;
+    owner?: string;
+  }) => Promise<{ ok: boolean; error?: string }>;
+  setScheduleEnabled: (id: string, enabled: boolean) => Promise<void>;
+  deleteSchedule: (id: string) => Promise<void>;
+  fireSchedule: (id: string) => Promise<{ ok: boolean; error?: string }>;
+  loadScheduleRuns: (id: string) => Promise<ScheduleRun[]>;
+
   installTeamTemplate: (
     templateId: string,
     cwd: string,
@@ -946,6 +968,91 @@ export const useSolixStore = create<SolixState>((set, get) => ({
     }
   },
 
+  loadSchedules: async () => {
+    try {
+      const res = await fetch('/api/schedules');
+      const list = (await res.json()) as ScheduledTask[];
+      if (!Array.isArray(list)) return;
+      const next: Record<string, ScheduledTask> = {};
+      for (const sc of list) next[sc.id] = sc;
+      set({ schedules: next });
+    } catch {
+      /* server not reachable — the websocket snapshot is the primary path */
+    }
+  },
+
+  createSchedule: async (input) => {
+    if (!input.cwd.trim() || !input.prompt.trim()) {
+      return { ok: false, error: 'A working directory and a prompt are required.' };
+    }
+    const trigger = input.trigger ?? 'interval';
+    if (trigger === 'interval' && !input.cadence?.trim()) {
+      return { ok: false, error: 'An interval routine needs a cadence.' };
+    }
+    try {
+      const res = await fetch('/api/schedules', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...input, trigger }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        return { ok: false, error: data.error ?? 'Could not create the routine.' };
+      }
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Could not reach the server.' };
+    }
+  },
+
+  setScheduleEnabled: async (id, enabled) => {
+    try {
+      await fetch(`/api/schedules/${encodeURIComponent(id)}/toggle`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ enabled }),
+      });
+    } catch {
+      /* broadcast-driven; a failure leaves the row as it was */
+    }
+  },
+
+  deleteSchedule: async (id) => {
+    try {
+      await fetch(`/api/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    } catch {
+      /* broadcast-driven */
+    }
+  },
+
+  fireSchedule: async (id) => {
+    try {
+      const res = await fetch(`/api/schedules/${encodeURIComponent(id)}/fire`, {
+        method: 'POST',
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+      };
+      if (!res.ok || data.ok === false) {
+        return { ok: false, error: data.error ?? 'Could not start the routine.' };
+      }
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Could not reach the server.' };
+    }
+  },
+
+  loadScheduleRuns: async (id) => {
+    try {
+      const res = await fetch(`/api/schedules/${encodeURIComponent(id)}/runs`);
+      const list = (await res.json()) as ScheduleRun[];
+      return Array.isArray(list) ? list : [];
+    } catch {
+      return [];
+    }
+  },
+
   installTeamTemplate: async (templateId, cwd, includeRoutines = true) => {
     if (!cwd.trim()) return { ok: false, error: 'Pick a project first.' };
     try {
@@ -1505,8 +1612,19 @@ export function selectPendingPermissionsOrdered(
   );
 }
 
+/** Enabled routines only — the galaxy's pulsing heartbeat nodes depend on this
+ *  filter, so do not widen it. The Fleet > Routines tab wants every routine,
+ *  including the disabled ones it needs to offer re-enabling. */
 export function selectEnabledSchedules(state: SolixState): ScheduledTask[] {
   return Object.values(state.schedules).filter((s) => s.enabled);
+}
+
+/** Every routine, newest-firing first, disabled ones last. */
+export function selectSchedulesArray(state: SolixState): ScheduledTask[] {
+  return Object.values(state.schedules).sort((a, b) => {
+    if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
+    return a.nextRunAt - b.nextRunAt;
+  });
 }
 
 export function selectGoalsArray(state: SolixState): Goal[] {

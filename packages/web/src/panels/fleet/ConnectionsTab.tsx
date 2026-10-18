@@ -1,10 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { Connection, Notifier, NotifyEvent } from '@solix/shared';
-import { RightDock } from './RightDock.js';
-
 interface Props {
   open: boolean;
-  onClose: () => void;
 }
 
 /**
@@ -12,8 +9,11 @@ interface Props {
  * are never shown or returned), and grant it to advisor roles / plan ids / '*'.
  * A granted connection's secrets are injected (least-privilege) into matching
  * Maestro workers at dispatch. Self-contained: talks to /api/connections.
+ *
+ * A Fleet tab: FleetPanel owns the dock shell, header and close button, so this
+ * returns only its own scroller.
  */
-export function ConnectionsPanel({ open, onClose }: Props): JSX.Element | null {
+export function ConnectionsTab({ open }: Props): JSX.Element | null {
   const [conns, setConns] = useState<Connection[]>([]);
   const [newName, setNewName] = useState('');
   const [newKind, setNewKind] = useState<'env' | 'mcp'>('env');
@@ -48,28 +48,11 @@ export function ConnectionsPanel({ open, onClose }: Props): JSX.Element | null {
   };
 
   return (
-    <RightDock>
-      <div className="px-5 py-4 border-b border-solix-border flex items-start justify-between shrink-0">
-        <div>
-          <div className="text-xs uppercase tracking-widest text-solix-accent">
-            connections
-          </div>
-          <div className="text-lg font-semibold mt-0.5">Secrets & access</div>
-          <div className="text-xs text-slate-400 mt-1 leading-snug">
-            Store API keys once, grant them to agents. A worker only ever sees the
-            secrets it's granted — values are write-only and encrypted at rest.
-          </div>
-        </div>
-        <button
-          onClick={onClose}
-          className="text-slate-400 hover:text-slate-100"
-          aria-label="Close"
-        >
-          ✕
-        </button>
+    <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+      <div className="text-xs text-slate-400 leading-snug">
+        Store API keys once, grant them to agents. A worker only ever sees the
+        secrets it's granted — values are write-only and encrypted at rest.
       </div>
-
-      <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
         {/* New connection */}
         <div className="space-y-2">
           <div className="text-[10px] uppercase tracking-wide text-slate-400">
@@ -116,11 +99,10 @@ export function ConnectionsPanel({ open, onClose }: Props): JSX.Element | null {
           </div>
         )}
 
-        <div className="border-t border-solix-border pt-4">
-          <NotifiersSection open={open} />
-        </div>
+      <div className="border-t border-solix-border pt-4">
+        <NotifiersSection open={open} />
       </div>
-    </RightDock>
+    </div>
   );
 }
 

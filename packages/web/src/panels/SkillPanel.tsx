@@ -20,8 +20,6 @@ interface SkillVersion {
 }
 
 /** Sentinel selectedSkillId that opens the "new skill" authoring form. */
-export const NEW_SKILL_ID = '__new__';
-
 /** Strip YAML frontmatter → the editable skill body. */
 function bodyOf(manifest: string): string {
   const m = manifest.match(/^---\n[\s\S]*?\n---\n?/);
@@ -30,9 +28,7 @@ function bodyOf(manifest: string): string {
 
 export function SkillPanel(): JSX.Element | null {
   const skillId = useSolixStore((s) => s.selectedSkillId);
-  const skillSummary = useSolixStore((s) =>
-    skillId && skillId !== NEW_SKILL_ID ? s.skills[skillId] : null,
-  );
+  const skillSummary = useSolixStore((s) => (skillId ? s.skills[skillId] : null));
   const select = useSolixStore((s) => s.selectSkill);
   const advisors = useSolixStore((s) => s.advisors);
 
@@ -40,7 +36,7 @@ export function SkillPanel(): JSX.Element | null {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!skillId || skillId === NEW_SKILL_ID) {
+    if (!skillId) {
       setDetail(null);
       return;
     }
@@ -62,9 +58,6 @@ export function SkillPanel(): JSX.Element | null {
     };
   }, [skillId]);
 
-  if (skillId === NEW_SKILL_ID) {
-    return <NewSkillForm onClose={() => select(null)} />;
-  }
   if (!skillSummary) return null;
 
   const requiredBy = Object.values(advisors).filter((a) =>
@@ -145,73 +138,6 @@ export function SkillPanel(): JSX.Element | null {
         {skillSummary.installedInProjects.length === 0
           ? 'Not installed in any project yet.'
           : `Installed in ${skillSummary.installedInProjects.length} project(s).`}
-      </div>
-    </RightDock>
-  );
-}
-
-function NewSkillForm({ onClose }: { onClose: () => void }): JSX.Element {
-  const createSkill = useSolixStore((s) => s.createSkill);
-  const select = useSolixStore((s) => s.selectSkill);
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [body, setBody] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const onCreate = async (): Promise<void> => {
-    if (!name.trim() || !body.trim() || busy) return;
-    setBusy(true);
-    setError(null);
-    const res = await createSkill({ name: name.trim(), description: description.trim(), body });
-    setBusy(false);
-    if (res.ok && res.id) select(res.id);
-    else setError(res.error ?? 'Could not create the skill.');
-  };
-
-  return (
-    <RightDock layer="contextual">
-      <div className="px-4 py-3 border-b border-solix-border flex items-start justify-between">
-        <div>
-          <div className="text-xs uppercase tracking-wide text-cyan-300/70">
-            New skill
-          </div>
-          <div className="text-lg font-semibold">Author a skill</div>
-        </div>
-        <button onClick={onClose} className="text-slate-400 hover:text-slate-100" aria-label="Close">
-          ✕
-        </button>
-      </div>
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="Skill name"
-          className="w-full text-sm bg-black/40 border border-solix-border rounded p-2 text-slate-100 placeholder-slate-600 focus:outline-none focus:border-solix-accent"
-        />
-        <input
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          placeholder="One-line description"
-          className="w-full text-xs bg-black/40 border border-solix-border rounded p-2 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-solix-accent"
-        />
-        <textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder="Skill instructions (markdown)…"
-          rows={12}
-          className="w-full text-xs font-mono bg-black/40 border border-solix-border rounded p-2 text-slate-100 placeholder-slate-600 focus:outline-none focus:border-solix-accent resize-none"
-        />
-        {error && <div className="text-[11px] text-solix-danger">{error}</div>}
-      </div>
-      <div className="px-4 py-3 border-t border-solix-border">
-        <button
-          onClick={() => void onCreate()}
-          disabled={busy || !name.trim() || !body.trim()}
-          className="w-full py-2 rounded bg-amber-500/20 border border-amber-400/60 text-amber-100 text-sm hover:bg-amber-500/30 disabled:opacity-40"
-        >
-          {busy ? 'Creating…' : 'Create skill'}
-        </button>
       </div>
     </RightDock>
   );

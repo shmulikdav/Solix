@@ -1,12 +1,20 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { Plan, PlanTask, TaskThreadEntry } from '@solix/shared';
+import type {
+  Plan,
+  PlanTask,
+  ScheduledTask,
+  TaskThreadEntry,
+} from '@solix/shared';
 import { useSolixStore } from '../store/index.js';
 import { PlanPanel } from './PlanPanel.js';
-import { ConnectionsPanel } from './ConnectionsPanel.js';
+import { ConnectionsTab } from './fleet/ConnectionsTab.js';
 import { SharePanel } from './SharePanel.js';
-import { SkillPanel, NEW_SKILL_ID } from './SkillPanel.js';
+import { TeamsTab } from './fleet/TeamsTab.js';
+import { RoutinesTab } from './fleet/RoutinesTab.js';
+import { OrgsTab } from './fleet/OrgsTab.js';
+import { SkillsTab } from './fleet/SkillsTab.js';
 import { TopBar } from '../hud/TopBar.js';
 
 /**
@@ -155,7 +163,7 @@ describe('PlanPanel', () => {
   });
 });
 
-describe('TopBar org switcher', () => {
+describe('Fleet — Orgs tab', () => {
   beforeEach(() => {
     seedStore({
       orgs: [
@@ -167,41 +175,82 @@ describe('TopBar org switcher', () => {
   });
 
   it('lists the orgs and marks the active one', () => {
-    render(<TopBar />);
-    const select = screen.getByTitle(/Active org/) as HTMLSelectElement;
-    expect(select.value).toBe(DEFAULT_ORG);
-    expect(screen.getByText(/Personal/)).toBeTruthy();
-    expect(screen.getByText(/Acme/)).toBeTruthy();
+    render(<OrgsTab />);
+    expect(screen.getByText('Personal')).toBeTruthy();
+    expect(screen.getByText('Acme')).toBeTruthy();
+    expect(screen.getByText('active')).toBeTruthy();
   });
 
   it('switching org POSTs the new current org', async () => {
-    const { calls } = stubFetch([[/\/api\/orgs$/, { orgs: [], currentOrgId: 'org-acme' }]]);
-    render(<TopBar />);
-    const select = screen.getByTitle(/Active org/) as HTMLSelectElement;
-    select.value = 'org-acme';
-    select.dispatchEvent(new Event('change', { bubbles: true }));
+    const { calls } = stubFetch([
+      [/\/api\/orgs$/, { orgs: [], currentOrgId: 'org-acme' }],
+    ]);
+    render(<OrgsTab />);
+    // Only the inactive org offers a switch button.
+    fireEvent.click(screen.getByText('Switch to it'));
     await waitFor(() =>
-      expect(calls.some((c) => /\/api\/orgs\/current$/.test(c.url) && c.method === 'POST')).toBe(true),
+      expect(
+        calls.some((c) => /\/api\/orgs\/current$/.test(c.url) && c.method === 'POST'),
+      ).toBe(true),
     );
   });
 
-  it('the "New org…" sentinel prompts and creates instead of switching', async () => {
-    const promptSpy = vi.spyOn(window, 'prompt').mockReturnValue('Globex');
-    const { calls } = stubFetch([[/\/api\/orgs$/, { orgs: [], currentOrgId: DEFAULT_ORG }]]);
-    render(<TopBar />);
-    const select = screen.getByTitle(/Active org/) as HTMLSelectElement;
-    select.value = '__new__';
-    select.dispatchEvent(new Event('change', { bubbles: true }));
-    await waitFor(() => {
-      // Creates an org; must NOT try to switch to the sentinel id.
-      expect(calls.some((c) => c.url.endsWith('/api/orgs') && c.method === 'POST')).toBe(true);
+  // This replaces the old "__new__" sentinel test. The sentinel is gone: it was
+  // a magic option value inside a <select> that triggered window.prompt(), and
+  // a mis-handled sentinel would have POSTed "__new__" as a real org id.
+  it('creates an org from an inline form, with no window.prompt and no sentinel', async () => {
+    const promptSpy = vi.spyOn(window, 'prompt');
+    const { calls } = stubFetch([
+      [/\/api\/orgs$/, { orgs: [], currentOrgId: DEFAULT_ORG }],
+    ]);
+    render(<OrgsTab />);
+    fireEvent.click(screen.getByText('New org'));
+    fireEvent.change(screen.getByPlaceholderText('Org name'), {
+      target: { value: 'Globex' },
     });
-    expect(promptSpy).toHaveBeenCalled();
+    fireEvent.click(screen.getByText('Create org'));
+    await waitFor(() =>
+      expect(
+        calls.some((c) => c.url.endsWith('/api/orgs') && c.method === 'POST'),
+      ).toBe(true),
+    );
+    expect(promptSpy).not.toHaveBeenCalled();
     expect(calls.some((c) => (c.body ?? '').includes('__new__'))).toBe(false);
+    promptSpy.mockRestore();
+  });
+
+  it('will not offer to delete the default org', () => {
+    render(<OrgsTab />);
+    // One Delete button, for Acme — never for Personal (the default org).
+    expect(screen.getAllByText('Delete')).toHaveLength(1);
   });
 });
 
-describe('ConnectionsPanel — notifications section', () => {
+describe('TopBar org chip', () => {
+  it('shows the active org as a label, not a control', () => {
+    seedStore({
+      orgs: [
+        { id: DEFAULT_ORG, name: 'Personal', createdAt: 1 },
+        { id: 'org-acme', name: 'Acme', createdAt: 2 },
+      ],
+    });
+    stubFetch([[/\/api\/orgs$/, { orgs: [], currentOrgId: DEFAULT_ORG }]]);
+    render(<TopBar />);
+    const chip = screen.getByTitle(/Active org/);
+    expect(chip.textContent).toContain('Personal');
+    expect(chip.tagName).not.toBe('SELECT');
+    expect(chip.tagName).not.toBe('BUTTON');
+  });
+
+  it('hides the chip when there is only one org', () => {
+    seedStore({ orgs: [{ id: DEFAULT_ORG, name: 'Personal', createdAt: 1 }] });
+    stubFetch([[/\/api\/orgs$/, { orgs: [], currentOrgId: DEFAULT_ORG }]]);
+    render(<TopBar />);
+    expect(screen.queryByTitle(/Active org/)).toBeNull();
+  });
+});
+
+describe('ConnectionsTab — notifications section', () => {
   beforeEach(() => seedStore());
 
   it('renders existing notifiers without leaking credentials', async () => {
@@ -212,14 +261,14 @@ describe('ConnectionsPanel — notifications section', () => {
         [{ id: 'n1', provider: 'slack', name: 'Eng channel', events: ['plan_failed'], enabled: true, createdAt: 1 }],
       ],
     ]);
-    render(<ConnectionsPanel open onClose={() => {}} />);
+    render(<ConnectionsTab open />);
     expect(await screen.findByText('Eng channel')).toBeTruthy();
     expect(screen.getByText('Notifications')).toBeTruthy();
   });
 
   it('adding a slack notifier posts the provider + webhook', async () => {
     const { calls } = stubFetch([[/\/api\/connections$/, []], [/\/api\/notifiers$/, []]]);
-    render(<ConnectionsPanel open onClose={() => {}} />);
+    render(<ConnectionsTab open />);
     fireEvent.change(await screen.findByPlaceholderText(/Name \(e.g. Eng channel\)/), {
       target: { value: 'Eng' },
     });
@@ -236,7 +285,7 @@ describe('ConnectionsPanel — notifications section', () => {
   });
 });
 
-describe('SharePanel — Teams tab', () => {
+describe('Fleet — Teams tab', () => {
   beforeEach(() => seedStore());
 
   it('lists team templates and installs one into a project', async () => {
@@ -256,8 +305,7 @@ describe('SharePanel — Teams tab', () => {
         ],
       ],
     ]);
-    render(<SharePanel open onClose={() => {}} />);
-    screen.getByText('Teams').click();
+    render(<TeamsTab open />);
     expect(await screen.findByText('Ship-fast build team')).toBeTruthy();
     // Needs a target project — type one, then install.
     fireEvent.change(screen.getByPlaceholderText('/path/to/project'), {
@@ -272,12 +320,111 @@ describe('SharePanel — Teams tab', () => {
   });
 });
 
-describe('SkillPanel — authoring', () => {
-  it('creates a user skill from the new-skill form', async () => {
+describe('Fleet — Routines tab', () => {
+  const routine = (over: Partial<ScheduledTask> = {}): ScheduledTask => ({
+    id: 's1',
+    projectId: 'proj1',
+    cwd: '/tmp/proj',
+    name: 'Daily sweep',
+    prompt: 'sweep the repo',
+    cron: '1h',
+    enabled: true,
+    nextRunAt: Date.now() + 600_000,
+    trigger: 'interval',
+    ...over,
+  });
+
+  beforeEach(() => {
     seedStore();
-    useSolixStore.setState({ selectedSkillId: NEW_SKILL_ID });
+    useSolixStore.setState({ schedules: {} });
+  });
+
+  afterEach(() => {
+    useSolixStore.setState({ schedules: {} });
+  });
+
+  // The whole reason this tab exists: before it, installing a team created
+  // recurring spend that could only be stopped from a terminal.
+  it('disables a running routine without leaving the app', async () => {
+    useSolixStore.setState({ schedules: { s1: routine() } });
+    const { calls } = stubFetch([[/\/api\/schedules$/, [routine()]]]);
+    render(<RoutinesTab open />);
+    expect(await screen.findByText('Daily sweep')).toBeTruthy();
+    fireEvent.click(screen.getByRole('checkbox'));
+    await waitFor(() => {
+      const post = calls.find(
+        (c) => /\/api\/schedules\/s1\/toggle$/.test(c.url) && c.method === 'POST',
+      );
+      expect(post).toBeTruthy();
+      expect(post!.body).toContain('"enabled":false');
+    });
+  });
+
+  it('warns that enabled interval routines are spending money', async () => {
+    const two = [routine(), routine({ id: 's2', name: 'Nightly' })];
+    useSolixStore.setState({ schedules: { s1: two[0]!, s2: two[1]! } });
+    stubFetch([[/\/api\/schedules$/, two]]);
+    render(<RoutinesTab open />);
+    expect(
+      await screen.findByText(/2 routines are running on a schedule/),
+    ).toBeTruthy();
+  });
+
+  it('does not count a disabled routine as spending', async () => {
+    useSolixStore.setState({ schedules: { s1: routine({ enabled: false }) } });
+    stubFetch([[/\/api\/schedules$/, [routine({ enabled: false })]]]);
+    render(<RoutinesTab open />);
+    expect(await screen.findByText('Daily sweep')).toBeTruthy();
+    expect(screen.queryByText(/spending money on every run/)).toBeNull();
+  });
+
+  // Fire-now is a one-click unsupervised agent launch, so it must not fire on
+  // the first click.
+  it('requires a confirm before firing a routine on demand', async () => {
+    useSolixStore.setState({ schedules: { s1: routine() } });
+    const { calls } = stubFetch([
+      [/\/fire$/, { ok: true }],
+      [/\/api\/schedules$/, [routine()]],
+    ]);
+    render(<RoutinesTab open />);
+    fireEvent.click(await screen.findByText('Run now'));
+    expect(calls.some((c) => /\/fire$/.test(c.url))).toBe(false);
+    fireEvent.click(screen.getByText(/Run it now/));
+    await waitFor(() =>
+      expect(
+        calls.some((c) => /\/api\/schedules\/s1\/fire$/.test(c.url) && c.method === 'POST'),
+      ).toBe(true),
+    );
+  });
+
+  it('requires a confirm before deleting a routine', async () => {
+    useSolixStore.setState({ schedules: { s1: routine() } });
+    const { calls } = stubFetch([[/\/api\/schedules$/, [routine()]]]);
+    render(<RoutinesTab open />);
+    fireEvent.click(await screen.findByText('Delete'));
+    expect(calls.some((c) => c.method === 'DELETE')).toBe(false);
+    fireEvent.click(screen.getByText('Delete for good'));
+    await waitFor(() =>
+      expect(
+        calls.some((c) => /\/api\/schedules\/s1$/.test(c.url) && c.method === 'DELETE'),
+      ).toBe(true),
+    );
+  });
+
+  it('states the recurring cost before the create button', async () => {
+    stubFetch([[/\/api\/schedules$/, []]]);
+    render(<RoutinesTab open />);
+    expect(
+      await screen.findByText(/starts a real agent session every 1h and costs money/),
+    ).toBeTruthy();
+  });
+});
+
+describe('Fleet — Skills tab', () => {
+  it('creates a user skill from the authoring form', async () => {
+    seedStore();
     const { calls } = stubFetch([[/\/api\/skills$/, { id: 'user:house-style' }]]);
-    render(<SkillPanel />);
+    render(<SkillsTab />);
     fireEvent.change(await screen.findByPlaceholderText('Skill name'), {
       target: { value: 'House Style' },
     });
@@ -291,6 +438,5 @@ describe('SkillPanel — authoring', () => {
       expect(post!.body).toContain('House Style');
       expect(post!.body).toContain('imperative mood');
     });
-    useSolixStore.setState({ selectedSkillId: null });
   });
 });

@@ -1,14 +1,12 @@
 import { useSolixStore, selectPlanets } from '../store/index.js';
-import { NEW_SKILL_ID } from '../panels/SkillPanel.js';
 
 interface TopBarProps {
   onOpenShare?: () => void;
   onNewTask?: () => void;
   onOpenTimeline?: () => void;
   onOpenHelp?: () => void;
-  onOpenCrew?: () => void;
   onOpenPlan?: () => void;
-  onOpenConnections?: () => void;
+  onOpenFleet?: () => void;
   onOpenWorkspace?: () => void;
 }
 
@@ -17,9 +15,8 @@ export function TopBar({
   onNewTask,
   onOpenTimeline,
   onOpenHelp,
-  onOpenCrew,
   onOpenPlan,
-  onOpenConnections,
+  onOpenFleet,
   onOpenWorkspace,
 }: TopBarProps = {}): JSX.Element {
   const connected = useSolixStore((s) => s.connected);
@@ -27,20 +24,10 @@ export function TopBar({
   const viewMode = useSolixStore((s) => s.viewMode);
   const playbackActive = useSolixStore((s) => s.playback.active);
   const exitPlayback = useSolixStore((s) => s.exitPlayback);
-  const selectSkill = useSolixStore((s) => s.selectSkill);
   const orgs = useSolixStore((s) => s.orgs);
   const currentOrgId = useSolixStore((s) => s.currentOrgId);
-  const setCurrentOrg = useSolixStore((s) => s.setCurrentOrg);
-  const createOrg = useSolixStore((s) => s.createOrg);
 
-  const onOrgChange = (value: string): void => {
-    if (value === '__new__') {
-      const name = window.prompt('New org name');
-      if (name?.trim()) void createOrg(name.trim());
-      return;
-    }
-    void setCurrentOrg(value);
-  };
+  const activeOrg = orgs.find((o) => o.id === currentOrgId);
 
   const counts = planets.reduce(
     (acc, s) => {
@@ -58,7 +45,10 @@ export function TopBar({
   );
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-4 z-40">
+    <div
+      data-topbar=""
+      className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between gap-2 p-4 z-40"
+    >
       <div className="pointer-events-auto flex items-center gap-2 sm:gap-3">
         <div className="flex items-baseline gap-1.5">
           <div className="text-xl font-bold tracking-widest text-solix-accent">
@@ -99,7 +89,12 @@ export function TopBar({
       {/* flex-wrap + justify-end: this group grows every time a surface is
           added, and without wrapping the overflow silently pushes the
           right-most control (the help button) off the viewport edge. */}
-      <div className="pointer-events-auto flex flex-wrap items-center justify-end gap-2 sm:gap-3 text-xs max-w-full">
+      {/* The actions cluster. This is the group that grows every time a
+          surface is added, so the browser smoke asserts it stays one row. */}
+      <div
+        data-topbar-actions=""
+        className="pointer-events-auto flex flex-wrap items-center justify-end gap-2 sm:gap-3 text-xs max-w-full"
+      >
         {/* Counters and timeline are useful but not critical on mobile;
             hide them at <sm to keep the topbar single-row. */}
         <div className="hidden sm:flex items-center gap-2">
@@ -126,15 +121,6 @@ export function TopBar({
             + Task
           </button>
         )}
-        {onOpenCrew && (
-          <button
-            onClick={onOpenCrew}
-            className="px-2 py-1 rounded bg-amber-500/15 border border-amber-400/40 text-amber-200 hover:bg-amber-500/25"
-            title="Crew: view and enable advisors (C)"
-          >
-            ✦ Crew
-          </button>
-        )}
         {onOpenWorkspace && (
           <button
             onClick={onOpenWorkspace}
@@ -153,13 +139,13 @@ export function TopBar({
             ✷ Maestro
           </button>
         )}
-        {onOpenConnections && (
+        {onOpenFleet && (
           <button
-            onClick={onOpenConnections}
+            onClick={onOpenFleet}
             className="px-2 py-1 rounded bg-slate-500/15 border border-slate-400/40 text-slate-200 hover:bg-slate-500/25"
-            title="Connections: API keys & secrets granted to agents"
+            title="Fleet: crew, skills, teams, routines, connections and orgs"
           >
-            ⚷ Connections
+            ⚙ Fleet
           </button>
         )}
         {onOpenShare && (
@@ -171,27 +157,16 @@ export function TopBar({
             ⌬ Share
           </button>
         )}
-        <button
-          onClick={() => selectSkill(NEW_SKILL_ID)}
-          className="px-2 py-1 rounded bg-cyan-500/15 border border-cyan-400/40 text-cyan-200 hover:bg-cyan-500/25"
-          title="Author a new skill"
-        >
-          ✎ Skill
-        </button>
-        {orgs.length > 0 && (
-          <select
-            value={currentOrgId}
-            onChange={(e) => onOrgChange(e.target.value)}
-            title="Active org — scopes which plans you see"
-            className="px-2 py-1 rounded bg-slate-500/10 border border-slate-400/30 text-slate-200 hover:bg-slate-500/20 focus:outline-none"
+        {/* Not a control. Switching, creating and deleting orgs live in
+            Fleet > Orgs, but the active org changes which plans Maestro shows,
+            so hiding it entirely would cost more than the button saves. */}
+        {activeOrg && orgs.length > 1 && (
+          <span
+            title="Active org — scopes which plans you see. Change it in Fleet › Orgs."
+            className="px-2 py-1 rounded bg-slate-500/10 border border-slate-400/20 text-slate-400 select-none"
           >
-            {orgs.map((o) => (
-              <option key={o.id} value={o.id}>
-                ◭ {o.name}
-              </option>
-            ))}
-            <option value="__new__">＋ New org…</option>
-          </select>
+            ◭ {activeOrg.name}
+          </span>
         )}
         {onOpenHelp && (
           <button

@@ -24,11 +24,10 @@ export type PanelId =
   // deliberate — opened from the top bar or a shortcut
   | 'workspace'
   | 'plan'
-  // These two migrate here so that EVERY dock panel goes through one
-  // exclusivity mechanism. 'connections' is folded into a Fleet panel in a
-  // 'share' (the name collides with the Galaxy view mode) and 'connections'
-  // is absorbed into a tabbed 'fleet'.
+  // Export / import / versions / audit. Named 'share' rather than 'galaxy'
+  // because that word already means the 3D view mode.
   | 'share'
-  | 'connections';
+  // The six configuration surfaces, behind one door and one tab strip.
+  | 'fleet';
 
 export const RIGHT_DOCK_WIDTH_PX = 480;

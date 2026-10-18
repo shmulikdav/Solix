@@ -42,9 +42,6 @@ const TimelineDrawer = lazy(() =>
 const SharePanel = lazy(() =>
   import('./panels/SharePanel.js').then((m) => ({ default: m.SharePanel })),
 );
-const CrewPanel = lazy(() =>
-  import('./panels/CrewPanel.js').then((m) => ({ default: m.CrewPanel })),
-);
 const WorkspacePanel = lazy(() =>
   import('./panels/WorkspacePanel.js').then((m) => ({
     default: m.WorkspacePanel,
@@ -53,9 +50,9 @@ const WorkspacePanel = lazy(() =>
 const PlanPanel = lazy(() =>
   import('./panels/PlanPanel.js').then((m) => ({ default: m.PlanPanel })),
 );
-const ConnectionsPanel = lazy(() =>
-  import('./panels/ConnectionsPanel.js').then((m) => ({
-    default: m.ConnectionsPanel,
+const FleetPanel = lazy(() =>
+  import('./panels/fleet/FleetPanel.js').then((m) => ({
+    default: m.FleetPanel,
   })),
 );
 
@@ -66,7 +63,6 @@ export default function App(): JSX.Element {
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const [crewOpen, setCrewOpen] = useState(false);
 
   const activePanel = useSolixStore((s) => s.activePanel);
   const openPanel = useSolixStore((s) => s.openPanel);
@@ -77,13 +73,12 @@ export default function App(): JSX.Element {
   const panelOffsetPx = useSolixStore(selectDockOffsetPx);
 
   const shareOpen = activePanel === 'share';
-  const connectionsOpen = activePanel === 'connections';
+  const fleetOpen = activePanel === 'fleet';
   const workspaceOpen = activePanel === 'workspace';
   const planPanelOpen = activePanel === 'plan';
   const setShareOpen = (v: boolean): void =>
     v ? openPanel('share') : closePanel();
-  const setConnectionsOpen = (v: boolean): void =>
-    v ? openPanel('connections') : closePanel();
+  const openFleet = (tab?: string): void => openPanel('fleet', tab);
   const closeWorkspace = (): void => closePanel();
   const openPlanPanel = (): void => openPanel('plan');
   const closePlanPanel = (): void => closePanel();
@@ -114,7 +109,6 @@ export default function App(): JSX.Element {
         state.closePanel();
         setNewTaskOpen(false);
         setHelpOpen(false);
-        setCrewOpen(false);
         // Esc also exits Timeline Playback — the only mode where the rest of
         // the UI feels frozen because state is derived from past events.
         // Cheap escape hatch when the "× Live" button isn't clickable for
@@ -129,7 +123,13 @@ export default function App(): JSX.Element {
         if (state.activePanel === 'share') state.closePanel();
         else state.openPanel('share');
       } else if (!isTextField && (e.key === 'c' || e.key === 'C')) {
-        setCrewOpen((v) => !v);
+        // C still means crew, but crew is a Fleet tab now, so the key toggles
+        // Fleet-on-crew rather than a separate modal.
+        if (state.activePanel === 'fleet' && state.activePanelTab === 'crew') {
+          state.closePanel();
+        } else {
+          state.openPanel('fleet', 'crew');
+        }
       } else if (!isTextField && (e.key === 'p' || e.key === 'P')) {
         if (state.activePanel === 'plan') state.closePanel();
         else state.openPanel('plan');
@@ -182,9 +182,8 @@ export default function App(): JSX.Element {
         onNewTask={() => setNewTaskOpen(true)}
         onOpenTimeline={() => setTimelineOpen(true)}
         onOpenHelp={() => setHelpOpen(true)}
-        onOpenCrew={() => setCrewOpen(true)}
         onOpenPlan={openPlanPanel}
-        onOpenConnections={() => setConnectionsOpen(true)}
+        onOpenFleet={() => openFleet()}
         onOpenWorkspace={() => openPanel('workspace')}
       />
       <DecisionQueue panelOffsetPx={panelOffsetPx} />
@@ -194,11 +193,6 @@ export default function App(): JSX.Element {
       {shareOpen && (
         <Suspense fallback={null}>
           <SharePanel open={shareOpen} onClose={() => setShareOpen(false)} />
-        </Suspense>
-      )}
-      {crewOpen && (
-        <Suspense fallback={null}>
-          <CrewPanel open={crewOpen} onClose={() => setCrewOpen(false)} />
         </Suspense>
       )}
       {workspaceOpen && (
@@ -211,12 +205,9 @@ export default function App(): JSX.Element {
           <PlanPanel open={planPanelOpen} onClose={closePlanPanel} />
         </Suspense>
       )}
-      {connectionsOpen && (
+      {fleetOpen && (
         <Suspense fallback={null}>
-          <ConnectionsPanel
-            open={connectionsOpen}
-            onClose={() => setConnectionsOpen(false)}
-          />
+          <FleetPanel open={fleetOpen} />
         </Suspense>
       )}
       <NewTaskModal

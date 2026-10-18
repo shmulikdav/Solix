@@ -165,25 +165,73 @@ async function main() {
     await page.keyboard.press('Escape');
   });
 
-  await step('Connections panel opens with the Notifications section', async () => {
-    await page.click('text=⚷ Connections');
-    await page.waitForSelector('text=Notifications', { timeout: 10000 });
-    await page.screenshot({ path: `${SHOT_DIR}/03-connections.png` });
+  // Fleet is one door for six configuration surfaces that each used to own a
+  // top-level button (or, for Routines, had no UI at all). Every tab has to
+  // actually render — a tab strip that opens an empty panel is worse than the
+  // four buttons it replaced.
+  await step('every Fleet tab renders', async () => {
+    const tabs = [
+      ['Crew', 'Active crew'],
+      ['Skills', 'Author a skill'],
+      ['Teams', 'Ship-fast build team'],
+      ['Routines', 'A routine starts an agent session on its own'],
+      ['Connections', 'Notifications'],
+      ['Orgs', 'An org scopes which plans you see'],
+    ];
+    await page.click('text=⚙ Fleet');
+    await page.waitForSelector('[data-dock-panel]', { timeout: 10000 });
+    for (const [tab, expected] of tabs) {
+      await page.click(`[data-dock-panel] >> text="${tab}"`);
+      await page.waitForSelector(`text=${expected}`, { timeout: 10000 });
+      await page.screenshot({ path: `${SHOT_DIR}/03-fleet-${tab.toLowerCase()}.png` });
+    }
     await page.keyboard.press('Escape');
   });
 
-  await step('Share → Teams tab lists team templates', async () => {
+  // S4: a routine is recurring spend. It was creatable from the UI (installing
+  // a team makes them) but only cancellable from a terminal, because the web
+  // layer had one read-only selector and zero write actions for schedules.
+  await step('a routine can be created and then stopped in-app (S4)', async () => {
+    await page.click('text=⚙ Fleet');
+    await page.waitForSelector('[data-dock-panel]', { timeout: 10000 });
+    await page.click('[data-dock-panel] >> text="Routines"');
+    await page.waitForSelector('text=New routine', { timeout: 10000 });
+
+    // The demo seeds no routines, so create one. This also checks that the
+    // consequence of creating recurring spend is stated before the button.
+    await page.fill('[data-dock-panel] input[placeholder="Name (optional)"]', 'Smoke routine');
+    await page.fill('[data-dock-panel] input[placeholder="/path/to/project"]', '/tmp/smoke-proj');
+    await page.fill(
+      '[data-dock-panel] textarea[placeholder="What should the agent do on each run?"]',
+      'say hello',
+    );
+    await page.waitForSelector('text=/costs money on every run/', { timeout: 5000 });
+    await page.click('[data-dock-panel] >> text="Create routine"');
+    await page.waitForSelector('text=Smoke routine', { timeout: 10000 });
+
+    // Now the part that did not exist: turning it off without a terminal.
+    const toggle = page.locator('[data-dock-panel] input[type=checkbox]').first();
+    if ((await toggle.count()) === 0) {
+      throw new Error('no routine on/off control — recurring spend is unstoppable in-app');
+    }
+    await page.waitForSelector('text=/is running on a schedule/', { timeout: 5000 });
+    await toggle.click();
+    await page.waitForSelector('text=/is running on a schedule/', {
+      state: 'detached',
+      timeout: 10000,
+    });
+    await page.screenshot({ path: `${SHOT_DIR}/04-routines.png` });
+
+    // Leave the demo db as we found it.
+    await page.click('[data-dock-panel] >> text="Delete"');
+    await page.click('[data-dock-panel] >> text="Delete for good"');
+    await page.keyboard.press('Escape');
+  });
+
+  await step('Share panel still opens on its own tabs', async () => {
     await page.click('text=⌬ Share');
-    await page.click('text=Teams');
-    await page.waitForSelector('text=Ship-fast build team', { timeout: 10000 });
-    await page.screenshot({ path: `${SHOT_DIR}/04-teams.png` });
-    await page.keyboard.press('Escape');
-  });
-
-  await step('Skill authoring form opens', async () => {
-    await page.click('text=✎ Skill');
-    await page.waitForSelector('text=Author a skill', { timeout: 10000 });
-    await page.screenshot({ path: `${SHOT_DIR}/05-skill.png` });
+    await page.waitForSelector('text=Versions', { timeout: 10000 });
+    await page.screenshot({ path: `${SHOT_DIR}/05-share.png` });
     await page.keyboard.press('Escape');
   });
 
@@ -215,8 +263,8 @@ async function main() {
   await step('opening a second dock panel closes the first', async () => {
     await page.keyboard.press('p');
     await page.waitForSelector('text=Plan a build', { timeout: 10000 });
-    await page.click('text=\u26b7 Connections');
-    await page.waitForSelector('text=Notifications', { timeout: 10000 });
+    await page.click('text=\u2699 Fleet');
+    await page.waitForSelector('text=Active crew', { timeout: 10000 });
     const docks = await page.locator('[data-dock-panel]').count();
     if (docks !== 1) {
       throw new Error(`expected exactly 1 dock panel open, found ${docks}`);
@@ -232,6 +280,41 @@ async function main() {
   // overflowing bar silently pushes its right-most control (the help button)
   // off the viewport — invisible to typecheck and to jsdom tests, and only
   // noticed when a human squints at a screenshot. Check at a laptop width.
+  // Folding six surfaces into Fleet bought back top-bar width: the actions
+  // cluster went from 9 controls to 7, and from wrapping at every width up to
+  // 1920px to being one row from 1680px up. The clip guard below cannot see
+  // this, because the bar wraps instead of clipping and a two-row bar passes
+  // it, so assert the row count directly.
+  //
+  // 1680 is the measured threshold, not an aspiration. The cluster also holds
+  // the status readout (~254px) and the view toggle (~235px), which are not
+  // navigation; total bar content is ~1476px, so no amount of regrouping makes
+  // 1280px a single row — roughly 230px of content would have to go. Lowering
+  // this number means deciding what that is (abbreviating the status counts,
+  // moving Timeline, an overflow menu), which is a product decision rather than
+  // a layout fix. If you make it, lower the threshold here with it.
+  await step('the top bar actions stay one row at 1680px', async () => {
+    await page.setViewportSize({ width: 1680, height: 900 });
+    await page.waitForTimeout(400);
+    const rows = await page.evaluate(() => {
+      const group = document.querySelector('[data-topbar-actions]');
+      if (!group) return -1;
+      const tops = [...group.querySelectorAll('button, select, span[title]')]
+        .filter((b) => {
+          const r = b.getBoundingClientRect();
+          return r.width > 0 && r.height > 0;
+        })
+        // Bucket by 8px so baseline differences between a 28px round button
+        // and a 26px pill don't read as a wrap.
+        .map((b) => Math.round(b.getBoundingClientRect().top / 8));
+      return new Set(tops).size;
+    });
+    if (rows === -1) throw new Error('top bar actions group not found');
+    if (rows > 1) {
+      throw new Error(`top bar actions wrapped to ${rows} rows at 1680px`);
+    }
+  });
+
   await step('no top-bar control is clipped at 1280px', async () => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await sleep(600);
@@ -250,14 +333,28 @@ async function main() {
     await sleep(400);
   });
 
-  await step('org switcher is present and shows the default org', async () => {
-    const value = await page.evaluate(() => {
-      const sel = document.querySelector('select[title*="Active org"]');
-      return sel ? sel.value : null;
-    });
-    if (value !== 'org-default') {
-      throw new Error(`org switcher missing or wrong value: ${value}`);
+  // The org <select> moved into Fleet > Orgs. What stays in the bar is a
+  // label, because the active org changes which plans Maestro lists — but with
+  // only the default org there is nothing to disambiguate, so the chip is
+  // hidden and the switcher has to be reachable in Fleet instead.
+  await step('orgs are managed in Fleet, with the default org active', async () => {
+    const strayLegacySelect = await page
+      .locator('[data-topbar] select[title*="Active org"]')
+      .count();
+    if (strayLegacySelect > 0) {
+      throw new Error('the org <select> is still in the top bar');
     }
+    await page.click('text=⚙ Fleet');
+    await page.waitForSelector('[data-dock-panel]', { timeout: 10000 });
+    await page.click('[data-dock-panel] >> text="Orgs"');
+    await page.waitForSelector('text=An org scopes which plans you see', {
+      timeout: 10000,
+    });
+    const active = await page.locator('[data-dock-panel] >> text="active"').count();
+    if (active !== 1) {
+      throw new Error(`expected exactly one active org, found ${active}`);
+    }
+    await page.keyboard.press('Escape');
   });
 
   await page.screenshot({ path: `${SHOT_DIR}/06-final.png`, fullPage: false });

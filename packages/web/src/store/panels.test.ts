@@ -56,7 +56,7 @@ describe('right dock exclusivity', () => {
       () => s().selectAdvisor('b'),
       () => s().selectSkill('c'),
       () => s().openPanel('workspace'),
-      () => s().openPanel('connections'),
+      () => s().openPanel('fleet'),
     ]) {
       open();
       const set = [
@@ -89,7 +89,7 @@ describe('right dock exclusivity', () => {
   });
 
   it('closePanel closes whatever is open', () => {
-    for (const p of ['plan', 'share', 'connections', 'workspace'] as const) {
+    for (const p of ['plan', 'share', 'fleet', 'workspace'] as const) {
       s().openPanel(p);
       s().closePanel();
       expect(s().activePanel).toBeNull();
@@ -97,7 +97,7 @@ describe('right dock exclusivity', () => {
   });
 
   it('remembers a tab so reopening returns you where you were', () => {
-    s().openPanel('connections', 'notifications');
+    s().openPanel('fleet', 'notifications');
     expect(s().activePanelTab).toBe('notifications');
     s().closePanel();
     expect(s().activePanelTab).toBeNull();
@@ -114,7 +114,7 @@ describe('right dock exclusivity', () => {
       () => s().selectSkill('c'),
       () => s().openPanel('plan'),
       () => s().openPanel('share'),
-      () => s().openPanel('connections'),
+      () => s().openPanel('fleet'),
       () => s().openPanel('workspace'),
     ]) {
       open();
