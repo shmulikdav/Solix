@@ -32,6 +32,33 @@ afterEach(() => {
   rmSync(home, { recursive: true, force: true });
 });
 
+describe('hooksSupported', () => {
+  /**
+   * The hooks are POSIX `sh` using $PPID, `date +%s`, `pwd` and `curl`.
+   * Native Windows cmd cannot execute them, so writing and registering them
+   * there produces hooks that never fire and a user with no idea why —
+   * which is worse than declining.
+   */
+  it('is false on native Windows', async () => {
+    vi.stubGlobal('process', { ...process, platform: 'win32' });
+    const { hooksSupported } = await load();
+    expect(hooksSupported()).toBe(false);
+    vi.unstubAllGlobals();
+  });
+
+  // WSL reports as linux, which is why "run it under WSL" is a real answer
+  // for Windows users rather than a brush-off.
+  it('is true on linux and darwin', async () => {
+    for (const platform of ['linux', 'darwin']) {
+      vi.stubGlobal('process', { ...process, platform });
+      vi.resetModules();
+      const { hooksSupported } = await import('./install.js');
+      expect(hooksSupported()).toBe(true);
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
 describe('claudeCodePresent', () => {
   it('is false when Claude Code has never run', async () => {
     const { claudeCodePresent } = await load();

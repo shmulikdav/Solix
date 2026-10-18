@@ -182,6 +182,26 @@ function installSolixSkills(): number {
 // Injected at build time by tsup, same define as index.ts / start.ts.
 declare const __SOLIX_VERSION__: string;
 
+/**
+ * Can this platform run Solix's hooks at all?
+ *
+ * The hooks are POSIX `sh` and lean on `$PPID`, `date +%s`, `pwd` and `curl`.
+ * Native Windows `cmd` cannot execute them, so on win32 they are written,
+ * registered, and then never fire — the user watches an empty galaxy with
+ * nothing saying why. Better to decline loudly.
+ *
+ * Rewriting them in Node would be portable but is not free: measured here,
+ * `sh` starts in ~2ms and `node` in ~37ms, and PreToolUse/PostToolUse fire on
+ * every single tool call, in the agent's blocking path. Paying ~70ms per tool
+ * call on every platform to serve one is the wrong trade; the right fix is
+ * native `.cmd` hooks, verified by someone actually on Windows.
+ *
+ * WSL reports as linux, so Windows users have a working path today.
+ */
+export function hooksSupported(): boolean {
+  return process.platform !== 'win32';
+}
+
 /** Has Claude Code ever run on this machine? */
 export function claudeCodePresent(): boolean {
   return existsSync(CLAUDE_DIR);

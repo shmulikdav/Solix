@@ -50,9 +50,19 @@ The easiest path — install from npm:
 
 ```sh
 npm i -g @shmulikdav/solix
-solix install        # patches ~/.claude/settings.json
-solix start          # serves API + WS + UI on http://127.0.0.1:4242
+solix                # wires the Claude Code hooks on first run, then serves
+                     # API + WS + UI on http://127.0.0.1:4242
 ```
+
+First run merges Solix's hooks into `~/.claude/settings.json`, after backing
+it up, and tells you exactly what it changed. `solix uninstall` removes them
+again — it takes out only Solix's own entries and leaves the rest of your
+settings alone. `solix install` is still there for scripted setups and
+`--force` re-wiring.
+
+> **Platforms.** macOS and Linux. The hooks are POSIX shell scripts, so
+> **native Windows is not supported yet** — run Solix inside WSL, where it
+> works today. `solix demo` and the UI work anywhere Node does.
 
 Open **http://127.0.0.1:4242** — you'll get a Welcome modal walking
 you through five things you can do.

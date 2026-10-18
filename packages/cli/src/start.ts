@@ -3,6 +3,7 @@ import open from 'open';
 import {
   claudeCodePresent,
   hooksInstalled,
+  hooksSupported,
   hooksUpToDate,
   install,
   installedVersion,
@@ -42,6 +43,19 @@ const BANNER = `
  * than demanded.
  */
 function ensureWired(): void {
+  // Say it before doing anything. Writing hooks that cannot execute would
+  // leave a user staring at an empty galaxy with the UI insisting all is
+  // well — the exact silent failure this whole function exists to end.
+  if (!hooksSupported()) {
+    console.log(
+      '[solix] native Windows is not supported yet — the hooks are POSIX\n' +
+        '        shell scripts, so real Claude Code sessions will not appear.\n' +
+        '        Run Solix inside WSL and it works today; `solix demo` works\n' +
+        '        here as-is.',
+    );
+    return;
+  }
+
   if (hooksUpToDate()) return;
 
   // Hooks are present but were written by a different release. The scripts
@@ -95,7 +109,7 @@ export async function start(opts: StartOptions = {}): Promise<void> {
     }
   }
   console.log(
-    claudeCodePresent()
+    claudeCodePresent() && hooksSupported()
       ? '[solix] start any `claude` session to see your first planet appear'
       : '[solix] run `solix demo` to see a galaxy without Claude Code',
   );

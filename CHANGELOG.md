@@ -78,6 +78,22 @@ additive and backward-compatible; the paid tier ships dormant (free public beta
 
 These affect anyone upgrading from 1.11.8:
 
+- **Native Windows is now declined, loudly, instead of failing silently.**
+  The hooks are POSIX shell scripts using `$PPID`, `date +%s`, `pwd` and
+  `curl`; Windows `cmd` cannot execute them. Solix wrote and registered them
+  anyway, so a Windows user got a running UI, an empty galaxy, and nothing
+  explaining why. `solix start` now says so up front and points at WSL — where
+  Solix already works today, because WSL reports as linux — and `solix install`
+  refuses rather than reporting a success that isn't one. `solix demo` and the
+  UI are unaffected and run anywhere Node does.
+
+  Rewriting the hooks in Node would be portable but was measured and rejected:
+  `sh` starts in ~2ms against node's ~37ms, and PreToolUse/PostToolUse fire on
+  every tool call in the agent's blocking path. Paying ~70ms per tool call on
+  every platform to serve one is the wrong trade. Real Windows support means
+  native `.cmd` hooks, verified on Windows.
+- **`solix doctor` now reports what a bug report needs** — platform, Solix and
+  Node versions, and whether the installed hooks match the running build.
 - **Uninstalling could silently revert your Claude Code settings.**
   `solix uninstall` restored the backup wholesale whenever one existed — and
   that backup is taken *once*, at first install. Anything you added to
