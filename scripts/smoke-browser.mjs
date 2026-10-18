@@ -158,6 +158,34 @@ async function main() {
   await page.screenshot({ path: `${SHOT_DIR}/01-galaxy.png` });
 
   // ── The surfaces added this cycle ──
+  // O1, asserted in the browser because that is where it was invisible: the
+  // modal used to hide itself once any session existed, and this page has ~30
+  // from `solix demo` — the very command the README suggests first. A fresh
+  // browser context has no dismissed flag, so onboarding must be on screen.
+  await step('onboarding appears even with sessions present (O1)', async () => {
+    await page.waitForSelector('text=Pick one to start', { timeout: 10000 });
+    await page.screenshot({ path: `${SHOT_DIR}/01-onboarding.png` });
+    // Dismiss it so the rest of the run can reach the top bar. That it blocks
+    // the UI until dismissed is the point — it is a first-run modal again.
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('text=Pick one to start', {
+      state: 'detached',
+      timeout: 5000,
+    });
+  });
+
+  // O3: help and onboarding were the same component, and closing help wrote
+  // the first-run flag. They are separate now, and the legend is complete.
+  await step('help is its own panel with the full legend', async () => {
+    await page.keyboard.press('?');
+    await page.waitForSelector('text=What you\'re looking at', { timeout: 10000 });
+    for (const term of ['Sun', 'Planet', 'Asteroid belt']) {
+      await page.waitForSelector(`text="${term}"`, { timeout: 5000 });
+    }
+    await page.screenshot({ path: `${SHOT_DIR}/02-help.png` });
+    await page.keyboard.press('Escape');
+  });
+
   await step('Maestro plan panel opens (P)', async () => {
     await page.keyboard.press('p');
     await page.waitForSelector('text=Plan a build', { timeout: 10000 });

@@ -4,6 +4,7 @@ import { MissionView } from './hud/MissionView.js';
 import { TopBar } from './hud/TopBar.js';
 import { Toasts } from './hud/Toasts.js';
 import { Welcome } from './hud/Welcome.js';
+import { HelpPanel } from './hud/HelpPanel.js';
 import { DecisionQueue } from './hud/DecisionQueue.js';
 import { SceneControls } from './hud/SceneControls.js';
 import { UpdateBanner } from './hud/UpdateBanner.js';
@@ -223,11 +224,14 @@ export default function App(): JSX.Element {
         </Suspense>
       )}
       <SceneControls />
+      {/* Two components now, not one. Help used to BE Welcome with a
+          forceOpen flag, and closing it wrote the first-run dismissed flag —
+          so pressing ? once consumed a new user's onboarding. */}
       <Welcome
-        onOpenShare={() => setShareOpen(true)}
-        forceOpen={helpOpen}
-        onClose={() => setHelpOpen(false)}
+        onPlanBuild={() => openPanel('plan')}
+        onOpenCrew={() => openFleet('crew')}
       />
+      <HelpPanel open={helpOpen} onClose={() => setHelpOpen(false)} />
       <Toasts />
       <EmptyHint />
       <UpdateBanner />

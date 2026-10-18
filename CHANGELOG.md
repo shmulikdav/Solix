@@ -78,6 +78,20 @@ additive and backward-compatible; the paid tier ships dormant (free public beta
 
 These affect anyone upgrading from 1.11.8:
 
+- **The first command the README suggests destroyed onboarding.** The welcome
+  modal only rendered when there were zero sessions, and `solix demo` — the
+  quick start's first step — seeds about thirty. Anyone who followed the
+  instructions never saw onboarding, and nothing brought it back. It now shows
+  until you dismiss it, whatever is on screen.
+- **Opening help silently consumed a new user's onboarding.** Help and the
+  welcome modal were one component, and help's "Got it" wrote the first-run
+  dismissed flag. They are separate now; closing help writes nothing.
+- **The welcome modal could not be dismissed.** No ✕, no backdrop handler, and
+  its Escape path only cleared a flag that is already false on a genuine first
+  run. All three work now.
+- **Returning users saw a frame of the welcome modal on every load**, because
+  the dismissed flag hydrated from localStorage in an effect, after first
+  render. It is read synchronously.
 - **Recurring spend could be started from the app but only stopped from a
   terminal.** Installing a team creates interval routines, and each run launches
   a real agent session that costs money. The web app had one read-only selector
@@ -117,6 +131,15 @@ These affect anyone upgrading from 1.11.8:
 
 ### Changed
 
+- **Onboarding is three choices instead of six cards.** The old modal
+  explained the whole product before letting you do anything and ended on a
+  feature marked "(preview)", while omitting five shipped surfaces. It now
+  offers one action to take — each says whether it costs money — and the
+  reference material moved to `?`, which gained the complete shortcut legend
+  (the old one listed 11 keys and omitted 8 that were bound), a plain-language
+  key to the sun / planet / moon / belt vocabulary that previously existed only
+  in hover tooltips, and a getting-started checklist that ticks itself off from
+  real state.
 - **Crew, Connections, Skills, Teams, Orgs and Routines are now one Fleet
   panel.** Four of these each had their own top-bar button, so configuration
   competed for attention with the things you actually do, and the bar grew by
