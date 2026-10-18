@@ -21,7 +21,10 @@ import { AdvisorPanel } from './panels/AdvisorPanel.js';
 import { SkillPanel } from './panels/SkillPanel.js';
 import { NewTaskModal } from './panels/NewTaskModal.js';
 import { ErrorBoundary } from './ErrorBoundary.js';
-import { useSolixStore } from './store/index.js';
+import {
+  selectPendingPermissionsOrdered,
+  useSolixStore,
+} from './store/index.js';
 import { startWsClient } from './ws/client.js';
 
 // Sprint K code-split: the 3D galaxy scene pulls three.js, drei, and
@@ -102,8 +105,11 @@ export default function App(): JSX.Element {
         target?.tagName === 'INPUT' ||
         target?.tagName === 'TEXTAREA' ||
         target?.isContentEditable === true;
-      const pending = Object.values(state.pendingPermissions);
-      const top = pending[0];
+      const inGalaxy = state.viewMode === 'galaxy';
+      // Must match what the Decision Queue shows: `Y`/`N` act on the card the
+      // user is actually looking at. Both read one selector so they cannot
+      // drift apart again.
+      const top = selectPendingPermissionsOrdered(state)[0];
 
       if (e.key === 'Escape') {
         state.selectSession(null);
@@ -135,21 +141,24 @@ export default function App(): JSX.Element {
         else state.openPlanPanel();
       } else if (!isTextField && (e.key === 'l' || e.key === 'L')) {
         setNewTaskOpen(true);
-      } else if (!isTextField && (e.key === '+' || e.key === '=')) {
+        // Camera + motion keys only do something in the galaxy view. They were
+        // bound in List and Missions too, where there is no camera and nothing
+        // orbits — pressing them silently did nothing.
+      } else if (!isTextField && inGalaxy && (e.key === '+' || e.key === '=')) {
         cameraZoomIn();
-      } else if (!isTextField && e.key === '-') {
+      } else if (!isTextField && inGalaxy && e.key === '-') {
         cameraZoomOut();
-      } else if (!isTextField && e.key === '0') {
+      } else if (!isTextField && inGalaxy && e.key === '0') {
         cameraReset();
-      } else if (!isTextField && e.key === 'ArrowLeft') {
+      } else if (!isTextField && inGalaxy && e.key === 'ArrowLeft') {
         panLeft();
-      } else if (!isTextField && e.key === 'ArrowRight') {
+      } else if (!isTextField && inGalaxy && e.key === 'ArrowRight') {
         panRight();
-      } else if (!isTextField && e.key === 'ArrowUp') {
+      } else if (!isTextField && inGalaxy && e.key === 'ArrowUp') {
         panUp();
-      } else if (!isTextField && e.key === 'ArrowDown') {
+      } else if (!isTextField && inGalaxy && e.key === 'ArrowDown') {
         panDown();
-      } else if (!isTextField && e.key === ' ') {
+      } else if (!isTextField && inGalaxy && e.key === ' ') {
         e.preventDefault();
         state.toggleMotion();
       } else if (!isTextField && (e.key === 'v' || e.key === 'V')) {
@@ -270,9 +279,29 @@ function SceneUnavailable(): JSX.Element {
     <div className="absolute inset-0 flex items-center justify-center bg-solix-bg z-0">
       <div className="text-center text-xs text-slate-500 max-w-xs leading-relaxed">
         <div className="text-slate-300 mb-1">The galaxy view didn’t load.</div>
-        Your agents are still running — switch to{' '}
-        <span className="text-slate-300">List</span> or{' '}
-        <span className="text-slate-300">Missions</span> view, or reload.
+        Your agents are still running.
+        {/* Previously this told the user to switch view but rendered no way to
+            do it — the only path was the top bar behind this overlay. */}
+        <div className="mt-3 flex items-center justify-center gap-2">
+          <button
+            onClick={() => useSolixStore.getState().setViewMode('list')}
+            className="px-2 py-1 rounded border border-solix-border text-slate-300 hover:bg-solix-border/30 hover:text-white"
+          >
+            Switch to List
+          </button>
+          <button
+            onClick={() => useSolixStore.getState().setViewMode('missions')}
+            className="px-2 py-1 rounded border border-solix-border text-slate-300 hover:bg-solix-border/30 hover:text-white"
+          >
+            Missions
+          </button>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-2 py-1 rounded border border-solix-border text-slate-300 hover:bg-solix-border/30 hover:text-white"
+          >
+            Reload
+          </button>
+        </div>
       </div>
     </div>
   );

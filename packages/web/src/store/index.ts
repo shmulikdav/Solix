@@ -1446,6 +1446,26 @@ export function selectSkillsArray(state: SolixState): Skill[] {
   return Object.values(state.skills);
 }
 
+/**
+ * Pending permissions in the order the Decision Queue displays them: newest
+ * first.
+ *
+ * This exists because the keyboard shortcut and the queue used to derive their
+ * own order independently, and the two were exact opposites — the handler took
+ * `Object.values(pendingPermissions)[0]` (insertion order, i.e. OLDEST first)
+ * while the queue sorted newest-first. With two or more pending requests,
+ * pressing `Y` approved the card at the BOTTOM of the list rather than the one
+ * on screen. Approving an agent action the human never saw is the worst failure
+ * this product can have, so both callers now read this one function.
+ */
+export function selectPendingPermissionsOrdered(
+  state: SolixState,
+): PendingPermission[] {
+  return Object.values(state.pendingPermissions).sort(
+    (a, b) => b.receivedAt - a.receivedAt,
+  );
+}
+
 export function selectEnabledSchedules(state: SolixState): ScheduledTask[] {
   return Object.values(state.schedules).filter((s) => s.enabled);
 }

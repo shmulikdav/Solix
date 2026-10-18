@@ -213,6 +213,7 @@ export function NewTaskModal({
           <button
             onClick={onClose}
             className="text-slate-400 hover:text-slate-100"
+            aria-label="Close"
           >
             ✕
           </button>

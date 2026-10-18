@@ -19,6 +19,7 @@ import {
 } from '../store/index.js';
 import { AtmosphereRim } from './AtmosphereRim.js';
 import { ErrorBoundary } from '../ErrorBoundary.js';
+import { useHoverCursor } from './useHoverCursor.js';
 
 const RING_RADIUS = 3.3;
 const GHOST_RING_RADIUS = 4.3;
@@ -188,6 +189,7 @@ function TexturedBody({
   onClick,
   dimRef,
 }: TexturedBodyProps): JSX.Element {
+  const hoverCursor = useHoverCursor();
   const bodyRef = useRef<Mesh>(null);
   const cloudRef = useRef<Mesh>(null);
   const ringRef = useRef<Mesh>(null);
@@ -234,7 +236,7 @@ function TexturedBody({
 
   return (
     <group rotation={[tilt, 0, 0]}>
-      <mesh ref={bodyRef} onClick={onClick}>
+      <mesh ref={bodyRef} onClick={onClick} {...hoverCursor}>
         <sphereGeometry args={[PLANET_SIZE, 48, 48]} />
         <meshStandardMaterial
           ref={bodyMatRef}
@@ -292,6 +294,7 @@ function ProceduralBody({
   onClick,
   dimRef,
 }: ProceduralBodyProps): JSX.Element {
+  const hoverCursor = useHoverCursor();
   const meshRef = useRef<Mesh>(null);
   const matRef = useRef<MeshStandardMaterial>(null);
   const baseColor = useMemo(() => new Color(advisor.color), [advisor.color]);
@@ -313,7 +316,7 @@ function ProceduralBody({
   });
 
   return (
-    <mesh ref={meshRef} onClick={onClick}>
+    <mesh ref={meshRef} onClick={onClick} {...hoverCursor}>
       <sphereGeometry args={[PLANET_SIZE, 24, 24]} />
       <meshStandardMaterial
         ref={matRef}
@@ -340,6 +343,7 @@ function GhostAdvisorPlanet({
   index,
   total,
 }: AdvisorPlanetProps): JSX.Element {
+  const hoverCursor = useHoverCursor();
   const groupRef = useRef<Group>(null);
   const matRef = useRef<MeshStandardMaterial>(null);
   const phase = useMemo(
@@ -378,7 +382,7 @@ function GhostAdvisorPlanet({
 
   return (
     <group ref={groupRef}>
-      <mesh onClick={onClick}>
+      <mesh onClick={onClick} {...hoverCursor}>
         <sphereGeometry args={[PLANET_SIZE * 0.8, 20, 20]} />
         <meshStandardMaterial
           ref={matRef}

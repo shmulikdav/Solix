@@ -1,5 +1,8 @@
-import { useEffect, useState } from 'react';
-import { useSolixStore } from '../store/index.js';
+import { useEffect, useRef, useState } from 'react';
+import {
+  selectPendingPermissionsOrdered,
+  useSolixStore,
+} from '../store/index.js';
 import type { Mission, Session } from '@solix/shared';
 import { suggestForPermission } from '../suggestions.js';
 
@@ -31,18 +34,24 @@ export function DecisionQueue({
   const dismissBudgetAlert = useSolixStore((s) => s.dismissBudgetAlert);
   const selectSession = useSolixStore((s) => s.selectSession);
 
-  const items = Object.values(pending).sort(
-    (a, b) => b.receivedAt - a.receivedAt,
-  );
+  // Shared with the Y/N key handler in App.tsx — see
+  // selectPendingPermissionsOrdered. Do not re-sort locally.
+  const items = useSolixStore(selectPendingPermissionsOrdered);
   const alerts = Object.values(budgetAlerts).sort(
     (a, b) => b.receivedAt - a.receivedAt,
   );
   const [collapsed, setCollapsed] = useState(false);
 
-  // When a new item arrives, force-expand the queue so the user sees it.
+  // Force-expand when something NEW arrives, so a pending decision is never
+  // hidden. Deliberately only on an increase: the previous version fired on any
+  // change while count > 0, so resolving one of three requests (3 → 2) also
+  // re-expanded a queue the user had just collapsed, and there was no way to
+  // keep it shut while work was in flight.
   const count = items.length + alerts.length;
+  const prevCount = useRef(count);
   useEffect(() => {
-    if (count > 0) setCollapsed(false);
+    if (count > prevCount.current) setCollapsed(false);
+    prevCount.current = count;
   }, [count]);
 
   const onAsk = (sessionId: string): void => {

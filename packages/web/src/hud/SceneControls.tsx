@@ -59,6 +59,10 @@ export function SceneControls(): JSX.Element {
           </div>
         </div>
       )}
+      {/* Orbital motion only exists in the galaxy view — the button rendered in
+          List and Missions too, where nothing orbits and pressing it did
+          nothing visible. */}
+      {viewMode === 'galaxy' && (
       <div className="pointer-events-none absolute bottom-4 right-4 z-20">
         <button
           onClick={toggleMotion}
@@ -72,6 +76,7 @@ export function SceneControls(): JSX.Element {
           {motionEnabled ? '⏸' : '▶'}
         </button>
       </div>
+      )}
     </>
   );
 }
