@@ -17,6 +17,7 @@ export interface NavRailProps {
   onNewTask: () => void;
   onOpenTimeline: () => void;
   onOpenHelp: () => void;
+  onReportProblem: () => void;
 }
 
 /**
@@ -31,6 +32,7 @@ export function NavRail({
   onNewTask,
   onOpenTimeline,
   onOpenHelp,
+  onReportProblem,
 }: NavRailProps): JSX.Element {
   const viewMode = useSolixStore((s) => s.viewMode);
   const setViewMode = useSolixStore((s) => s.setViewMode);
@@ -215,6 +217,14 @@ export function NavRail({
           className="w-full py-1 text-left text-sm text-slate-600 transition-colors hover:text-slate-300"
         >
           Help
+        </button>
+        {/* The only outward-facing thing in the rail, and the only way a
+            tester reports anything without going to find the repo first. */}
+        <button
+          onClick={onReportProblem}
+          className="w-full py-1 text-left text-sm text-slate-600 transition-colors hover:text-slate-300"
+        >
+          Report a problem
         </button>
       </div>
     </nav>

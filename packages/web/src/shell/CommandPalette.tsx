@@ -36,12 +36,14 @@ export function CommandPalette({
   onNewTask,
   onOpenTimeline,
   onOpenHelp,
+  onReportProblem,
 }: {
   open: boolean;
   onClose: () => void;
   onNewTask: () => void;
   onOpenTimeline: () => void;
   onOpenHelp: () => void;
+  onReportProblem: () => void;
 }): JSX.Element | null {
   const [query, setQuery] = useState('');
   const [index, setIndex] = useState(0);
@@ -100,6 +102,7 @@ export function CommandPalette({
       { id: 'a-timeline', label: 'Timeline', group: 'Actions', hint: 'T', run: onOpenTimeline },
       { id: 'a-motion', label: 'Play / pause orbits', group: 'Actions', hint: 'Space', run: toggleMotion },
       { id: 'a-help', label: 'Help', group: 'Actions', hint: '?', run: onOpenHelp },
+      { id: 'a-report', label: 'Report a problem', group: 'Actions', run: onReportProblem },
     ];
 
     // Agents by name. Twenty idle planets are effectively unreachable
@@ -129,6 +132,7 @@ export function CommandPalette({
     onNewTask,
     onOpenTimeline,
     onOpenHelp,
+    onReportProblem,
   ]);
 
   const matches = useMemo(() => {

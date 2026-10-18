@@ -96,7 +96,20 @@ export async function start(opts: StartOptions = {}): Promise<void> {
   const port = opts.port ?? Number(process.env.SOLIX_PORT ?? 4242);
   console.log(BANNER);
   ensureWired();
-  const handle = await createSolixServer({ port, version: __SOLIX_VERSION__ });
+  const handle = await createSolixServer({
+    port,
+    version: __SOLIX_VERSION__,
+    // The CLI owns the install, so it is the only thing that can honestly
+    // answer "are the hooks wired, and are they this version's". Without it
+    // a bug report cannot distinguish "broken" from "never set up".
+    hookStatus: () => ({
+      installed: hooksInstalled(),
+      upToDate: hooksUpToDate(),
+      stampedVersion: installedVersion(),
+      claudeCodePresent: claudeCodePresent(),
+      supported: hooksSupported(),
+    }),
+  });
   const url = `http://${handle.hostname}:${handle.port}`;
   console.log(`[solix] server listening on ${url}`);
   console.log(`[solix] events  -> POST ${url}/events`);

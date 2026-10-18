@@ -107,6 +107,7 @@ describe('the rail carries the signal', () => {
     onNewTask: () => {},
     onOpenTimeline: () => {},
     onOpenHelp: () => {},
+    onReportProblem: () => {},
   };
 
   it('shows the pending count beside Decisions', () => {

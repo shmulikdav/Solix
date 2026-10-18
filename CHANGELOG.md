@@ -122,6 +122,21 @@ These affect anyone upgrading from 1.11.8:
 
   `npm i -g @shmulikdav/solix` then `solix` is the whole install.
   `solix install` remains for scripted setups and `--force` re-wiring.
+- **"Report a problem" in the rail.** There was no way to report anything
+  from inside Solix — you had to find the repo yourself, run `solix doctor`
+  in a terminal and work out which parts mattered. It now collects the same
+  information and opens a prefilled GitHub issue, so a problem you hit
+  actually reaches someone. New `GET /api/diagnostics` carries version, Node,
+  platform, hook state (including whether the installed hooks match the
+  running build) and session counts; the CLI supplies the hook half, since
+  it owns the install.
+
+  It shows you the payload first. Solix's claim is that nothing leaves your
+  machine, so the one control that offers to send something outward owes you
+  a look at it — and what it sends is versions, counts and hook state, never
+  a path, a project name or a prompt. That is enforced by a test, and by a
+  browser step that fails if a filesystem path appears in the payload while
+  thirty-odd demo sessions are running.
 - **⌘K opens a command palette.** Eleven rail destinations plus six Fleet
   sections is a reasonable amount of navigation to see and a poor amount to
   traverse when you know where you are going — and none of it reached your

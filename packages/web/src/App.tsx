@@ -14,6 +14,7 @@ import {
 } from './shell/surfaces.js';
 import { FirstSunHint } from './hud/FirstSunHint.js';
 import { CommandPalette } from './shell/CommandPalette.js';
+import { ReportProblem } from './shell/ReportProblem.js';
 import { readDismissed } from './hud/onboarding.js';
 import { DecisionQueue } from './hud/DecisionQueue.js';
 import { SceneControls } from './hud/SceneControls.js';
@@ -76,6 +77,7 @@ export default function App(): JSX.Element {
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
   // Mirrors Welcome's own gate so the sun hint can wait its turn.
   const [welcomeOpen, setWelcomeOpen] = useState(() => !readDismissed());
 
@@ -228,6 +230,7 @@ export default function App(): JSX.Element {
         onNewTask={() => setNewTaskOpen(true)}
         onOpenTimeline={() => setTimelineOpen(true)}
         onOpenHelp={() => setHelpOpen(true)}
+        onReportProblem={() => setReportOpen(true)}
       />
       <TopBar />
       {decisionsOpen && <DecisionQueue />}
@@ -256,12 +259,14 @@ export default function App(): JSX.Element {
         onDismissed={() => setWelcomeOpen(false)}
       />
       <HelpPanel open={helpOpen} onClose={() => setHelpOpen(false)} />
+      <ReportProblem open={reportOpen} onClose={() => setReportOpen(false)} />
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
         onNewTask={() => setNewTaskOpen(true)}
         onOpenTimeline={() => setTimelineOpen(true)}
         onOpenHelp={() => setHelpOpen(true)}
+        onReportProblem={() => setReportOpen(true)}
       />
       <FirstSunHint suppressed={welcomeOpen || helpOpen || paletteOpen} />
       <Toasts />

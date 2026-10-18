@@ -449,6 +449,35 @@ async function main() {
     await page.keyboard.press('Escape');
   });
 
+  // A beta tester with no way to report anything is a tester you learn
+  // nothing from. The payload is shown before it goes anywhere, because the
+  // product's claim is that nothing leaves the machine.
+  await step('Report a problem collects diagnostics without leaking paths', async () => {
+    await page.click('[data-nav-rail] >> text="Report a problem"');
+    // Wait on the diagnostics themselves, not the dialog chrome — the
+    // heading renders immediately and the fetch resolves after it, so
+    // reading too early just captures the fallback message.
+    await page.waitForSelector('pre >> text=/solix\\s+\\d+\\.\\d+/', {
+      timeout: 10000,
+    });
+    const payload = (await page.textContent('pre')) ?? '';
+    for (const want of ['solix', 'node', 'platform', 'hooks', 'sessions']) {
+      if (!payload.includes(want)) {
+        throw new Error(`diagnostics missing "${want}": ${payload}`);
+      }
+    }
+    // The demo seeds ~30 sessions in real directories; none may appear.
+    if (/\/(home|Users|tmp)\//.test(payload)) {
+      throw new Error(`diagnostics leaked a filesystem path:\n${payload}`);
+    }
+    await page.screenshot({ path: `${SHOT_DIR}/10-report.png` });
+    await page.keyboard.press('Escape');
+    await page.waitForSelector('text=What gets attached', {
+      state: 'detached',
+      timeout: 5000,
+    });
+  });
+
   // The rail is the navigation now, so every destination must be in it.
   await step('every rail destination is present', async () => {
     for (const label of [

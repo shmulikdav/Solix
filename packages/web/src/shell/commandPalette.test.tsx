@@ -28,6 +28,7 @@ const props = {
   onNewTask: () => {},
   onOpenTimeline: () => {},
   onOpenHelp: () => {},
+  onReportProblem: () => {},
 };
 
 beforeEach(() => {
