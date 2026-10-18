@@ -122,6 +122,18 @@ These affect anyone upgrading from 1.11.8:
 
   `npm i -g @shmulikdav/solix` then `solix` is the whole install.
   `solix install` remains for scripted setups and `--force` re-wiring.
+- **⌘K opens a command palette.** Eleven rail destinations plus six Fleet
+  sections is a reasonable amount of navigation to see and a poor amount to
+  traverse when you know where you are going — and none of it reached your
+  agents, which were otherwise findable only by picking the right dot out of
+  a 3D scene. The palette indexes every surface, every Fleet section, and
+  every agent by name. It deliberately cannot approve a decision or start a
+  routine: acting on a tool call you cannot see is the thing the Y/N gate
+  exists to prevent, so it takes you to Decisions instead.
+- **The connection indicator says `Live` again.** Reducing it to a bare dot
+  was an over-correction from "this pill looks like a button" — the result
+  was unreadable, which was the complaint. A dot plus one word is legible and
+  still not button-shaped; the tooltip keeps the retry-and-staleness detail.
 - **Fleet's tab strip is gone and its sections are grids.** The strip listed
   the same six sections the rail already lists, so it was the navigation
   twice — and it was the copy that truncated "Connections" at 480px. The

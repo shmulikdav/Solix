@@ -24,11 +24,6 @@ export function SkillsTab(): JSX.Element {
 
   return (
     <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-      <div className="text-xs text-slate-400 leading-snug">
-        A skill is reusable instructions you can attach to agents. Writing one
-        is free — it costs nothing until an agent uses it.
-      </div>
-
       <div>
         <div className="text-[10px] uppercase tracking-widest text-slate-500 mb-2">
           Your skills · {userSkills.length}

@@ -50,10 +50,6 @@ export function ConnectionsTab({ open }: Props): JSX.Element | null {
 
   return (
     <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-      <div className="text-xs text-slate-400 leading-snug">
-        Store API keys once, grant them to agents. A worker only ever sees the
-        secrets it's granted — values are write-only and encrypted at rest.
-      </div>
         {/* New connection */}
         <div className="space-y-2">
           <div className="text-[10px] uppercase tracking-wide text-slate-400">

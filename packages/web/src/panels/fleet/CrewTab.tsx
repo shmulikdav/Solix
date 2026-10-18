@@ -48,15 +48,9 @@ export function CrewTab({ open }: { open: boolean }): JSX.Element {
 
   return (
     <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-      <div className="text-xs text-slate-400 leading-snug">
-        {active.length} active · {optIn.length} available. Enable an advisor to
-        add it to the inner ring and the + Task picker.
-        <div className="text-[11px] text-slate-500 mt-1">
-          <span className="text-solix-ok">Enabling is free</span> — no API calls.
-          An advisor costs tokens only when you{' '}
-          <span className="text-solix-warn">pin</span> it (an always-on session)
-          or invoke it on a task.
-        </div>
+      <div className="text-xs text-slate-500">
+        {active.length} active · {optIn.length} available. Enable one to add it
+        to the inner ring and the + Task picker.
       </div>
 
       <CrewSection

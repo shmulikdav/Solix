@@ -90,6 +90,15 @@ export function TopBar(): JSX.Element {
         <Stat value={counts.idle} label="idle" color="text-slate-500" />
       </div>
 
+      {/* The palette is only useful if people know it is there. A hint in
+          the bar is how every app that ships one makes it discoverable. */}
+      <kbd
+        className="hidden select-none rounded border border-solix-border px-1.5 py-0.5 font-mono text-[10px] text-slate-600 sm:inline"
+        title="Command palette (⌘K)"
+      >
+        ⌘K
+      </kbd>
+
       <ConnectionDot />
     </header>
   );

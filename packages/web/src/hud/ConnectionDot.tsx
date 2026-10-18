@@ -34,16 +34,28 @@ export function ConnectionDot(): JSX.Element {
           role="status"
           aria-label={label}
           tabIndex={0}
-          className="ml-1 sm:ml-3 flex items-center outline-none focus-visible:ring-1 focus-visible:ring-solix-accent rounded-full p-0.5"
+          className="flex items-center gap-1.5 rounded p-0.5 outline-none focus-visible:ring-1 focus-visible:ring-solix-accent"
         >
           <span
             aria-hidden="true"
-            className={`block w-2 h-2 rounded-full ${
+            className={`block w-1.5 h-1.5 rounded-full ${
               connected
                 ? 'bg-solix-ok'
                 : 'border border-solix-danger solix-pulse'
             }`}
           />
+          {/* The word is back. Removing it was an over-correction from "this
+              pill looks like a button": a bare dot is unambiguous about
+              nothing, and the complaint was that nobody could tell what it
+              meant. Dot plus one word is still not button-shaped. */}
+          <span
+            aria-hidden="true"
+            className={`text-[11px] ${
+              connected ? 'text-slate-500' : 'text-solix-danger'
+            }`}
+          >
+            {connected ? 'Live' : 'Offline'}
+          </span>
         </span>
       )}
     </Tooltip>

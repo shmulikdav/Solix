@@ -12,11 +12,24 @@ import { ConnectionDot } from './ConnectionDot.js';
 afterEach(cleanup);
 
 describe('ConnectionDot', () => {
-  it('no longer renders the chip wording', () => {
+  it('no longer renders the shouty chip wording', () => {
     useSolixStore.setState({ connected: true });
     render(<ConnectionDot />);
     expect(screen.queryByText('CONNECTED')).toBeNull();
     expect(screen.queryByText('OFFLINE')).toBeNull();
+  });
+
+  // Dropping the label entirely was an over-correction: the chip looked like
+  // a button, so it became a bare dot that said nothing. A dot plus one word
+  // is readable without being button-shaped.
+  it('labels the state in a word', () => {
+    useSolixStore.setState({ connected: true });
+    render(<ConnectionDot />);
+    expect(screen.getByText('Live')).toBeTruthy();
+    cleanup();
+    useSolixStore.setState({ connected: false });
+    render(<ConnectionDot />);
+    expect(screen.getByText('Offline')).toBeTruthy();
   });
 
   it('carries the full state in an aria-label when connected', () => {
@@ -42,7 +55,7 @@ describe('ConnectionDot', () => {
   it('distinguishes the states by more than colour', () => {
     useSolixStore.setState({ connected: false });
     const { container: offline } = render(<ConnectionDot />);
-    const offlineDot = offline.querySelector('[aria-hidden="true"]')!;
+    const offlineDot = offline.querySelectorAll('[aria-hidden="true"]')[0]!;
     expect(offlineDot.className).toContain('solix-pulse');
     expect(offlineDot.className).toContain('border');
     expect(offlineDot.className).not.toContain('bg-solix');
@@ -50,7 +63,7 @@ describe('ConnectionDot', () => {
     cleanup();
     useSolixStore.setState({ connected: true });
     const { container: online } = render(<ConnectionDot />);
-    const onlineDot = online.querySelector('[aria-hidden="true"]')!;
+    const onlineDot = online.querySelectorAll('[aria-hidden="true"]')[0]!;
     expect(onlineDot.className).toContain('bg-solix-ok');
     expect(onlineDot.className).not.toContain('solix-pulse');
   });

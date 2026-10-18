@@ -35,11 +35,6 @@ export function RoutinesTab({ open }: { open: boolean }): JSX.Element {
 
   return (
     <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-      <div className="text-xs text-slate-400 leading-snug">
-        A routine starts an agent session on its own, without asking. Interval
-        routines keep doing that until you disable them.
-      </div>
-
       {enabledInterval.length > 0 && (
         <div className="rounded border border-solix-warn/40 bg-solix-warn/10 px-3 py-2 text-xs text-solix-warn">
           {enabledInterval.length === 1

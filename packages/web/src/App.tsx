@@ -13,6 +13,7 @@ import {
   type WorkspaceSurface,
 } from './shell/surfaces.js';
 import { FirstSunHint } from './hud/FirstSunHint.js';
+import { CommandPalette } from './shell/CommandPalette.js';
 import { readDismissed } from './hud/onboarding.js';
 import { DecisionQueue } from './hud/DecisionQueue.js';
 import { SceneControls } from './hud/SceneControls.js';
@@ -74,6 +75,7 @@ export default function App(): JSX.Element {
   const [newTaskOpen, setNewTaskOpen] = useState(false);
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   // Mirrors Welcome's own gate so the sun hint can wait its turn.
   const [welcomeOpen, setWelcomeOpen] = useState(() => !readDismissed());
 
@@ -112,6 +114,11 @@ export default function App(): JSX.Element {
       const top = selectPendingPermissionsOrdered(state)[0];
       const decisionsVisible = selectCanResolveByKey(state);
 
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+        return;
+      }
       if (e.key === 'Escape') {
         // One call closes whichever dock panel is open — previously this had
         // to enumerate every panel, and adding one meant remembering to add it
@@ -249,7 +256,14 @@ export default function App(): JSX.Element {
         onDismissed={() => setWelcomeOpen(false)}
       />
       <HelpPanel open={helpOpen} onClose={() => setHelpOpen(false)} />
-      <FirstSunHint suppressed={welcomeOpen || helpOpen} />
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        onNewTask={() => setNewTaskOpen(true)}
+        onOpenTimeline={() => setTimelineOpen(true)}
+        onOpenHelp={() => setHelpOpen(true)}
+      />
+      <FirstSunHint suppressed={welcomeOpen || helpOpen || paletteOpen} />
       <Toasts />
       <EmptyHint />
       <UpdateBanner />

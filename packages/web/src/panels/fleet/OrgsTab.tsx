@@ -46,11 +46,6 @@ export function OrgsTab(): JSX.Element {
 
   return (
     <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-      <div className="text-xs text-slate-400 leading-snug">
-        An org scopes which plans you see. Everything stays on this machine —
-        orgs are a way to keep separate work separate, not a login.
-      </div>
-
       <div className="space-y-2">
         {orgs.length === 0 ? (
           <div className="text-xs text-slate-500">No orgs yet.</div>

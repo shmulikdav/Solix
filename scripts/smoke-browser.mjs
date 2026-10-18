@@ -264,9 +264,9 @@ async function main() {
       ['Crew', 'Active crew'],
       ['Skills', 'Author a skill'],
       ['Teams', 'Ship-fast build team'],
-      ['Routines', 'A routine starts an agent session on its own'],
+      ['Routines', 'Each one starts a real session and costs money'],
       ['Connections', 'Notifications'],
-      ['Orgs', 'An org scopes which plans you see'],
+      ['Orgs', 'Orgs scope which plans you see'],
     ];
     await page.click('[data-nav-rail] >> text="Fleet"');
     await page.waitForSelector('[data-workspace-surface]', { timeout: 10000 });
@@ -407,24 +407,46 @@ async function main() {
     const info = await page.evaluate(() => {
       const bar = document.querySelector('[data-topbar]');
       if (!bar) return null;
-      const kids = [...bar.querySelectorAll('button, span, kbd')].filter((b) => {
-        const r = b.getBoundingClientRect();
-        return r.width > 0 && r.height > 0;
-      });
+      const tops = [...bar.querySelectorAll('button, span, kbd')]
+        .filter((b) => {
+          const r = b.getBoundingClientRect();
+          return r.width > 0 && r.height > 0;
+        })
+        .map((b) => b.getBoundingClientRect().top);
       return {
-        rows: new Set(
-          kids.map((b) => Math.round(b.getBoundingClientRect().top / 8)),
-        ).size,
+        // Vertical spread, not a bucket count. A bordered <kbd> sits a few
+        // px higher than plain text, which an 8px bucket read as a second
+        // row; a genuine wrap moves an element a full line — 30px or more.
+        spread: tops.length ? Math.max(...tops) - Math.min(...tops) : 0,
         height: Math.round(bar.getBoundingClientRect().height),
       };
     });
     if (!info) throw new Error('top bar not found');
-    if (info.rows > 1) {
-      throw new Error(`top bar wrapped to ${info.rows} rows at 1280px`);
+    if (info.spread > 20) {
+      throw new Error(
+        `top bar wrapped at 1280px — ${Math.round(info.spread)}px between the ` +
+          'highest and lowest control',
+      );
     }
     if (info.height > 56) {
       throw new Error(`top bar is ${info.height}px tall, expected one row`);
     }
+  });
+
+  // Phase 4: one keystroke to anywhere, including agents, which are
+  // otherwise only reachable by finding the right dot in a 3D scene.
+  await step('the command palette opens and navigates', async () => {
+    await page.keyboard.press('Control+k');
+    await page.waitForSelector('[data-command-palette]', { timeout: 5000 });
+    await page.fill('[data-command-palette] input', 'routines');
+    await page.keyboard.press('Enter');
+    await page.waitForSelector('[data-command-palette]', {
+      state: 'detached',
+      timeout: 5000,
+    });
+    await page.waitForSelector('text=New routine', { timeout: 10000 });
+    await page.screenshot({ path: `${SHOT_DIR}/09-palette.png` });
+    await page.keyboard.press('Escape');
   });
 
   // The rail is the navigation now, so every destination must be in it.
@@ -470,7 +492,7 @@ async function main() {
     await page.click('[data-nav-rail] >> text="Fleet"');
     await page.waitForSelector('[data-workspace-surface]', { timeout: 10000 });
     await page.click('[data-nav-rail] >> text="Orgs"');
-    await page.waitForSelector('text=An org scopes which plans you see', {
+    await page.waitForSelector('text=Orgs scope which plans you see', {
       timeout: 10000,
     });
     const active = await page.locator('[data-workspace-surface] >> text="active"').count();
