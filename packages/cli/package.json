@@ -1,7 +1,7 @@
 {
   "name": "@shmulikdav/solix",
-  "version": "1.12.0",
-  "description": "Solix \u2014 the control layer for your coding agents",
+  "version": "1.12.1",
+  "description": "Solix — the control layer for your coding agents",
   "license": "MIT",
   "type": "module",
   "bin": {
