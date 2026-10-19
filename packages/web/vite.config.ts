@@ -25,10 +25,10 @@ export default defineConfig({
       // PNGs from public/icons/ and call it good.
       includeAssets: ['icons/*.png'],
       manifest: {
-        name: 'Solix — solar-system command center',
+        name: 'Solix — the control layer for your coding agents',
         short_name: 'Solix',
         description:
-          'A solar-system command center for Claude Code agents. Watch every running session as a planet.',
+          'The control layer for your coding agents. Solix holds every risky command until you approve it, and shows what the fleet is spending.',
         start_url: '/',
         display: 'standalone',
         background_color: '#0a0e1a',

@@ -28,7 +28,7 @@ const BANNER = `
    ___) | |_| | |___ | |  /  \\
   |____/ \\___/|_____|___|/_/\\_\\
 
-  a solar-system command center for Claude Code
+  the control layer for your coding agents
 `;
 
 /**

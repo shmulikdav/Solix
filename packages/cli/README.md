@@ -1,6 +1,6 @@
 # Solix
 
-> A solar-system command center for Claude Code agents.
+> The control layer for your coding agents.
 
 Every running `claude` session becomes a planet orbiting the sun.
 Status is encoded as visual properties — color (model), halo

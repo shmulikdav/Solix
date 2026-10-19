@@ -8,12 +8,14 @@ import {
   getSession,
   setSessionBudget,
   setSessionContextUsage,
+  setSessionCost,
   setSessionGoal,
   setSessionMission,
   setSessionStatus,
   upsertSession,
 } from './state/sessions.js';
 import {
+  addMissionTokens,
   addTouchedFile,
   bumpSubagentCount,
   bumpToolCallCount,
@@ -880,5 +882,64 @@ export class EventRouter {
         usagePct: session.contextUsagePct,
       });
     }
+  }
+
+  /**
+   * Record spend and token usage against a session, the way a real assistant
+   * message would.
+   *
+   * Cost normally arrives from the transcript watcher, which reads Claude
+   * Code's JSONL and accrues per assistant message. `solix demo` has no
+   * transcript to read, so without this it seeds a cost-governance product
+   * with every number at zero — Mission Control showing $0.00 spend and
+   * $0.00 per mission is the first thing a new user sees, and it hides the
+   * one thing Solix is for.
+   *
+   * This mirrors the transcript path rather than writing the rows directly:
+   * same cost accumulation, same mission-token roll-up, same `cost_update`
+   * broadcast, same one-shot budget alert at the cap.
+   */
+  applyUsage(
+    sessionId: string,
+    usage: { costUsd?: number; tokens?: number; budgetUsd?: number },
+  ): boolean {
+    const session = getSession(this.db, sessionId);
+    if (!session) return false;
+
+    if (usage.budgetUsd != null) {
+      setSessionBudget(this.db, sessionId, usage.budgetUsd);
+    }
+
+    // Tokens belong to the mission that is running now — which is why the
+    // caller has to add them before the mission completes, exactly as a real
+    // run does.
+    if (usage.tokens && usage.tokens > 0 && session.currentMissionId) {
+      addMissionTokens(this.db, session.currentMissionId, usage.tokens);
+    }
+
+    if (usage.costUsd == null) return true;
+
+    const updated = setSessionCost(
+      this.db,
+      sessionId,
+      session.costUsd + usage.costUsd,
+    );
+    const costUsd = updated?.costUsd ?? session.costUsd + usage.costUsd;
+    const cap = updated?.budgetUsd ?? usage.budgetUsd ?? session.budgetUsd;
+    this.broadcaster.broadcast({
+      type: 'cost_update',
+      sessionId,
+      costUsd,
+      budgetUsd: cap,
+    });
+    if (cap != null && costUsd >= cap) {
+      this.broadcaster.broadcast({
+        type: 'budget_alert',
+        sessionId,
+        costUsd,
+        budgetUsd: cap,
+      });
+    }
+    return true;
   }
 }

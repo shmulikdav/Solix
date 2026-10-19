@@ -9,6 +9,7 @@ import {
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { costForUsage, totalTokens, type TokenUsage } from '@solix/shared';
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -333,6 +334,7 @@ interface SeededSession {
   pid: number;
   cwd: string;
   projectName: string;
+  model: string;
   status:
     | 'active'
     | 'idle'
@@ -401,6 +403,31 @@ const STATUS_PLAN: SeededSession['status'][] = [
   ...Array<'idle'>(18).fill('idle'),
 ];
 
+/**
+ * Plausible token usage for a seeded session.
+ *
+ * Shaped like a real Claude Code session rather than a round number: most
+ * input arrives as cache reads, output is a fraction of input, and a session
+ * still working has done more of both. The dollar figure is then derived
+ * through the same `costForUsage` the transcript watcher uses, so what the
+ * demo shows is what those tokens would actually cost at list price — not an
+ * invented number that happens to look plausible.
+ *
+ * Derived from the session id rather than `Math.random`, so a reseed of the
+ * same galaxy produces the same spend and screenshots stay reproducible.
+ */
+function usageForSession(s: SeededSession): TokenUsage {
+  const n = [...s.id].reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+  const weight = s.status === 'active' ? 1.8 : s.status === 'idle' ? 1 : 1.3;
+  const turns = 6 + (n % 19); // 6–24 assistant turns
+  return {
+    input_tokens: Math.round(turns * (900 + (n % 700)) * weight),
+    cache_read_input_tokens: Math.round(turns * (7_000 + (n % 5_000)) * weight),
+    cache_creation_input_tokens: Math.round(turns * (300 + (n % 400)) * weight),
+    output_tokens: Math.round(turns * (450 + (n % 600)) * weight),
+  };
+}
+
 async function richSeed(base: string, demoRootCwd: string): Promise<SeedState> {
   console.log(`[solix demo] seeding ${STATUS_PLAN.length} sessions across ${PROJECTS.length} projects…`);
 
@@ -426,7 +453,7 @@ async function richSeed(base: string, demoRootCwd: string): Promise<SeedState> {
     const status = STATUS_PLAN[i]!;
     const id = `demo-${String(i).padStart(2, '0')}-${projectName}`;
     const model = MODELS[i % MODELS.length]!;
-    sessions.push({ id, pid, cwd, projectName, status });
+    sessions.push({ id, pid, cwd, projectName, model, status });
 
     await postEvent(base, {
       event: 'session_start',
@@ -440,21 +467,35 @@ async function richSeed(base: string, demoRootCwd: string): Promise<SeedState> {
   await sleep(120);
 
   // 3) Push each session into the status it's supposed to display.
+  let seededSpendUsd = 0;
+  let seededTokens = 0;
   for (const s of sessions) {
     const prompt = randomChoice(PROMPTS);
-    if (
-      s.status === 'active' ||
-      s.status === 'idle' ||
-      s.status === 'awaiting_input'
-    ) {
-      await postEvent(base, {
-        event: 'user_prompt_submit',
-        pid: s.pid,
-        cwd: s.cwd,
-        ts: ts(),
-        payload: { session_id: s.id, prompt },
-      });
-    }
+    // Every seeded session represents work someone asked for, so every one
+    // gets a prompt — including the ones paused on a permission, which are
+    // mid-mission by definition. It also matters for the numbers: tokens
+    // attribute to a session's current mission, so a session with no mission
+    // silently drops its share of the token count.
+    await postEvent(base, {
+      event: 'user_prompt_submit',
+      pid: s.pid,
+      cwd: s.cwd,
+      ts: ts(),
+      payload: { session_id: s.id, prompt },
+    });
+
+    // Spend, before any `stop`. A real session accrues cost while its mission
+    // is running and the mission carries the tokens away with it when it
+    // completes, so seeding after the stop would bank the dollars and lose
+    // every token.
+    const usage = usageForSession(s);
+    await postJson(base, `/api/sessions/${s.id}/usage`, {
+      costUsd: costForUsage(s.model, usage),
+      tokens: totalTokens(usage),
+    });
+    seededSpendUsd += costForUsage(s.model, usage);
+    seededTokens += totalTokens(usage);
+
     if (s.status === 'idle') {
       await postEvent(base, {
         event: 'stop',
@@ -519,11 +560,31 @@ async function richSeed(base: string, demoRootCwd: string): Promise<SeedState> {
     await postJson(base, `/api/sessions/${active[1].id}/context`, { pct: 89 });
   }
 
+  // 7) Budget caps on two planets, placed relative to what they have already
+  //    spent so the rings are actually in the states they illustrate: one
+  //    comfortably under, one past its ceiling. A cap nobody is near renders
+  //    the same as no cap at all.
+  if (active[0]) {
+    const spent = costForUsage(active[0].model, usageForSession(active[0]));
+    await postJson(base, `/api/sessions/${active[0].id}/usage`, {
+      budgetUsd: Number((spent * 2.5).toFixed(2)),
+    });
+  }
+  if (active[2]) {
+    const spent = costForUsage(active[2].model, usageForSession(active[2]));
+    await postJson(base, `/api/sessions/${active[2].id}/usage`, {
+      budgetUsd: Number((spent * 0.8).toFixed(2)),
+    });
+  }
+
   console.log(`[solix demo] seed complete:`);
   console.log(`  • ${sessions.length} sessions across ${PROJECTS.length} projects`);
   console.log(`  • ${advisors.length} advisors enabled`);
   console.log(`  • status mix: 5 active, 18 idle, 3 awaiting_permission, 2 awaiting_input, 1 error, 1 plan_review`);
   console.log(`  • 2 subagent moons, 1 high-context flare`);
+  console.log(
+    `  • $${seededSpendUsd.toFixed(2)} spent across ${(seededTokens / 1_000_000).toFixed(1)}M tokens, 2 budget caps`,
+  );
 
   return { sessions, advisorIds: advisors.map((a) => a.id) };
 }
@@ -568,6 +629,19 @@ function startTicker(base: string, state: SeedState): Disposer {
               tool_name: Math.random() < 0.5 ? 'Read' : 'Edit',
               tool_input: { file_path: randomChoice(TOOL_FILES) },
             },
+      });
+      // A tool call costs money, so the counters have to move with it.
+      // Without this the spend figure freezes the moment the seed finishes
+      // and the budget rings never fill, which is the opposite of the point.
+      const turn: TokenUsage = {
+        input_tokens: 600 + Math.floor(Math.random() * 900),
+        cache_read_input_tokens: 4_000 + Math.floor(Math.random() * 6_000),
+        cache_creation_input_tokens: Math.floor(Math.random() * 500),
+        output_tokens: 300 + Math.floor(Math.random() * 800),
+      };
+      void postJson(base, `/api/sessions/${s.id}/usage`, {
+        costUsd: costForUsage(s.model, turn),
+        tokens: totalTokens(turn),
       });
     }, TICKER_COMET_MS),
   );

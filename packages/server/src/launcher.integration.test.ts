@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -36,7 +36,11 @@ describe('Launcher.runOnce against a real stand-in process', () => {
   let probeFile: string;
 
   beforeAll(() => {
-    workdir = mkdtempSync(join(tmpdir(), 'solix-launch-'));
+    // realpath, because on macOS tmpdir() is /var/... which is a symlink to
+    // /private/var/... — the child process reports the resolved path, so an
+    // unresolved workdir makes the "it ran where we asked" assertion fail
+    // there while passing on Linux.
+    workdir = realpathSync(mkdtempSync(join(tmpdir(), 'solix-launch-')));
     probeFile = join(workdir, 'probe.json');
     process.env.SOLIX_CLAUDE_BIN = STUB;
     process.env.STUB_PROBE_FILE = probeFile;
