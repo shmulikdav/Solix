@@ -1,16 +1,21 @@
 # Solix
 
-### Mission control for your AI coding agents — 100% local.
+### The control layer for your coding agents — 100% local.
 
 [![npm version](https://img.shields.io/npm/v/@shmulikdav/solix.svg)](https://www.npmjs.com/package/@shmulikdav/solix)
 [![npm downloads](https://img.shields.io/npm/dm/@shmulikdav/solix.svg)](https://www.npmjs.com/package/@shmulikdav/solix)
 [![license](https://img.shields.io/npm/l/@shmulikdav/solix.svg)](LICENSE)
 [![node](https://img.shields.io/node/v/@shmulikdav/solix.svg)](https://nodejs.org)
 
-Running a fleet of Claude Code agents in parallel? You can't watch ten terminals.
-**Solix renders every running session as a planet orbiting a central sun** — so you
-see your whole fleet at a glance, catch the one waiting on your approval, and know
-what it all costs, without leaving one screen.
+Your agents run shell commands. **Solix makes them ask first.**
+
+Run ten Claude Code agents at once without losing the thread. Solix holds any
+risky command and shows you the exact line before it executes, lets you launch
+each task into its own git worktree, and pauses a plan before it spends past the
+cap you set. Every running session is a planet orbiting a central sun, so you
+see the whole fleet at a glance and catch the one waiting on you.
+
+All of it on your machine. No account, no telemetry.
 
 ```sh
 npm i -g @shmulikdav/solix

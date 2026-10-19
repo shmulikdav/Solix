@@ -2,7 +2,7 @@
   "name": "solix-monorepo",
   "private": true,
   "version": "1.0.0",
-  "description": "Solix \u2014 a solar-system command center for Claude Code agents",
+  "description": "Solix \u2014 the control layer for your coding agents",
   "license": "MIT",
   "packageManager": "pnpm@9.0.0",
   "scripts": {

@@ -45,7 +45,7 @@ const program = new Command();
 
 program
   .name('solix')
-  .description('Solix — a solar-system command center for Claude Code agents')
+  .description('Solix — the control layer for your coding agents')
   .version(__SOLIX_VERSION__);
 
 program
