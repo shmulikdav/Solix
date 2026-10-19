@@ -26,9 +26,39 @@ const DIAG = {
   uptimeSec: 42,
 };
 
+/** Releases the gated fetch below. Set by `stub()`. */
+let land: () => void;
+
 function stub(diag: unknown = DIAG, ok = true) {
+  // The response lands only when a test says so, rather than after a delay.
+  //
+  // A real fetch never resolves inside the first render, and the <pre> is on
+  // screen before it does, holding the "could not reach" fallback. A test that
+  // waits on the ELEMENT rather than its content therefore reads the fallback:
+  // that failed outright on a loaded machine, and — worse — made the leak
+  // assertions below pass against a string containing no diagnostics at all.
+  //
+  // A timed stub does not pin this down: a `setTimeout(0)` is flushed by
+  // React Testing Library's act wrapper before `waitFor` first looks, so the
+  // broken form still passed. Gating on an explicit signal makes the real
+  // ordering the only ordering, on every machine, with no timing involved.
+  const gate = new Promise<void>((resolve) => {
+    land = resolve;
+  });
   // @ts-expect-error -- test double
-  global.fetch = vi.fn(async () => ({ ok, json: async () => diag }));
+  global.fetch = vi.fn(async () => {
+    await gate;
+    return { ok, json: async () => diag };
+  });
+}
+
+/** Lets the response land, then returns the diagnostics actually rendered. */
+async function diagnostics(): Promise<string> {
+  land();
+  await waitFor(() =>
+    expect(document.querySelector('pre')?.textContent).toMatch(/^solix\s+\d/m),
+  );
+  return document.querySelector('pre')!.textContent ?? '';
 }
 
 beforeEach(() => {
@@ -51,8 +81,8 @@ describe('ReportProblem', () => {
 
   it('shows the payload before anything is sent', async () => {
     render(<ReportProblem open onClose={() => {}} />);
-    await waitFor(() => expect(screen.getByText(/solix\s+1\.12\.0/)).toBeTruthy());
-    const pre = document.querySelector('pre')!.textContent ?? '';
+    const pre = await diagnostics();
+    expect(pre).toContain('solix       1.12.0');
     expect(pre).toContain('node        v22.1.0');
     expect(pre).toContain('platform    darwin/arm64');
     // The thing a maintainer needs first: are the hooks even current?
@@ -76,8 +106,9 @@ describe('ReportProblem', () => {
       },
     });
     render(<ReportProblem open onClose={() => {}} />);
-    await waitFor(() => expect(document.querySelector('pre')).toBeTruthy());
-    const pre = document.querySelector('pre')!.textContent ?? '';
+    // Must be the real payload — asserting absence against the fallback
+    // string would prove nothing.
+    const pre = await diagnostics();
     expect(pre).not.toContain('/Users/');
     expect(pre).not.toContain('acme');
     // Counts are fine — they say nothing about what the work is.
@@ -90,10 +121,7 @@ describe('ReportProblem', () => {
       activePanel: 'session',
     });
     render(<ReportProblem open onClose={() => {}} />);
-    await waitFor(() => expect(document.querySelector('pre')).toBeTruthy());
-    expect(document.querySelector('pre')!.textContent).toContain(
-      'fleet/routines +session',
-    );
+    expect(await diagnostics()).toContain('fleet/routines +session');
   });
 
   // A server that will not answer is itself the bug worth reporting, so this
@@ -101,6 +129,7 @@ describe('ReportProblem', () => {
   it('still lets you file when the server is unreachable', async () => {
     stub(null, false);
     render(<ReportProblem open onClose={() => {}} />);
+    land();
     await waitFor(() =>
       expect(screen.getByText(/did not answer/)).toBeTruthy(),
     );
@@ -120,7 +149,7 @@ describe('ReportProblem', () => {
     const open = vi.fn();
     vi.stubGlobal('open', open);
     render(<ReportProblem open onClose={() => {}} />);
-    await waitFor(() => expect(document.querySelector('pre')).toBeTruthy());
+    await diagnostics();
     screen.getByText('Open a GitHub issue').click();
 
     const url = String(open.mock.calls[0]?.[0] ?? '');
