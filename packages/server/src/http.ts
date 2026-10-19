@@ -536,6 +536,31 @@ export function createHttpApp(opts: {
     return c.json({ ok: true });
   });
 
+  // Sibling of /context, and there for the same reason: the transcript
+  // watcher is what normally supplies spend, and `solix demo` has no
+  // transcript, so without this the demo presents a cost-governance tool
+  // with every figure at zero.
+  app.post('/api/sessions/:id/usage', async (c) => {
+    const id = c.req.param('id');
+    const body = (await c.req.json().catch(() => ({}))) as {
+      costUsd?: number;
+      tokens?: number;
+      budgetUsd?: number;
+    };
+    const nums = [body.costUsd, body.tokens, body.budgetUsd];
+    if (nums.every((n) => n == null)) {
+      return c.json(
+        { error: 'one of costUsd, tokens, budgetUsd (number) required' },
+        400,
+      );
+    }
+    if (nums.some((n) => n != null && (typeof n !== 'number' || !isFinite(n)))) {
+      return c.json({ error: 'values must be finite numbers' }, 400);
+    }
+    const ok = opts.router.applyUsage(id, body);
+    return ok ? c.json({ ok: true }) : c.json({ error: 'not found' }, 404);
+  });
+
   app.get('/api/missions', (c) => {
     const sessionId = c.req.query('sessionId');
     const projectId = c.req.query('projectId');
