@@ -7,13 +7,17 @@
 [![license](https://img.shields.io/npm/l/@shmulikdav/solix.svg)](LICENSE)
 [![node](https://img.shields.io/node/v/@shmulikdav/solix.svg)](https://nodejs.org)
 
-Your agents run shell commands. **Solix makes them ask first.**
+**Launch agents that have to ask first.**
 
-Run ten Claude Code agents at once without losing the thread. Solix holds any
-risky command and shows you the exact line before it executes, lets you launch
-each task into its own git worktree, and pauses a plan before it spends past the
-cap you set. Every running session is a planet orbiting a central sun, so you
-see the whole fleet at a glance and catch the one waiting on you.
+Start a task in Solix and it governs everything that task does: a risky command
+is held until you approve it, with the exact line in front of you. Give it a
+branch and it runs in its own git worktree. Give a plan a cap and it pauses
+before spending past it.
+
+Claude Code sessions you start yourself show up too — every running session is
+a planet orbiting a central sun, with its live cost — so you see the whole
+fleet at a glance. Those keep Claude Code's own approval prompt; the blocking
+gate applies to the tasks Solix launches.
 
 All of it on your machine. No account, no telemetry.
 
