@@ -15,6 +15,7 @@ import {
 import { demoCmd } from './demo.js';
 import { doctor } from './doctor.js';
 import { gain } from './gain.js';
+import { importCmd } from './import.js';
 import {
   exportGalaxyCmd,
   importGalaxyCmd,
@@ -113,6 +114,13 @@ program
   .description('Run diagnostics')
   .action(async () => {
     await doctor();
+  });
+
+program
+  .command('import')
+  .description('Backfill the galaxy from your existing Claude Code transcripts')
+  .action(async () => {
+    await importCmd();
   });
 
 program
