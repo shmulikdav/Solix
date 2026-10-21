@@ -587,6 +587,62 @@ export function createHttpApp(opts: {
     return c.json(loadTimeline(opts.db, { sinceMs, untilMs, limit }));
   });
 
+  /**
+   * Everything the terminal band draws, in one poll.
+   *
+   * The band sits above the Claude Code prompt and must stay cheap: it is
+   * polled on a timer, so this is a single small payload rather than the WS
+   * snapshot the browser takes.
+   *
+   * `top` carries the pending command itself. That is deliberate — the band
+   * can only offer Approve next to the text of what it would approve, which
+   * is the same rule the Decisions panel enforces with `selectCanResolveByKey`.
+   * A count alone would let someone approve something they never read.
+   */
+  app.get('/api/band', (c) => {
+    const pending = opts.router.pendingPermissions();
+    const sessions = listActiveSessions(opts.db);
+    const counts = { active: 0, needsYou: 0, idle: 0 };
+    let spendUsd = 0;
+    for (const s of sessions) {
+      spendUsd += s.costUsd ?? 0;
+      if (s.status === 'active') counts.active++;
+      else if (
+        s.status === 'awaiting_permission' ||
+        s.status === 'awaiting_input' ||
+        s.status === 'error'
+      )
+        counts.needsYou++;
+      else if (s.status === 'idle') counts.idle++;
+    }
+
+    const first = pending[0];
+    const top = first
+      ? {
+          requestId: first.requestId,
+          sessionId: first.sessionId,
+          tool: first.tool,
+          // The one argument worth showing: the command for a shell call,
+          // the path for a file write.
+          detail:
+            typeof first.args.command === 'string'
+              ? first.args.command
+              : typeof first.args.file_path === 'string'
+                ? first.args.file_path
+                : '',
+          sessionName: getSession(opts.db, first.sessionId)?.name ?? null,
+        }
+      : null;
+
+    return c.json({
+      pending: pending.length,
+      top,
+      ...counts,
+      spendUsd,
+      version: opts.version ?? 'unknown',
+    });
+  });
+
   // What Solix prevented, aggregated from audit_events. Read-only, local,
   // and sent nowhere — `solix gain` and Mission Control both read this.
   app.get('/api/impact', (c) => {

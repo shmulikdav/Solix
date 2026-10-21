@@ -2,7 +2,7 @@
   "name": "solix-monorepo",
   "private": true,
   "version": "1.0.0",
-  "description": "Solix \u2014 the control layer for your coding agents",
+  "description": "Solix — the control layer for your coding agents",
   "license": "MIT",
   "packageManager": "pnpm@9.0.0",
   "scripts": {
@@ -12,6 +12,8 @@
     "dev:web": "pnpm --filter @solix/web dev",
     "typecheck": "pnpm -r typecheck",
     "test": "vitest run",
+    "test:plugin": "claude plugin test plugin/solix-band",
+    "validate:plugin": "claude plugin validate plugin/solix-band",
     "test:watch": "vitest",
     "demo:zero-to-one": "bash scripts/demo-zero-to-one.sh",
     "capture": "node scripts/capture-shots.mjs",
