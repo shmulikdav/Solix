@@ -57,7 +57,7 @@ import {
 } from './state/sessions.js';
 import { listMissions } from './state/missions.js';
 import { loadTimeline } from './state/timeline.js';
-import { listAudit } from './state/audit.js';
+import { listAudit, summarizeImpact } from './state/audit.js';
 import type { AuditKind } from '@solix/shared';
 import {
   getAdvisor,
@@ -585,6 +585,21 @@ export function createHttpApp(opts: {
     const untilMs = untilMsStr ? parseInt(untilMsStr, 10) : Date.now();
     const limit = limitStr ? parseInt(limitStr, 10) : undefined;
     return c.json(loadTimeline(opts.db, { sinceMs, untilMs, limit }));
+  });
+
+  // What Solix prevented, aggregated from audit_events. Read-only, local,
+  // and sent nowhere — `solix gain` and Mission Control both read this.
+  app.get('/api/impact', (c) => {
+    const sinceStr = c.req.query('since');
+    const untilStr = c.req.query('until');
+    const days = c.req.query('days');
+    const until = untilStr ? parseInt(untilStr, 10) : Date.now();
+    const since = sinceStr
+      ? parseInt(sinceStr, 10)
+      : days
+        ? until - Math.max(1, parseInt(days, 10)) * 24 * 60 * 60 * 1000
+        : undefined;
+    return c.json(summarizeImpact(opts.db, { since, until }));
   });
 
   app.get('/api/audit', (c) => {

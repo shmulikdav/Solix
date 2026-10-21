@@ -294,6 +294,8 @@ export function SharePanel({
 const ALL_KINDS: AuditKind[] = [
   'permission_approved',
   'permission_denied',
+  'command_blocked',
+  'budget_paused',
   'advisor_invoked',
   'advisor_pinned',
   'advisor_unpinned',

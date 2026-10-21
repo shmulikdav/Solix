@@ -468,9 +468,14 @@ export class EventRouter {
       });
       if (containment.blocked) {
         recordAudit(this.db, {
-          kind: 'permission_denied',
+          kind: 'command_blocked',
           sessionId,
           summary: `Containment blocked ${tool}: ${containment.reason}`,
+          payload: {
+            tool,
+            reason: containment.reason,
+            command: typeof args.command === 'string' ? args.command : undefined,
+          },
         });
         this.broadcaster.broadcast({
           type: 'toast',

@@ -590,6 +590,13 @@ export interface TimelineEvent {
 export type AuditKind =
   | 'permission_approved'
   | 'permission_denied'
+  // Refused by containment before any human saw it. Distinct from
+  // `permission_denied`, which means a person looked at it and said no —
+  // conflating the two makes it impossible to say how much the denylist
+  // caught on its own, which is the number worth reporting.
+  | 'command_blocked'
+  // A plan stopped itself at its budget ceiling.
+  | 'budget_paused'
   | 'advisor_invoked'
   | 'advisor_pinned'
   | 'advisor_unpinned'

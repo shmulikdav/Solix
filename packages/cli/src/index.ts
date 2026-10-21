@@ -14,6 +14,7 @@ import {
 } from './advisors.js';
 import { demoCmd } from './demo.js';
 import { doctor } from './doctor.js';
+import { gain } from './gain.js';
 import {
   exportGalaxyCmd,
   importGalaxyCmd,
@@ -112,6 +113,16 @@ program
   .description('Run diagnostics')
   .action(async () => {
     await doctor();
+  });
+
+program
+  .command('gain')
+  .description('Show what Solix prevented — blocked commands, budget pauses')
+  .option('-d, --days <days>', 'window in days (default 30)', (v) => parseInt(v, 10))
+  .option('--share', 'plain text, formatted to paste into an issue or a post')
+  .option('--json', 'machine-readable output')
+  .action(async (opts: { days?: number; share?: boolean; json?: boolean }) => {
+    await gain(opts);
   });
 
 program
