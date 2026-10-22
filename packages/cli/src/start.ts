@@ -1,5 +1,9 @@
 import { createSolixServer } from '@solix/server/create';
 import { getDb } from '@solix/server/db';
+import {
+  describeGovernanceLevel,
+  getGovernanceLevel,
+} from '@solix/server/governance';
 import { existsSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -130,6 +134,7 @@ export async function start(opts: StartOptions = {}): Promise<void> {
       ? '[solix] start any `claude` session to see your first planet appear'
       : '[solix] run `solix demo` to see a galaxy without Claude Code',
   );
+  announceGovernance();
   offerImportWhenEmpty();
 
   const shutdown = async (sig: string): Promise<void> => {
@@ -139,6 +144,22 @@ export async function start(opts: StartOptions = {}): Promise<void> {
   };
   process.on('SIGINT', () => void shutdown('SIGINT'));
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
+}
+
+/**
+ * State the posture on startup.
+ *
+ * "How supervised am I right now" should never need looking up — it is the
+ * one thing this product is for, and a level someone set weeks ago and
+ * forgot is exactly how a surprise happens.
+ */
+function announceGovernance(): void {
+  try {
+    const current = getGovernanceLevel(getDb());
+    console.log(`[solix] governance: ${describeGovernanceLevel(current)}`);
+  } catch {
+    // Never fail startup over a status line.
+  }
 }
 
 /**

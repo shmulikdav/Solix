@@ -47,6 +47,12 @@ import { defaultProjectsDir, scaffoldProject } from './state/scaffold.js';
 import { buildPlanReview } from './state/git.js';
 import { normalizeCodexEvent } from './codex.js';
 import { fullAutoContainmentStatus } from './containment.js';
+import {
+  describeGovernanceLevel,
+  getGovernanceLevel,
+  isGovernanceLevel,
+  setGovernanceLevel,
+} from './state/governance.js';
 import { activateLicense, getEntitlement } from './licensing.js';
 import { previewTargetPath, slugifyProjectName } from './util.js';
 import {
@@ -320,6 +326,30 @@ export function createHttpApp(opts: {
         ? 'allow'
         : 'deny';
     return c.json({ decision });
+  });
+
+  // The one governance dial. GET reads it, POST sets it.
+  app.get('/api/system/governance', (c) => {
+    const level = getGovernanceLevel(opts.db);
+    return c.json({ level, description: describeGovernanceLevel(level) });
+  });
+
+  app.post('/api/system/governance', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { level?: unknown };
+    if (!isGovernanceLevel(body.level)) {
+      return c.json(
+        { error: 'level must be observe, standard or strict' },
+        400,
+      );
+    }
+    const level = setGovernanceLevel(opts.db, body.level);
+    // Announced, not silent: changing how much is held for you is exactly the
+    // kind of change everyone looking at this Solix should see.
+    opts.router.broadcastToast(
+      `Governance: ${describeGovernanceLevel(level)}`,
+      level === 'observe' ? 'warn' : 'info',
+    );
+    return c.json({ level, description: describeGovernanceLevel(level) });
   });
 
   // Whether full-auto (no approval gate) is safe to offer right now — the UI

@@ -23,6 +23,10 @@
     "./db": {
       "types": "./src/db.ts",
       "import": "./src/db.ts"
+    },
+    "./governance": {
+      "types": "./src/state/governance.ts",
+      "import": "./src/state/governance.ts"
     }
   },
   "scripts": {

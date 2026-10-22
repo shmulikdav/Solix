@@ -16,6 +16,7 @@ import { demoCmd } from './demo.js';
 import { doctor } from './doctor.js';
 import { gain } from './gain.js';
 import { importCmd } from './import.js';
+import { level } from './level.js';
 import {
   exportGalaxyCmd,
   importGalaxyCmd,
@@ -114,6 +115,13 @@ program
   .description('Run diagnostics')
   .action(async () => {
     await doctor();
+  });
+
+program
+  .command('level [name]')
+  .description('Show or set how much Solix holds for you (observe|standard|strict)')
+  .action((name?: string) => {
+    level(name);
   });
 
 program

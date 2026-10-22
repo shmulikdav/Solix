@@ -34,6 +34,11 @@ import { buildContextEnvelope } from './state/context.js';
 import { recordAudit } from './state/audit.js';
 import { evaluateContainment } from './containment.js';
 import {
+  getGovernanceLevel,
+  shouldGateAtAll,
+  shouldGateContainedRole,
+} from './state/governance.js';
+import {
   bindWrapperToSession,
   claimWrapperForCwd,
   writeToWrapperSocket,
@@ -491,13 +496,26 @@ export class EventRouter {
       // An autonomous worker/verifier has no human at the keyboard: a SAFE tool
       // call (passed containment) auto-allows so the fleet can proceed. The
       // denylist + cwd-confinement above is the boundary, not a per-step prompt.
+      //
+      // `strict` is the exception — it sends these to the gate too, for
+      // someone who wants to watch an autonomous run step by step.
       if (
         session.sessionRole === 'worker' ||
         session.sessionRole === 'verifier' ||
         session.sessionRole === 'routine'
       ) {
-        return Promise.resolve({ approved: true, timedOut: false });
+        if (!shouldGateContainedRole(getGovernanceLevel(this.db))) {
+          return Promise.resolve({ approved: true, timedOut: false });
+        }
       }
+    }
+
+    // `observe` watches without holding anything. Containment has already had
+    // its say above, so a denylisted command is refused at this level too —
+    // the dial decides what is held for a human, never what is allowed to run
+    // unchecked.
+    if (!shouldGateAtAll(getGovernanceLevel(this.db))) {
+      return Promise.resolve({ approved: true, timedOut: false });
     }
 
     const requestId = nanoid();
@@ -810,6 +828,11 @@ export class EventRouter {
 
   /** Public re-broadcast helper for cases where state mutates outside
    * the hook flow (e.g. wrapper unregister clearing the socket path). */
+  /** Announce something everyone looking at this Solix should see. */
+  broadcastToast(message: string, level: 'info' | 'warn' = 'info'): void {
+    this.broadcaster.broadcast({ type: 'toast', level, message });
+  }
+
   broadcastSessionUpsert(session: import('@solix/shared').Session): void {
     this.broadcaster.broadcast({ type: 'session_upsert', session });
   }
