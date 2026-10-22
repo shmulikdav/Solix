@@ -115,6 +115,42 @@ with rings, Forge=Mars, Lumen=Earth, Argus=Jupiter, Sentinel=Moon), and
 the sky becomes a Milky Way panorama. Without them, the scene falls back
 to a procedural look — Solix still works fully.
 
+## Use the crew without installing Solix
+
+The fifteen advisors ship as a Claude Code plugin. No server, no account:
+
+```
+/plugin marketplace add shmulikdav/Solix
+/plugin install solix-crew@solix
+```
+
+That gives you the advisors as subagents, plus `/solix-review` on a diff and
+`/solix-audit` on the repository. The band — pending decisions above your
+prompt — is `solix-band@solix`, and needs Solix running. See
+[plugin/README.md](plugin/README.md).
+
+## Provenance
+
+Solix installs shell hooks and spawns processes, which is exactly the access
+you should be suspicious of. So, plainly:
+
+Install it only from `@shmulikdav/solix` on npm, or the plugins from
+`shmulikdav/Solix` on GitHub. Nothing here ships a binary, an `.exe` or a
+`.dll`; a copy that does is not ours.
+
+What it writes, and nothing else:
+
+| Path | What |
+| --- | --- |
+| `~/.claude/settings.json` | its hook entries, merged — backed up first, and `solix uninstall` removes only its own, leaving yours and other tools' alone |
+| `~/.claude/agents/` | the advisor definitions |
+| `~/.solix/` | hook scripts, skills, the local SQLite database, worktrees |
+
+It binds to `127.0.0.1`, keeps a local SQLite database, has no account and
+sends no telemetry — the only match for "telemetry" in this source tree is
+the word "zero-telemetry". The hooks are plain shell scripts: read them
+before you trust them.
+
 ## Architecture
 
 ```
