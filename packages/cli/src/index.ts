@@ -17,6 +17,7 @@ import { doctor } from './doctor.js';
 import { gain } from './gain.js';
 import { importCmd } from './import.js';
 import { level } from './level.js';
+import { ledger } from './ledger.js';
 import {
   exportGalaxyCmd,
   importGalaxyCmd,
@@ -129,6 +130,16 @@ program
   .description('Backfill the galaxy from your existing Claude Code transcripts')
   .action(async () => {
     await importCmd();
+  });
+
+program
+  .command('ledger')
+  .description('What you allowed, and when — with the patterns worth a second look')
+  .option('-d, --days <days>', 'window in days (default 30)', (v) => parseInt(v, 10))
+  .option('--md [file]', 'write Markdown (default solix-ledger.md)')
+  .option('--csv [file]', 'write CSV (default solix-ledger.csv)')
+  .action((opts: { days?: number; md?: string | boolean; csv?: string | boolean }) => {
+    ledger(opts);
   });
 
 program

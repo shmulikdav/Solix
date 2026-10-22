@@ -27,6 +27,10 @@
     "./governance": {
       "types": "./src/state/governance.ts",
       "import": "./src/state/governance.ts"
+    },
+    "./ledger": {
+      "types": "./src/state/ledger.ts",
+      "import": "./src/state/ledger.ts"
     }
   },
   "scripts": {
