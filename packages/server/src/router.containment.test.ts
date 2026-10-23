@@ -50,12 +50,17 @@ describe('router containment gate', () => {
     expect(res).toEqual({ approved: false, timedOut: false });
     // It never entered the human gate…
     expect(router.pendingPermissions()).toHaveLength(0);
-    // …and it was audited as a denial.
-    expect(
-      listAudit(db).some(
-        (a) => a.kind === 'permission_denied' && a.summary.includes('Containment'),
-      ),
-    ).toBe(true);
+    // …and it was audited as an automatic block, not as a human denial.
+    // The distinction is what lets `solix gain` report how much the denylist
+    // caught on its own, so filing it as permission_denied would be wrong.
+    const blocked = listAudit(db).filter((a) => a.kind === 'command_blocked');
+    expect(blocked).toHaveLength(1);
+    expect(blocked[0]!.summary).toContain('Containment');
+    expect(blocked[0]!.payload).toMatchObject({
+      tool: 'Bash',
+      reason: 'recursive force-delete of a root or home path',
+    });
+    expect(listAudit(db).some((a) => a.kind === 'permission_denied')).toBe(false);
   });
 
   it('auto-allows a worker running a SAFE command (no human, no pending gate)', async () => {

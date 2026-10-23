@@ -7,13 +7,17 @@
 [![license](https://img.shields.io/npm/l/@shmulikdav/solix.svg)](LICENSE)
 [![node](https://img.shields.io/node/v/@shmulikdav/solix.svg)](https://nodejs.org)
 
-Your agents run shell commands. **Solix makes them ask first.**
+**Launch agents that have to ask first.**
 
-Run ten Claude Code agents at once without losing the thread. Solix holds any
-risky command and shows you the exact line before it executes, lets you launch
-each task into its own git worktree, and pauses a plan before it spends past the
-cap you set. Every running session is a planet orbiting a central sun, so you
-see the whole fleet at a glance and catch the one waiting on you.
+Start a task in Solix and it governs everything that task does: a risky command
+is held until you approve it, with the exact line in front of you. Give it a
+branch and it runs in its own git worktree. Give a plan a cap and it pauses
+before spending past it.
+
+Claude Code sessions you start yourself show up too — every running session is
+a planet orbiting a central sun, with its live cost — so you see the whole
+fleet at a glance. Those keep Claude Code's own approval prompt; the blocking
+gate applies to the tasks Solix launches.
 
 All of it on your machine. No account, no telemetry.
 
@@ -110,6 +114,42 @@ surface, the 5 default advisors render as bespoke planets (Compass=Saturn
 with rings, Forge=Mars, Lumen=Earth, Argus=Jupiter, Sentinel=Moon), and
 the sky becomes a Milky Way panorama. Without them, the scene falls back
 to a procedural look — Solix still works fully.
+
+## Use the crew without installing Solix
+
+The fifteen advisors ship as a Claude Code plugin. No server, no account:
+
+```
+/plugin marketplace add shmulikdav/Solix
+/plugin install solix-crew@solix
+```
+
+That gives you the advisors as subagents, plus `/solix-review` on a diff and
+`/solix-audit` on the repository. The band — pending decisions above your
+prompt — is `solix-band@solix`, and needs Solix running. See
+[plugin/README.md](plugin/README.md).
+
+## Provenance
+
+Solix installs shell hooks and spawns processes, which is exactly the access
+you should be suspicious of. So, plainly:
+
+Install it only from `@shmulikdav/solix` on npm, or the plugins from
+`shmulikdav/Solix` on GitHub. Nothing here ships a binary, an `.exe` or a
+`.dll`; a copy that does is not ours.
+
+What it writes, and nothing else:
+
+| Path | What |
+| --- | --- |
+| `~/.claude/settings.json` | its hook entries, merged — backed up first, and `solix uninstall` removes only its own, leaving yours and other tools' alone |
+| `~/.claude/agents/` | the advisor definitions |
+| `~/.solix/` | hook scripts, skills, the local SQLite database, worktrees |
+
+It binds to `127.0.0.1`, keeps a local SQLite database, has no account and
+sends no telemetry — the only match for "telemetry" in this source tree is
+the word "zero-telemetry". The hooks are plain shell scripts: read them
+before you trust them.
 
 ## Architecture
 

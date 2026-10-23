@@ -1,0 +1,8 @@
+{
+  "name": "solix-band",
+  "version": "0.1.0",
+  "description": "Pending Solix decisions and live spend, above the Claude Code prompt.",
+  "author": { "name": "Shmulik Davar" },
+  "homepage": "https://www.solixsys.com",
+  "types": "./types/index.d.ts"
+}

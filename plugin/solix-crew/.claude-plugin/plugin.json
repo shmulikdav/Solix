@@ -1,0 +1,7 @@
+{
+  "name": "solix-crew",
+  "version": "0.1.0",
+  "description": "Fifteen specialist advisors — a reviewer, a security auditor, an architect, a FinOps analyst and more — as Claude Code subagents.",
+  "author": { "name": "Shmulik Davar" },
+  "homepage": "https://www.solixsys.com"
+}

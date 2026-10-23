@@ -112,3 +112,101 @@ export function listAudit(
     .all(...params, limit) as AuditRow[];
   return rows.map(rowToAuditEvent);
 }
+
+/**
+ * What Solix actually prevented, over a window.
+ *
+ * Solix is the only tool in this space that intercepts the call, so it is
+ * the only one that can report what *didn't* happen. Everything here is
+ * already in `audit_events` — this aggregates it rather than collecting
+ * anything new, and it never leaves the machine unless the user copies it.
+ *
+ * `blockedByContainment` counts refusals the denylist made on its own, which
+ * is deliberately separate from `denied`: a command a human looked at and
+ * refused is a different fact from one that never reached them.
+ */
+export interface ImpactSummary {
+  sinceMs: number;
+  untilMs: number;
+  approved: number;
+  denied: number;
+  blockedByContainment: number;
+  /** Distinct reasons the denylist fired, commonest first. */
+  blockReasons: { reason: string; count: number }[];
+  budgetPauses: number;
+  /** Spend at the moment each plan paused — what the caps were holding. */
+  spendAtPauseUsd: number;
+  advisorInvocations: number;
+  sessionsTerminated: number;
+}
+
+export function summarizeImpact(
+  db: DB,
+  opts: { since?: number; until?: number } = {},
+): ImpactSummary {
+  const until = opts.until ?? Date.now();
+  // Default window: 30 days. Long enough to be a story, short enough that it
+  // reads as "recently" rather than "since forever".
+  const since = opts.since ?? until - 30 * 24 * 60 * 60 * 1000;
+
+  const countOf = (kind: AuditKind): number =>
+    (
+      db
+        .prepare(
+          `SELECT COUNT(*) AS n FROM audit_events
+           WHERE kind = ? AND ts >= ? AND ts <= ?`,
+        )
+        .get(kind, since, until) as { n: number }
+    ).n;
+
+  const blocked = db
+    .prepare(
+      `SELECT payload_json FROM audit_events
+       WHERE kind = 'command_blocked' AND ts >= ? AND ts <= ?`,
+    )
+    .all(since, until) as { payload_json: string | null }[];
+
+  const reasonCounts = new Map<string, number>();
+  for (const row of blocked) {
+    if (!row.payload_json) continue;
+    try {
+      const reason = (JSON.parse(row.payload_json) as { reason?: string }).reason;
+      if (reason) reasonCounts.set(reason, (reasonCounts.get(reason) ?? 0) + 1);
+    } catch {
+      /* a malformed payload should not lose the count above */
+    }
+  }
+
+  const pauses = db
+    .prepare(
+      `SELECT payload_json FROM audit_events
+       WHERE kind = 'budget_paused' AND ts >= ? AND ts <= ?`,
+    )
+    .all(since, until) as { payload_json: string | null }[];
+
+  let spendAtPauseUsd = 0;
+  for (const row of pauses) {
+    if (!row.payload_json) continue;
+    try {
+      const spent = (JSON.parse(row.payload_json) as { spentUsd?: number }).spentUsd;
+      if (typeof spent === 'number' && isFinite(spent)) spendAtPauseUsd += spent;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return {
+    sinceMs: since,
+    untilMs: until,
+    approved: countOf('permission_approved'),
+    denied: countOf('permission_denied'),
+    blockedByContainment: blocked.length,
+    blockReasons: [...reasonCounts.entries()]
+      .map(([reason, count]) => ({ reason, count }))
+      .sort((a, b) => b.count - a.count),
+    budgetPauses: pauses.length,
+    spendAtPauseUsd,
+    advisorInvocations: countOf('advisor_invoked'),
+    sessionsTerminated: countOf('session_terminated'),
+  };
+}

@@ -85,9 +85,16 @@ export function WorkspacePanel({
       fetch('/api/audit?kind=permission_denied').then(
         (r): Promise<AuditEvent[]> => (r.ok ? r.json() : Promise.resolve([])),
       ),
+      // Containment refusals used to be filed as permission_denied and so were
+      // counted here. They have their own kind now, and dropping them would
+      // quietly shrink this number for the users with the most to show.
+      fetch('/api/audit?kind=command_blocked').then(
+        (r): Promise<AuditEvent[]> => (r.ok ? r.json() : Promise.resolve([])),
+      ),
     ])
-      .then(([approved, denied]) => {
-        if (!cancelled) setInterventions(approved.length + denied.length);
+      .then(([approved, denied, blocked]) => {
+        if (!cancelled)
+          setInterventions(approved.length + denied.length + blocked.length);
       })
       .catch(() => {
         if (!cancelled) setInterventions(null);

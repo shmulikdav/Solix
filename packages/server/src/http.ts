@@ -47,6 +47,12 @@ import { defaultProjectsDir, scaffoldProject } from './state/scaffold.js';
 import { buildPlanReview } from './state/git.js';
 import { normalizeCodexEvent } from './codex.js';
 import { fullAutoContainmentStatus } from './containment.js';
+import {
+  describeGovernanceLevel,
+  getGovernanceLevel,
+  isGovernanceLevel,
+  setGovernanceLevel,
+} from './state/governance.js';
 import { activateLicense, getEntitlement } from './licensing.js';
 import { previewTargetPath, slugifyProjectName } from './util.js';
 import {
@@ -57,7 +63,7 @@ import {
 } from './state/sessions.js';
 import { listMissions } from './state/missions.js';
 import { loadTimeline } from './state/timeline.js';
-import { listAudit } from './state/audit.js';
+import { listAudit, summarizeImpact } from './state/audit.js';
 import type { AuditKind } from '@solix/shared';
 import {
   getAdvisor,
@@ -320,6 +326,30 @@ export function createHttpApp(opts: {
         ? 'allow'
         : 'deny';
     return c.json({ decision });
+  });
+
+  // The one governance dial. GET reads it, POST sets it.
+  app.get('/api/system/governance', (c) => {
+    const level = getGovernanceLevel(opts.db);
+    return c.json({ level, description: describeGovernanceLevel(level) });
+  });
+
+  app.post('/api/system/governance', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { level?: unknown };
+    if (!isGovernanceLevel(body.level)) {
+      return c.json(
+        { error: 'level must be observe, standard or strict' },
+        400,
+      );
+    }
+    const level = setGovernanceLevel(opts.db, body.level);
+    // Announced, not silent: changing how much is held for you is exactly the
+    // kind of change everyone looking at this Solix should see.
+    opts.router.broadcastToast(
+      `Governance: ${describeGovernanceLevel(level)}`,
+      level === 'observe' ? 'warn' : 'info',
+    );
+    return c.json({ level, description: describeGovernanceLevel(level) });
   });
 
   // Whether full-auto (no approval gate) is safe to offer right now — the UI
@@ -585,6 +615,77 @@ export function createHttpApp(opts: {
     const untilMs = untilMsStr ? parseInt(untilMsStr, 10) : Date.now();
     const limit = limitStr ? parseInt(limitStr, 10) : undefined;
     return c.json(loadTimeline(opts.db, { sinceMs, untilMs, limit }));
+  });
+
+  /**
+   * Everything the terminal band draws, in one poll.
+   *
+   * The band sits above the Claude Code prompt and must stay cheap: it is
+   * polled on a timer, so this is a single small payload rather than the WS
+   * snapshot the browser takes.
+   *
+   * `top` carries the pending command itself. That is deliberate — the band
+   * can only offer Approve next to the text of what it would approve, which
+   * is the same rule the Decisions panel enforces with `selectCanResolveByKey`.
+   * A count alone would let someone approve something they never read.
+   */
+  app.get('/api/band', (c) => {
+    const pending = opts.router.pendingPermissions();
+    const sessions = listActiveSessions(opts.db);
+    const counts = { active: 0, needsYou: 0, idle: 0 };
+    let spendUsd = 0;
+    for (const s of sessions) {
+      spendUsd += s.costUsd ?? 0;
+      if (s.status === 'active') counts.active++;
+      else if (
+        s.status === 'awaiting_permission' ||
+        s.status === 'awaiting_input' ||
+        s.status === 'error'
+      )
+        counts.needsYou++;
+      else if (s.status === 'idle') counts.idle++;
+    }
+
+    const first = pending[0];
+    const top = first
+      ? {
+          requestId: first.requestId,
+          sessionId: first.sessionId,
+          tool: first.tool,
+          // The one argument worth showing: the command for a shell call,
+          // the path for a file write.
+          detail:
+            typeof first.args.command === 'string'
+              ? first.args.command
+              : typeof first.args.file_path === 'string'
+                ? first.args.file_path
+                : '',
+          sessionName: getSession(opts.db, first.sessionId)?.name ?? null,
+        }
+      : null;
+
+    return c.json({
+      pending: pending.length,
+      top,
+      ...counts,
+      spendUsd,
+      version: opts.version ?? 'unknown',
+    });
+  });
+
+  // What Solix prevented, aggregated from audit_events. Read-only, local,
+  // and sent nowhere — `solix gain` and Mission Control both read this.
+  app.get('/api/impact', (c) => {
+    const sinceStr = c.req.query('since');
+    const untilStr = c.req.query('until');
+    const days = c.req.query('days');
+    const until = untilStr ? parseInt(untilStr, 10) : Date.now();
+    const since = sinceStr
+      ? parseInt(sinceStr, 10)
+      : days
+        ? until - Math.max(1, parseInt(days, 10)) * 24 * 60 * 60 * 1000
+        : undefined;
+    return c.json(summarizeImpact(opts.db, { since, until }));
   });
 
   app.get('/api/audit', (c) => {
