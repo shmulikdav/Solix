@@ -54,7 +54,7 @@ export const register: Register = (on) => {
   on('session.start', async ($, e, next) => {
     $.command.register({
       name: 'solix-band',
-      description: 'Show or hide the Solix band (on | off)',
+      description: 'Show or hide the Solix band (on | off | status)',
     })
     // Awaited, so the first draw is already correct rather than blank for a
     // poll interval. Solix is on loopback, so an absent server refuses at
@@ -67,6 +67,38 @@ export const register: Register = (on) => {
 
   on('command.run', { command: 'solix-band' }, async ($, e) => {
     const arg = e.args.trim().toLowerCase()
+
+    // The band draws nothing when it cannot reach Solix, which is right for
+    // the many sessions that never run it — but it makes "not installed",
+    // "not loaded in this session" and "server not reachable" look exactly
+    // the same. If the command answers, the plugin is loaded; the rest of
+    // this says which of the others it is.
+    if (arg === 'status') {
+      const url = `${await baseUrl($)}/api/band`
+      const hidden = await read($, isHidden)
+      try {
+        const res = await $.http.fetch(url)
+        if (!res.ok) {
+          return {
+            text: `Solix band loaded. ${url} answered ${res.status} — is that a Solix server?`,
+          }
+        }
+        const snap = JSON.parse(res.text) as BandSnapshot
+        return {
+          text:
+            `Solix band loaded and connected to ${url}\n` +
+            `solix ${snap.version} · ${snap.active} active · ${snap.pending} waiting` +
+            (hidden ? '\nThe band is hidden here — `/solix-band on` shows it.' : ''),
+        }
+      } catch {
+        return {
+          text:
+            `Solix band loaded, but nothing answered at ${url}.\n` +
+            `Start Solix with \`solix\`, or set SOLIX_PORT if it runs on another port.`,
+        }
+      }
+    }
+
     const hidden = await read($, isHidden)
     const wantHidden = arg === 'off' ? true : arg === 'on' ? false : !hidden
     await update($, isHidden, () => wantHidden)

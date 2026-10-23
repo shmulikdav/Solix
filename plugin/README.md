@@ -42,6 +42,12 @@ solix 3 active · 4 idle · $1.25                  [Hide]
 It draws nothing unless Solix is running on `127.0.0.1:4242`, so it is
 harmless to install before you have Solix. `/solix-band off` hides it.
 
+Seeing nothing? `/solix-band status` tells you which of the three it is —
+the plugin is not loaded in this session (the command will not exist), the
+band is hidden, or nothing is answering on the port. Drawing nothing is the
+right behaviour for a session with no Solix, but it makes those three look
+identical, so this is how you tell them apart.
+
 The command text is always drawn beside the buttons, never a bare count —
 the same rule the browser panel enforces, so that neither surface can be
 used to approve something you have not read.
