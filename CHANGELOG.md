@@ -5,6 +5,89 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.13.0] — 2026-10-25
+
+**Evidence, and a way to see it without leaving the terminal.**
+
+Solix could govern a fleet but could not show what that was worth, and its
+decision surface lived in a browser tab. This release is the other half:
+what it prevented, what you allowed, and both of them where you already are.
+
+### Added
+
+- **`solix gain`** — what Solix prevented, read from the audit log: commands
+  the denylist refused on its own, decisions you made, plans that paused
+  before crossing their cap, and the spend held at those pauses. `--share`
+  formats it to paste **by choice**; nothing is collected and nothing is
+  sent.
+- **The band** (`solix-band` plugin) — pending decisions above the Claude
+  Code prompt, with the command in view and Approve / Deny beside it, or a
+  quiet line with what the fleet is doing and what it has cost. Draws
+  nothing when Solix is not running; `/solix-band status` says why when you
+  expected it to. New `GET /api/band`.
+- **`solix import`** — backfills the galaxy from Claude Code's own
+  transcripts, so a fresh install does not open on nothing. Idempotent,
+  sessions keep their real dates, subagent transcripts are skipped so their
+  spend is not counted twice.
+- **`solix level`** — one governance dial: `observe`, `standard` (default),
+  `strict`. Stated on startup and on change, broadcast to every connected
+  browser, and a warning rather than a quiet success when lowered. New
+  `GET`/`POST /api/system/governance`.
+- **`solix ledger`** — what you allowed, and when, with the three patterns
+  worth a second look: approvals made late at night, a command waved through
+  again and again, something denied and later approved. Exports Markdown and
+  CSV.
+- **`solix-crew` plugin** — the fifteen advisors as Claude Code subagents,
+  plus `/solix-review` on a diff and `/solix-audit` on a repository. No
+  server, no account. Both plugins are listed in a marketplace manifest:
+  `/plugin marketplace add shmulikdav/Solix`.
+- **`docs/E2E-SMOKE-TEST.md`** — 16 suites, ~70 cases, for the parts only a
+  human at a real terminal can check.
+
+### Changed
+
+- **Containment refusals have their own audit kind.** They were filed as
+  `permission_denied`, the same kind a human denial uses; conflated like that
+  it was impossible to say how much the denylist caught on its own. Mission
+  Control counts the new kind explicitly rather than shedding them, and
+  `budget_paused` is recorded where nothing was before.
+- The README scopes the approval gate to the tasks Solix launches.
+  `SOLIX_GATE_ENABLED=1` is injected by the launcher and by nothing else — a
+  `claude` session you start yourself is observed and costed, and keeps
+  Claude Code's own permission prompt.
+
+### Fixed
+
+- **`solix demo` seeded no cost at all**, so Mission Control opened on
+  $0.00 spend and $0.00 per mission — a cost-governance product showing
+  every figure as zero, to the first-time user the README sends there.
+  Dollars now derive from token counts through the same `costForUsage` the
+  transcript watcher uses.
+- Two tests that failed on macOS under load, both defects in the tests: a
+  path compared before resolving `/var` → `/private/var`, and three
+  assertions that waited for an element rather than its content — one of
+  which made a leak check pass against a string containing no diagnostics at
+  all.
+
+### Verification
+
+The gate's happy path is now covered end to end: `gate.live.test.ts` runs the
+real `pre-tool-bash.sh` against a listening server, a human answers through
+the same API the browser uses, and the decision comes back. 487 tests, 12
+plugin tests, 21 browser smoke steps, and a clean-machine rehearsal.
+
+What no test here covers is whether Claude Code honours the decision it is
+handed. That needs a real agent — Suite E of the smoke test.
+
+## [1.12.1] — 2026-10-19
+
+### Fixed
+
+- `solix demo` showed no spend (see 1.13.0, where the full fix landed).
+- Two macOS-only test failures.
+- The tagline across the CLI banner, `--help`, both package descriptions and
+  the READMEs: "the control layer for your coding agents".
+
 ## [1.12.0] — 2026-10-16
 
 **Maestro: describe a goal, watch your agent fleet build it — 100% local.**
