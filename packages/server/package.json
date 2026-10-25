@@ -31,6 +31,10 @@
     "./report": {
       "types": "./src/state/report.ts",
       "import": "./src/state/report.ts"
+    },
+    "./reporting": {
+      "types": "./src/state/reporting.ts",
+      "import": "./src/state/reporting.ts"
     }
   },
   "scripts": {

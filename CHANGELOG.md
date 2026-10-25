@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`solix reporting`** — send decisions to a server your company runs.
+  Increment 1 of Solix Teams, and **off until you turn it on**: with no
+  endpoint configured there is no network call, ever.
+
+  `enable` takes an `https://` URL or `file:/abs/path.jsonl`, so a pilot runs
+  with no server at all. `preview` prints the exact body and sends nothing.
+  `--redact` swaps commands for fingerprints. `status` says where it goes and
+  what is queued; `disable` stops it and keeps the endpoint.
+
+  What crosses the wire is fixed and narrow: decisions, containment blocks and
+  spend. **Prompts, model output, diffs and file contents never do** — there
+  is no code path that reads them, and a test asserts the record shape so a
+  future field cannot widen it quietly.
+
+  The queue is the audit log itself, drained from the old end with a
+  high-water cursor. A failed send leaves the cursor untouched, so nothing is
+  lost; a re-send is a duplicate the server ignores.
+
 - **`solix report`** — a signed, tamper-evident record of every decision, for
   someone other than you to read. `gain` counts what was stopped and `ledger`
   lists what got through; both are plain editable text. This is the same facts

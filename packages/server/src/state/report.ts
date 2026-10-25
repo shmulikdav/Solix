@@ -112,6 +112,75 @@ export function chainDigest(
   return h;
 }
 
+/**
+ * A stable identity for this machine: the first 16 hex of the device public
+ * key's digest. Derived from the key rather than stored separately so the two
+ * can never disagree — a report's signature and the id it was filed under
+ * always refer to the same keypair.
+ */
+export function deviceId(): string | null {
+  const key = deviceKey();
+  if (!key) return null;
+  return createHash('sha256').update(key.publicPem.trim()).digest('hex').slice(0, 16);
+}
+
+/** Sign a chain digest with the device key. Undefined if the key is unusable. */
+export function signDigest(digest: string): FleetReport['signature'] {
+  const key = deviceKey();
+  if (!key) return undefined;
+  try {
+    return {
+      algorithm: 'ed25519',
+      publicKey: key.publicPem.trim(),
+      value: sign(null, Buffer.from(digest, 'hex'), createPrivateKey(key.privatePem)).toString(
+        'base64',
+      ),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+/** Check a signature against a digest. */
+export function verifyDigestSignature(
+  digest: string,
+  signature: NonNullable<FleetReport['signature']>,
+): boolean {
+  try {
+    return verify(
+      null,
+      Buffer.from(digest, 'hex'),
+      createPublicKey(signature.publicKey),
+      Buffer.from(signature.value, 'base64'),
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** The decision records in a window, ordered and optionally redacted. */
+export function collectRecords(
+  db: DB,
+  opts: {
+    since: number;
+    until: number;
+    redact?: boolean;
+    limit?: number;
+    /** Keep the oldest `limit` rather than the newest — see `listLedger`. */
+    oldestFirst?: boolean;
+  },
+): ReportRecord[] {
+  return order(
+    listLedger(db, {
+      since: opts.since,
+      until: opts.until,
+      limit: opts.limit,
+      ...(opts.oldestFirst ? { oldestFirst: true } : {}),
+    }),
+    opts.redact ?? false,
+  );
+}
+
 /** Records in a fixed order, so the same window always yields the same digest. */
 function order(entries: LedgerEntry[], redacted: boolean): ReportRecord[] {
   return entries
@@ -169,7 +238,7 @@ export function buildReport(db: DB, opts: BuildReportOptions = {}): FleetReport 
   const since = opts.since ?? until - 30 * 24 * 60 * 60 * 1000;
   const redacted = opts.redact ?? false;
 
-  const records = order(listLedger(db, { since, until }), redacted);
+  const records = collectRecords(db, { since, until, redact: redacted });
   const summary = summarizeImpact(db, { since, until });
   const digest = chainDigest(records, { since, until }, redacted);
 
@@ -184,15 +253,9 @@ export function buildReport(db: DB, opts: BuildReportOptions = {}): FleetReport 
   };
 
   if (!opts.unsigned) {
-    const key = deviceKey();
-    if (key) {
-      try {
-        const value = sign(null, Buffer.from(digest, 'hex'), createPrivateKey(key.privatePem)).toString('base64');
-        report.signature = { algorithm: 'ed25519', publicKey: key.publicPem.trim(), value };
-      } catch {
-        // Unsigned rather than failed — see deviceKey().
-      }
-    }
+    // Unsigned rather than failed when the key is unusable — see deviceKey().
+    const signature = signDigest(digest);
+    if (signature) report.signature = signature;
   }
   return report;
 }

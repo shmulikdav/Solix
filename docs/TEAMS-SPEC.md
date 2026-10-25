@@ -147,10 +147,17 @@ unreviewed destructive command last quarter* — and is the exact payload Teams
 later aggregates, so the wire format gets designed and used before anything
 depends on it.
 
-### Increment 1 — the reporting client · **MIT, this repo**
-Opt-in endpoint config, local queue, idempotent batched push, `--preview`,
-`--redact`. Still no server: it can be pointed at a file or a webhook, which
-is enough to pilot with a design partner.
+### Increment 1 — the reporting client · **MIT, this repo** · ✅ shipped
+`solix reporting {status,enable,disable,preview,push}`. Opt-in endpoint,
+idempotent batched push, `preview`, `--redact`. Point it at
+`file:/abs/path.jsonl` and a pilot runs with **no server at all**.
+
+**The queue is `audit_events` itself** — append-only and ordered already, so
+"pending" is everything at or after a stored high-water mark and delivery is
+advancing that mark. No outbox table to fall out of sync. A failed send leaves
+the cursor untouched, so records wait rather than vanish; a crash mid-send
+re-sends, and the duplicate is the server's no-op. **Losing a record from an
+audit trail is unacceptable; sending one twice is free.**
 
 ### Increment 2 — the server · **proprietary**
 Ingest, per-developer and fleet views, seat licence. The first thing anyone
