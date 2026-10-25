@@ -27,6 +27,10 @@
     "./ledger": {
       "types": "./src/state/ledger.ts",
       "import": "./src/state/ledger.ts"
+    },
+    "./report": {
+      "types": "./src/state/report.ts",
+      "import": "./src/state/report.ts"
     }
   },
   "scripts": {

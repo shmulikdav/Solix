@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`solix report`** — a signed, tamper-evident record of every decision, for
+  someone other than you to read. `gain` counts what was stopped and `ledger`
+  lists what got through; both are plain editable text. This is the same facts
+  with a SHA-256 chain over them and an Ed25519 signature on the digest, in
+  Markdown, CSV or JSON. `--verify` re-checks a JSON report, `--redact`
+  replaces commands with stable fingerprints.
+
+  Scoped honestly: a verified report proves **the file has not been altered
+  since the machine produced it**. It does *not* prove the machine reported
+  honestly — that machine holds the key. The report says so on its face, and
+  so does the CLI, every time.
+
+  This is increment 0 of Solix Teams (`docs/TEAMS-SPEC.md`): the records are
+  exactly what a Teams server would aggregate, so the format is exercised by a
+  real artifact before anything depends on it over a wire. It needs no server
+  and no network.
+
 ### Removed
 
 - **The Pro tier, entirely.** Solix is free and MIT, all of it. Gone: the

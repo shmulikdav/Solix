@@ -15,6 +15,7 @@ import {
 import { demoCmd } from './demo.js';
 import { doctor } from './doctor.js';
 import { gain } from './gain.js';
+import { report, type ReportOptions } from './report.js';
 import { importCmd } from './import.js';
 import { level } from './level.js';
 import { ledger } from './ledger.js';
@@ -139,6 +140,19 @@ program
   .option('--csv [file]', 'write CSV (default solix-ledger.csv)')
   .action((opts: { days?: number; md?: string | boolean; csv?: string | boolean }) => {
     ledger(opts);
+  });
+
+program
+  .command('report')
+  .description('A signed, tamper-evident record of every decision — for someone else to read')
+  .option('-d, --days <days>', 'window in days (default 30)', (v) => parseInt(v, 10))
+  .option('-f, --format <format>', 'md | csv | json (default md)')
+  .option('-o, --out [file]', 'write to a file instead of stdout')
+  .option('--redact', 'replace commands with stable fingerprints')
+  .option('--unsigned', 'skip the signature (the hash chain is still written)')
+  .option('--verify <file>', 'check a JSON report written earlier')
+  .action((opts: ReportOptions) => {
+    report(opts);
   });
 
 program
