@@ -7,8 +7,10 @@ import { createHttpApp } from './http.js';
 import { createPlan } from './state/plans.js';
 
 /**
- * The Pro run-gate must be server-authoritative: the generic plan CRUD routes
- * must NOT be a back door to `running` (which would skip evaluateRunGate).
+ * The plan lifecycle is server-authoritative: the generic plan CRUD routes
+ * must NOT be a back door to `running`. Reaching it outside the orchestrator
+ * skips the git baseline the review diff is measured against, and lets
+ * full-auto start without its containment check.
  */
 function makeApp(db: DB) {
   const broadcaster = new Broadcaster();

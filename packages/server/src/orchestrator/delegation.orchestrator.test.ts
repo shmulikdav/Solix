@@ -52,7 +52,7 @@ class AlwaysProposeRunner implements SessionRunner {
   }
 }
 
-function build(db: DB, runner: SessionRunner, tier: 'pro' | 'community' = 'pro') {
+function build(db: DB, runner: SessionRunner) {
   const msgs: ServerMessage[] = [];
   const orch = new Orchestrator({
     db,
@@ -62,7 +62,6 @@ function build(db: DB, runner: SessionRunner, tier: 'pro' | 'community' = 'pro')
     knownModels: ['opus', 'sonnet', 'haiku', 'default'],
     getMaestroPrompt: () => 'MAESTRO',
     fullAutoStatus: () => ({ ok: true, reasons: [] }),
-    getEntitlement: () => ({ tier, reason: 'test' }),
   });
   return { orch, msgs };
 }
@@ -119,23 +118,28 @@ describe('Orchestrator agent delegation (P2 #8)', () => {
     expect(entries.some((e) => e.kind === 'delegated' && /depth/i.test(e.body))).toBe(true);
   });
 
-  it('declines a proposal that would exceed the Community task cap', async () => {
-    // Community cap is ≤3 tasks. Root (1) + 4 proposed = 5 → declined.
+  /**
+   * Delegation used to be re-gated on the resulting task count so it could not
+   * bypass the free three-task cap. The cap is gone; a proposal that would
+   * have taken the plan to five tasks must now be accepted in full.
+   */
+  it('accepts a proposal that would have exceeded the old task cap', async () => {
     const { orch } = build(
       db,
       new ProposeOnceRunner(
         JSON.stringify([1, 2, 3, 4].map((n) => ({ title: `S${n}`, prompt: 'p' }))),
       ),
-      'community',
     );
     const { planId } = await orch.createPlanFromGoal({ goal: 'g', cwd: '/tmp/p' });
     orch.approvePlan(planId!);
     await orch.advance(planId!);
 
     const b = orch.getPlanWithTasks(planId!)!;
-    expect(b.tasks).toHaveLength(1); // no subtasks appended
-    const root = b.tasks[0]!;
+    expect(b.tasks).toHaveLength(5); // root + 4 subtasks
+    const root = b.tasks.find((t) => t.delegationDepth === 0)!;
     const entries = listThreadEntries(db, root.id);
-    expect(entries.some((e) => e.kind === 'delegated' && /declined/i.test(e.body))).toBe(true);
+    expect(entries.some((e) => e.kind === 'delegated' && /declined/i.test(e.body))).toBe(
+      false,
+    );
   });
 });

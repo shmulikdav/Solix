@@ -53,7 +53,6 @@ import {
   isGovernanceLevel,
   setGovernanceLevel,
 } from './state/governance.js';
-import { activateLicense, getEntitlement } from './licensing.js';
 import { previewTargetPath, slugifyProjectName } from './util.js';
 import {
   getSession,
@@ -357,38 +356,6 @@ export function createHttpApp(opts: {
   app.get('/api/system/containment', (c) =>
     c.json(fullAutoContainmentStatus()),
   );
-
-  // Current Pro entitlement for the UI badge/upsell. Trimmed to tier/reason +
-  // a minimal license summary — purchaser PII is never sent to the browser.
-  app.get('/api/system/entitlement', (c) => {
-    const e = getEntitlement();
-    return c.json({
-      tier: e.tier,
-      reason: e.reason,
-      edition: e.license?.edition,
-      updatesUntil: e.license?.updatesUntil,
-    });
-  });
-
-  // Activate a license key: verify offline, persist to ~/.solix/license (0600),
-  // and reload so the running server picks it up without a restart.
-  app.post('/api/license/activate', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { key?: string };
-    if (!body.key || !body.key.trim()) {
-      return c.json({ ok: false, error: 'key is required' }, 400);
-    }
-    const res = activateLicense(body.key);
-    // Trim the response — don't echo purchaser PII back to the browser (mirrors
-    // the /entitlement endpoint).
-    if (res.ok && res.license) {
-      const { licenseId, edition, kind, expiresAt, updatesUntil } = res.license;
-      return c.json({
-        ok: true,
-        license: { licenseId, edition, kind, expiresAt, updatesUntil },
-      });
-    }
-    return c.json({ ok: false, error: res.error }, 422);
-  });
 
   app.get('/api/projects', (c) => c.json(listProjects(opts.db)));
 
@@ -1228,8 +1195,10 @@ export function createHttpApp(opts: {
     if (!body.name || !body.goalPrompt || !body.cwd) {
       return c.json({ error: 'name, goalPrompt, cwd required' }, 400);
     }
-    // Running is reachable ONLY through the gated approve/resume/autoMode paths —
-    // never by creating a plan already `running` (that would skip evaluateRunGate).
+    // Running is reachable ONLY through approve/resume/autoMode. Creating a
+    // plan already `running` would skip the orchestrator entirely: no git
+    // baseline captured for the review diff, and no containment check on
+    // full-auto.
     if (body.status && body.status !== 'draft' && body.status !== 'awaiting_approval') {
       return c.json(
         { error: 'a plan can only be created as draft/awaiting_approval; use /approve to run it' },
@@ -1276,9 +1245,10 @@ export function createHttpApp(opts: {
       cwd: string;
       budgetUsd: number;
     }>;
-    // `status`/`autoMode` are lifecycle-controlled by the gated endpoints
-    // (approve/resume/abort/from-goal) — a generic PATCH must not flip a plan to
-    // `running` and bypass evaluateRunGate. Strip them here.
+    // `status`/`autoMode` are lifecycle-controlled by the dedicated endpoints
+    // (approve/resume/abort/from-goal) — a generic PATCH must not flip a plan
+    // to `running` behind the orchestrator's back, nor turn on full-auto
+    // without the containment check. Strip them here.
     const { status: _s, autoMode: _a, ...safe } = body;
     const plan = updatePlan(opts.db, c.req.param('id'), safe);
     if (!plan) return c.json({ error: 'not found' }, 404);
@@ -1421,9 +1391,7 @@ export function createHttpApp(opts: {
     const res = opts.orchestrator.approvePlan(id);
     // Approved → run the dispatch loop in the background (request returns now).
     if (res.ok) kickAdvance(id);
-    // 402 when the run needs Pro (upsell), else 409 for a plain state conflict.
-    const status = res.ok ? 200 : res.upsell ? 402 : 409;
-    return c.json(res, status);
+    return c.json(res, res.ok ? 200 : 409);
   });
 
   // Kill-switch: abort a plan's in-flight worker/verifier and pause it.
@@ -1463,13 +1431,12 @@ export function createHttpApp(opts: {
     })();
   });
 
-  // Resume a paused plan (budget pause / abort). Re-gated in the orchestrator.
+  // Resume a paused plan (budget pause / abort).
   app.post('/api/plans/:id/resume', (c) => {
     const id = c.req.param('id');
     const res = opts.orchestrator.resumePlan(id);
     if (res.ok) kickAdvance(id);
-    const status = res.ok ? 200 : res.upsell ? 402 : 409;
-    return c.json(res, status);
+    return c.json(res, res.ok ? 200 : 409);
   });
 
   // Build-studio review surface: what the fleet changed on disk since the plan

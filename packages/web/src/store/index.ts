@@ -266,13 +266,9 @@ interface SolixState {
     errors?: string[];
     warnings?: string[];
   }>;
-  approvePlan: (
-    planId: string,
-  ) => Promise<{ ok: boolean; error?: string; upsell?: boolean }>;
+  approvePlan: (planId: string) => Promise<{ ok: boolean; error?: string }>;
   abortPlan: (planId: string) => Promise<void>;
-  resumePlan: (
-    planId: string,
-  ) => Promise<{ ok: boolean; error?: string; upsell?: boolean }>;
+  resumePlan: (planId: string) => Promise<{ ok: boolean; error?: string }>;
   /** Load a task's thread (GET) into the store — call when a task is expanded. */
   fetchTaskThread: (planId: string, taskId: string) => Promise<void>;
   /** Append a human comment to a task's thread (POST). */
@@ -286,10 +282,7 @@ interface SolixState {
   addFollowUp: (
     planId: string,
     input: { body: string; file?: string; hunk?: string; sourceTaskId?: string },
-  ) => Promise<{ ok: boolean; taskId?: string; upsell?: boolean; error?: string }>;
-  activateLicense: (
-    key: string,
-  ) => Promise<{ ok: boolean; error?: string }>;
+  ) => Promise<{ ok: boolean; taskId?: string; error?: string }>;
   /** Orgs/tenancy (P3 #10). */
   loadOrgs: () => Promise<void>;
   createOrg: (name: string) => Promise<{ ok: boolean; error?: string }>;
@@ -911,9 +904,8 @@ export const useSolixStore = create<SolixState>((set, get) => ({
       const data = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         error?: string;
-        upsell?: boolean;
       };
-      return { ok: Boolean(data.ok), error: data.error, upsell: data.upsell };
+      return { ok: Boolean(data.ok), error: data.error };
     } catch {
       return { ok: false, error: 'Could not reach the server.' };
     }
@@ -928,9 +920,8 @@ export const useSolixStore = create<SolixState>((set, get) => ({
       const data = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         error?: string;
-        upsell?: boolean;
       };
-      return { ok: Boolean(data.ok), error: data.error, upsell: data.upsell };
+      return { ok: Boolean(data.ok), error: data.error };
     } catch {
       return { ok: false, error: 'Could not reach the server.' };
     }
@@ -1152,23 +1143,6 @@ export const useSolixStore = create<SolixState>((set, get) => ({
     }
   },
 
-  activateLicense: async (key) => {
-    try {
-      const res = await fetch('/api/license/activate', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ key }),
-      });
-      const data = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        error?: string;
-      };
-      return { ok: Boolean(data.ok), error: data.error };
-    } catch {
-      return { ok: false, error: 'Could not reach the server.' };
-    }
-  },
-
   abortPlan: async (planId) => {
     try {
       await fetch(`/api/plans/${encodeURIComponent(planId)}/abort`, {
@@ -1245,15 +1219,9 @@ export const useSolixStore = create<SolixState>((set, get) => ({
       const data = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         taskId?: string;
-        upsell?: boolean;
         error?: string;
       };
-      return {
-        ok: Boolean(data.ok),
-        taskId: data.taskId,
-        upsell: data.upsell,
-        error: data.error,
-      };
+      return { ok: Boolean(data.ok), taskId: data.taskId, error: data.error };
     } catch {
       return { ok: false, error: 'Could not reach the server.' };
     }

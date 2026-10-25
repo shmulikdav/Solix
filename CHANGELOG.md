@@ -5,6 +5,28 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+
+- **The Pro tier, entirely.** Solix is free and MIT, all of it. Gone: the
+  three-task cap on free plans, the Pro requirement on full-auto, the
+  `solix license` command, `/api/system/entitlement`,
+  `/api/license/activate`, the entitlement badge and the paste-a-key box.
+
+  It was unenforceable and aimed at the wrong person. Under MIT the seven
+  gate call sites were one edit away from open, and with no telemetry there
+  was nothing to meter against — but worse, `FREE_TASK_LIMIT = 3` throttled
+  the developer running a twenty-task plan, who is the advocate, not the
+  freeloader. See `docs/MONETISATION.md` for where the money goes instead.
+
+### Changed
+
+- **Full-auto now needs only intact worker containment**, which was always a
+  safety gate rather than a commercial one. It still skips the *plan*
+  approval only: every risky command its workers run is held by the gate,
+  which `autoMode` never reaches. The plan panel says so now.
+
 ## [1.13.0] — 2026-10-25
 
 **Evidence, and a way to see it without leaving the terminal.**

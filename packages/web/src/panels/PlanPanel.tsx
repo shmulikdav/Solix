@@ -62,11 +62,6 @@ export function PlanPanel({ open, onClose }: PlanPanelProps): JSX.Element | null
     ok: boolean;
     reasons: string[];
   } | null>(null);
-  const [entitlement, setEntitlement] = useState<{
-    tier: 'pro' | 'community';
-    reason: string;
-  } | null>(null);
-
   useEffect(() => {
     if (!open) return;
     let live = true;
@@ -78,12 +73,6 @@ export function PlanPanel({ open, onClose }: PlanPanelProps): JSX.Element | null
       .catch(() => {
         if (live) setContainment({ ok: false, reasons: ['status unavailable'] });
       });
-    void fetch('/api/system/entitlement')
-      .then((r) => r.json())
-      .then((e: { tier: 'pro' | 'community'; reason: string }) => {
-        if (live) setEntitlement(e);
-      })
-      .catch(() => {});
     return () => {
       live = false;
     };
@@ -122,8 +111,7 @@ export function PlanPanel({ open, onClose }: PlanPanelProps): JSX.Element | null
     setBusy(true);
     setErrors([]);
     setWarnings([]);
-    const canAuto =
-      autoMode && (containment?.ok ?? false) && entitlement?.tier === 'pro';
+    const canAuto = autoMode && (containment?.ok ?? false);
     const budgetUsd = Number.parseFloat(budget);
     const res = await createPlanFromGoal(g, effectiveCwd.trim(), {
       autoMode: canAuto,
@@ -144,22 +132,6 @@ export function PlanPanel({ open, onClose }: PlanPanelProps): JSX.Element | null
             <div className="text-xs uppercase tracking-widest text-amber-300">
               maestro
             </div>
-            {entitlement && (
-              <span
-                className={`text-[9px] uppercase tracking-wider rounded px-1.5 py-0.5 border ${
-                  entitlement.tier === 'pro'
-                    ? 'text-amber-200 border-amber-400/50'
-                    : 'text-slate-400 border-slate-600'
-                }`}
-                title={`Entitlement: ${entitlement.reason}`}
-              >
-                {entitlement.tier === 'pro'
-                  ? entitlement.reason === 'beta'
-                    ? 'Pro · beta'
-                    : 'Pro'
-                  : 'Community'}
-              </span>
-            )}
           </div>
           <div className="text-lg font-semibold mt-0.5">Plan a build</div>
           <div className="text-xs text-slate-400 mt-1 leading-snug">
@@ -280,12 +252,12 @@ export function PlanPanel({ open, onClose }: PlanPanelProps): JSX.Element | null
             </div>
           )}
 
-          {/* Full-auto toggle — gated on worker containment AND a Pro license
-              (the server refuses it otherwise, so gate it here to avoid a wasted
-              planner run). */}
+          {/* Full-auto toggle — gated on worker containment, which the server
+              re-checks anyway; gating here avoids a wasted planner run. This
+              skips the PLAN approval only: every risky command the plan's
+              workers run is still held by the gate. */}
           {(() => {
-            const isPro = entitlement?.tier === 'pro';
-            const canFullAuto = (containment?.ok ?? false) && isPro;
+            const canFullAuto = containment?.ok ?? false;
             return (
               <label
                 className={`flex items-start gap-2 text-[11px] rounded px-2 py-1.5 border ${
@@ -295,10 +267,8 @@ export function PlanPanel({ open, onClose }: PlanPanelProps): JSX.Element | null
                 }`}
                 title={
                   canFullAuto
-                    ? 'Skip the approval gate and dispatch immediately.'
-                    : !isPro
-                      ? 'Full-auto is a Pro feature.'
-                      : 'Full-auto needs worker containment enabled first.'
+                    ? 'Skip the plan approval and dispatch immediately. Individual commands are still held.'
+                    : 'Full-auto needs worker containment enabled first.'
                 }
               >
                 <input
@@ -312,14 +282,10 @@ export function PlanPanel({ open, onClose }: PlanPanelProps): JSX.Element | null
                   <span className="text-slate-200">⚡ Full-auto</span>
                   <span className="text-slate-500">
                     {' '}
-                    — dispatch without approving the plan.
+                    — dispatch without approving the plan. Risky commands are
+                    still held.
                   </span>
-                  {!isPro && (
-                    <span className="block text-slate-500 mt-0.5">
-                      Pro feature.
-                    </span>
-                  )}
-                  {isPro && containment && !containment.ok && (
+                  {containment && !containment.ok && (
                     <span className="block text-slate-500 mt-0.5">
                       Unavailable: {containment.reasons.join('; ')}.
                     </span>
@@ -385,14 +351,10 @@ function PlanCard({ plan }: { plan: Plan }): JSX.Element {
   const abortPlan = useSolixStore((s) => s.abortPlan);
   const resumePlan = useSolixStore((s) => s.resumePlan);
   const createPlanFromGoal = useSolixStore((s) => s.createPlanFromGoal);
-  const activateLicense = useSolixStore((s) => s.activateLicense);
   const [busy, setBusy] = useState(false);
   const [refine, setRefine] = useState('');
   const [refining, setRefining] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
-  const [showActivate, setShowActivate] = useState(false);
-  const [licenseKey, setLicenseKey] = useState('');
-  const [activateError, setActivateError] = useState<string | null>(null);
 
   const finished =
     plan.status === 'completed' ||
@@ -402,40 +364,17 @@ function PlanCard({ plan }: { plan: Plan }): JSX.Element {
   const onApprove = async (): Promise<void> => {
     setBusy(true);
     setRunError(null);
-    setShowActivate(false);
     const res = await approvePlan(plan.id);
     setBusy(false);
-    if (!res.ok) {
-      setRunError(res.error ?? 'Could not run the plan.');
-      setShowActivate(Boolean(res.upsell)); // only Pro-gated failures offer a key
-    }
+    if (!res.ok) setRunError(res.error ?? 'Could not run the plan.');
   };
 
   const onResume = async (): Promise<void> => {
     setBusy(true);
     setRunError(null);
-    setShowActivate(false);
     const res = await resumePlan(plan.id);
     setBusy(false);
-    if (!res.ok) {
-      setRunError(res.error ?? 'Could not resume the plan.');
-      setShowActivate(Boolean(res.upsell));
-    }
-  };
-
-  const onActivate = async (): Promise<void> => {
-    const key = licenseKey.trim();
-    if (!key) return;
-    setActivateError(null);
-    const res = await activateLicense(key);
-    if (res.ok) {
-      setRunError(null);
-      setShowActivate(false);
-      setLicenseKey('');
-      await onApprove(); // retry the run now that we're Pro
-    } else {
-      setActivateError(res.error ?? 'Activation failed.');
-    }
+    if (!res.ok) setRunError(res.error ?? 'Could not resume the plan.');
   };
 
   const onAbort = async (): Promise<void> => {
@@ -524,40 +463,8 @@ function PlanCard({ plan }: { plan: Plan }): JSX.Element {
       )}
 
       {runError && (
-        <div
-          className={`mt-2 rounded border p-2 space-y-2 ${
-            showActivate
-              ? 'border-amber-400/50 bg-amber-500/10'
-              : 'border-solix-danger/40 bg-solix-danger/10'
-          }`}
-        >
-          <div
-            className={`text-[11px] ${showActivate ? 'text-amber-200' : 'text-solix-danger'}`}
-          >
-            {runError}
-          </div>
-          {showActivate && (
-            <>
-              <div className="flex gap-2">
-                <input
-                  value={licenseKey}
-                  onChange={(e) => setLicenseKey(e.target.value)}
-                  placeholder="Paste your Pro license key"
-                  className="flex-1 text-[11px] font-mono bg-black/40 border border-solix-border rounded p-1.5 text-slate-200 placeholder-slate-600 focus:outline-none focus:border-amber-400"
-                />
-                <button
-                  onClick={() => void onActivate()}
-                  disabled={!licenseKey.trim()}
-                  className="px-3 rounded bg-solix-accent/20 border border-solix-accent/60 text-solix-accent text-[11px] hover:bg-solix-accent/30 disabled:opacity-40"
-                >
-                  Activate
-                </button>
-              </div>
-              {activateError && (
-                <div className="text-[10px] text-solix-danger">{activateError}</div>
-              )}
-            </>
-          )}
+        <div className="mt-2 rounded border p-2 border-solix-danger/40 bg-solix-danger/10">
+          <div className="text-[11px] text-solix-danger">{runError}</div>
         </div>
       )}
 
@@ -718,12 +625,10 @@ function FileReviewRow({
     setNote(null);
     const res = await addFollowUp(planId, { body: text, file: file.path, hunk });
     setBusy(false);
-    if (res.ok && !res.upsell) {
+    if (res.ok) {
       setBody('');
       setOpen(false);
       setNote({ ok: true, text: 'Follow-up task queued — the plan will address it.' });
-    } else if (res.upsell) {
-      setNote({ ok: false, text: res.error ?? 'Re-running this plan needs Pro.' });
     } else {
       setNote({ ok: false, text: res.error ?? 'Could not add the follow-up.' });
     }

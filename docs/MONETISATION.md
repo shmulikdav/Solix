@@ -134,11 +134,26 @@ Right now it is a **liability**, not an asset in waiting:
   plans longer than three tasks. That is a worse first impression than no
   paid tier at all
 
-**Keep** `verifyLicenseKey` — offline Ed25519 verification is exactly the
-right mechanism for Teams seat licensing later.
+**Removed in full** (commit `93b1768`'s parent is the last one that has it):
+`licensing.ts`, `evaluateRunGate`, `FREE_TASK_LIMIT`, the seven orchestrator
+call sites, the `solix license` command, `/api/system/entitlement`,
+`/api/license/activate`, the entitlement badge and the paste-a-key box, and
+`docs/licensing.md` with its Paddle plan.
 
-**Remove** `evaluateRunGate`, `FREE_TASK_LIMIT`, and the seven orchestrator
-call sites. Then say "free, MIT, all of it" and mean it.
+> **Changed from the first draft of this document.** It said to keep
+> `verifyLicenseKey` for Teams seat licensing later. On doing the work that
+> was wrong: with every caller gone it becomes the only module in the
+> codebase with no production use, which rots and invites the assumption that
+> it is wired up. Git has it — `git show <sha>:packages/server/src/licensing.ts`
+> — and Teams will want a different payload anyway (seats and an org, not a
+> per-plan tier), so it would be rewritten rather than reused.
+
+Then say "free, MIT, all of it" and mean it.
+
+**What did not change, and must not:** full-auto is still refused unless
+worker containment is intact. That was never a commercial gate. And full-auto
+only skips the *plan* approval — every risky command its workers run is still
+held by the gate, which `autoMode` never reaches.
 
 ---
 

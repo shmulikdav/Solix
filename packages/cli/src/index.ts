@@ -40,7 +40,6 @@ import {
 import { addGoalCmd, listGoalsCmd, removeGoalCmd } from './goals.js';
 import { installTeamCmd, listTeamsCmd } from './teams.js';
 import { listOrgsCmd, newOrgCmd, useOrgCmd } from './orgs.js';
-import { activateLicenseCmd, licenseStatusCmd } from './license.js';
 import { connectCmd, listConnectionsCmd } from './connections.js';
 import { start } from './start.js';
 import { uninstall } from './uninstall.js';
@@ -414,24 +413,6 @@ goals
   .description('Remove a goal')
   .action(async (id: string) => {
     await removeGoalCmd(id);
-  });
-
-const license = program
-  .command('license')
-  .description('Manage your Solix Pro license (offline, local-only)');
-
-license
-  .command('status', { isDefault: true })
-  .description('Show your current tier and license')
-  .action(() => {
-    licenseStatusCmd();
-  });
-
-license
-  .command('activate <key>')
-  .description('Activate a Pro license key')
-  .action(async (key: string) => {
-    await activateLicenseCmd(key);
   });
 
 const collect = (v: string, acc: string[]): string[] => {

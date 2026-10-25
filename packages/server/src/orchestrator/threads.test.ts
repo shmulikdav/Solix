@@ -137,7 +137,12 @@ describe('Orchestrator.addFollowUpTask (comment-on-passage)', () => {
     expect(srcFollow?.payload?.followUpTaskId).toBe(res.taskId);
   });
 
-  it('upsells a Community user re-running a now-too-large plan, without running it', async () => {
+  /**
+   * Follow-ups used to stop re-opening a settled plan once it crossed the
+   * free three-task cap. The cap is gone; this asserts a fourth follow-up
+   * still runs, so nothing quietly reintroduces it.
+   */
+  it('re-opens a settled plan for a follow-up past the old three-task cap', async () => {
     const msgs: ServerMessage[] = [];
     const orch = new Orchestrator({
       db,
@@ -147,25 +152,21 @@ describe('Orchestrator.addFollowUpTask (comment-on-passage)', () => {
       knownModels: ['opus', 'sonnet', 'haiku', 'default'],
       getMaestroPrompt: () => 'MAESTRO',
       fullAutoStatus: () => ({ ok: true, reasons: [] }),
-      getEntitlement: () => ({ tier: 'community', reason: 'x' }),
     });
-    // SINGLE has 1 task; run it, then add follow-ups up to the free cap (3) and
-    // one past it. Community cap is ≤3 tasks total.
+    // SINGLE has 1 task; run it, then add three follow-ups — the last of which
+    // would have been the 4th task, one past the old cap.
     const { planId } = await orch.createPlanFromGoal({ goal: 'g', cwd: '/tmp/p' });
     orch.approvePlan(planId!);
     await orch.advance(planId!);
-    // 2nd + 3rd tasks still within the cap → run.
     expect(orch.addFollowUpTask(planId!, { body: 'a' }).run).toBe(true);
     await orch.advance(planId!);
     expect(orch.addFollowUpTask(planId!, { body: 'b' }).run).toBe(true);
     await orch.advance(planId!);
-    // 4th task exceeds the free cap → queued but upsold, plan not reopened.
     const res = orch.addFollowUpTask(planId!, { body: 'c' });
     expect(res.ok).toBe(true);
-    expect(res.run).toBeFalsy();
-    expect(res.upsell).toBe(true);
+    expect(res.run).toBe(true);
     expect(db.prepare('SELECT status FROM plans WHERE id=?').get(planId!)).toMatchObject(
-      { status: 'completed' }, // stayed settled
+      { status: 'running' },
     );
   });
 
