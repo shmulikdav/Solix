@@ -15,6 +15,7 @@ import {
 import { ensureProject } from '../state/projects.js';
 import { gitHead } from '../state/git.js';
 import { appendThreadEntry } from '../state/threads.js';
+import { recordAudit } from '../state/audit.js';
 import { resolveWorkerEnv } from '../state/connections.js';
 import {
   setSessionCost,
@@ -357,6 +358,18 @@ export class Orchestrator {
     if (isBudgetExceeded(spent, plan.budgetUsd)) {
       const paused = updatePlan(db, planId, { status: 'paused' });
       if (paused) this.emitPlan(paused);
+      // Recorded so the impact report can say what the cap actually saved.
+      // Without this the single most valuable governance event — a run that
+      // stopped itself before overspending — leaves no trace anywhere.
+      recordAudit(db, {
+        kind: 'budget_paused',
+        summary: `Paused "${plan.name}" at $${spent.toFixed(2)} of its $${(plan.budgetUsd ?? 0).toFixed(2)} cap`,
+        payload: {
+          planId,
+          spentUsd: spent,
+          budgetUsd: plan.budgetUsd ?? null,
+        },
+      });
       return;
     }
 

@@ -15,6 +15,22 @@
     "./licensing": {
       "types": "./src/licensing.ts",
       "import": "./src/licensing.ts"
+    },
+    "./import": {
+      "types": "./src/state/importHistory.ts",
+      "import": "./src/state/importHistory.ts"
+    },
+    "./db": {
+      "types": "./src/db.ts",
+      "import": "./src/db.ts"
+    },
+    "./governance": {
+      "types": "./src/state/governance.ts",
+      "import": "./src/state/governance.ts"
+    },
+    "./ledger": {
+      "types": "./src/state/ledger.ts",
+      "import": "./src/state/ledger.ts"
     }
   },
   "scripts": {

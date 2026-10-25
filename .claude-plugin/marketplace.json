@@ -1,0 +1,20 @@
+{
+  "name": "solix",
+  "description": "The Solix crew and the terminal band. Advisors you can use on their own; the band needs Solix running locally.",
+  "owner": {
+    "name": "Shmulik Davar",
+    "url": "https://www.solixsys.com"
+  },
+  "plugins": [
+    {
+      "name": "solix-crew",
+      "source": "./plugin/solix-crew",
+      "description": "Fifteen specialist advisors — a reviewer, a security auditor, an architect, a FinOps analyst and more — as Claude Code subagents, plus /solix-review and /solix-audit."
+    },
+    {
+      "name": "solix-band",
+      "source": "./plugin/solix-band",
+      "description": "Pending Solix decisions and live spend above the prompt, with Approve and Deny beside the command. Needs Solix running locally."
+    }
+  ]
+}

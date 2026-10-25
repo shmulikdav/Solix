@@ -6,6 +6,13 @@ import { defineConfig } from 'vitest/config';
  * per-file via `// @vitest-environment jsdom`.
  */
 export default defineConfig({
+  test: {
+    // The Claude Code plugin under plugin/ has tests of its own, written
+    // against `claude-code/testing` and run by `claude plugin test`. They
+    // import a module that only exists inside the engine's host, so vitest
+    // can only fail them. `pnpm test:plugin` runs those.
+    exclude: ['**/node_modules/**', '**/dist/**', 'plugin/**'],
+  },
   define: {
     // Vite injects this when building the web UI; component tests render the
     // same components outside that build, so it must be defined here too.

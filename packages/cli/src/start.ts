@@ -1,4 +1,12 @@
 import { createSolixServer } from '@solix/server/create';
+import { getDb } from '@solix/server/db';
+import {
+  describeGovernanceLevel,
+  getGovernanceLevel,
+} from '@solix/server/governance';
+import { existsSync, readdirSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import open from 'open';
 import {
   claudeCodePresent,
@@ -126,6 +134,8 @@ export async function start(opts: StartOptions = {}): Promise<void> {
       ? '[solix] start any `claude` session to see your first planet appear'
       : '[solix] run `solix demo` to see a galaxy without Claude Code',
   );
+  announceGovernance();
+  offerImportWhenEmpty();
 
   const shutdown = async (sig: string): Promise<void> => {
     console.log(`\n[solix] ${sig} — shutting down`);
@@ -134,4 +144,61 @@ export async function start(opts: StartOptions = {}): Promise<void> {
   };
   process.on('SIGINT', () => void shutdown('SIGINT'));
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
+}
+
+/**
+ * State the posture on startup.
+ *
+ * "How supervised am I right now" should never need looking up — it is the
+ * one thing this product is for, and a level someone set weeks ago and
+ * forgot is exactly how a surprise happens.
+ */
+function announceGovernance(): void {
+  try {
+    const current = getGovernanceLevel(getDb());
+    console.log(`[solix] governance: ${describeGovernanceLevel(current)}`);
+  } catch {
+    // Never fail startup over a status line.
+  }
+}
+
+/**
+ * Point at `solix import` when the galaxy would open empty.
+ *
+ * Solix only sees sessions started after its hooks were wired, so a first
+ * run shows nothing however much work is already on disk — the worst
+ * possible first screen for a tool about watching your fleet. Say so once,
+ * and only when it is true: there is history to import and nothing in the
+ * database yet.
+ *
+ * It suggests rather than imports. Reading someone's transcripts is
+ * harmless, but doing it unasked on first launch is not the impression to
+ * make.
+ */
+function offerImportWhenEmpty(): void {
+  try {
+    const db = getDb();
+    const { n } = db
+      .prepare(`SELECT COUNT(*) AS n FROM sessions`)
+      .get() as { n: number };
+    if (n > 0) return;
+
+    const base = join(homedir(), '.claude', 'projects');
+    if (!existsSync(base)) return;
+    const hasHistory = readdirSync(base).some((p) => {
+      try {
+        return readdirSync(join(base, p)).some((f) => f.endsWith('.jsonl'));
+      } catch {
+        return false;
+      }
+    });
+    if (!hasHistory) return;
+
+    console.log(
+      '[solix] the galaxy is empty, but you have Claude Code history —\n' +
+        '        run `solix import` to bring it in',
+    );
+  } catch {
+    // A hint is never worth failing startup over.
+  }
 }

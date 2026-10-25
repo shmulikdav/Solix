@@ -14,6 +14,10 @@ import {
 } from './advisors.js';
 import { demoCmd } from './demo.js';
 import { doctor } from './doctor.js';
+import { gain } from './gain.js';
+import { importCmd } from './import.js';
+import { level } from './level.js';
+import { ledger } from './ledger.js';
 import {
   exportGalaxyCmd,
   importGalaxyCmd,
@@ -112,6 +116,40 @@ program
   .description('Run diagnostics')
   .action(async () => {
     await doctor();
+  });
+
+program
+  .command('level [name]')
+  .description('Show or set how much Solix holds for you (observe|standard|strict)')
+  .action((name?: string) => {
+    level(name);
+  });
+
+program
+  .command('import')
+  .description('Backfill the galaxy from your existing Claude Code transcripts')
+  .action(async () => {
+    await importCmd();
+  });
+
+program
+  .command('ledger')
+  .description('What you allowed, and when — with the patterns worth a second look')
+  .option('-d, --days <days>', 'window in days (default 30)', (v) => parseInt(v, 10))
+  .option('--md [file]', 'write Markdown (default solix-ledger.md)')
+  .option('--csv [file]', 'write CSV (default solix-ledger.csv)')
+  .action((opts: { days?: number; md?: string | boolean; csv?: string | boolean }) => {
+    ledger(opts);
+  });
+
+program
+  .command('gain')
+  .description('Show what Solix prevented — blocked commands, budget pauses')
+  .option('-d, --days <days>', 'window in days (default 30)', (v) => parseInt(v, 10))
+  .option('--share', 'plain text, formatted to paste into an issue or a post')
+  .option('--json', 'machine-readable output')
+  .action(async (opts: { days?: number; share?: boolean; json?: boolean }) => {
+    await gain(opts);
   });
 
 program
