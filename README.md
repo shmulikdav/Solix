@@ -50,8 +50,7 @@ plans it into tasks you approve, dispatches a Claude session per task, verifies
 each against acceptance criteria, retries with feedback, and drives it to done —
 then you review the diff and preview the result, all in-app. Every worker is
 governed by a budget cap, a kill-switch, and a safe-by-default command denylist.
-Still 100% local. *(Preview — a paid Pro tier is coming; the beta is fully
-unlocked and free.)*
+Still 100% local, and free — there is no paid tier and no plan size limit.
 
 ## Quick start
 

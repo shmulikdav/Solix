@@ -15,6 +15,14 @@ import {
 import { demoCmd } from './demo.js';
 import { doctor } from './doctor.js';
 import { gain } from './gain.js';
+import { report, type ReportOptions } from './report.js';
+import {
+  reportingDisable,
+  reportingEnable,
+  reportingPreview,
+  reportingPush,
+  reportingStatus,
+} from './reporting.js';
 import { importCmd } from './import.js';
 import { level } from './level.js';
 import { ledger } from './ledger.js';
@@ -40,7 +48,6 @@ import {
 import { addGoalCmd, listGoalsCmd, removeGoalCmd } from './goals.js';
 import { installTeamCmd, listTeamsCmd } from './teams.js';
 import { listOrgsCmd, newOrgCmd, useOrgCmd } from './orgs.js';
-import { activateLicenseCmd, licenseStatusCmd } from './license.js';
 import { connectCmd, listConnectionsCmd } from './connections.js';
 import { start } from './start.js';
 import { uninstall } from './uninstall.js';
@@ -140,6 +147,67 @@ program
   .option('--csv [file]', 'write CSV (default solix-ledger.csv)')
   .action((opts: { days?: number; md?: string | boolean; csv?: string | boolean }) => {
     ledger(opts);
+  });
+
+program
+  .command('report')
+  .description('A signed, tamper-evident record of every decision — for someone else to read')
+  .option('-d, --days <days>', 'window in days (default 30)', (v) => parseInt(v, 10))
+  .option('-f, --format <format>', 'md | csv | json (default md)')
+  .option('-o, --out [file]', 'write to a file instead of stdout')
+  .option('--redact', 'replace commands with stable fingerprints')
+  .option('--unsigned', 'skip the signature (the hash chain is still written)')
+  .option('--verify <file>', 'check a JSON report written earlier')
+  .action((opts: ReportOptions) => {
+    report(opts);
+  });
+
+const reporting = program
+  .command('reporting')
+  .description('Send decisions to a server your company runs (off unless you turn it on)');
+
+reporting
+  .command('status', { isDefault: true })
+  .description('Whether reporting is on, where it goes, and what is queued')
+  .action(() => {
+    reportingStatus();
+  });
+
+reporting
+  .command('enable')
+  .description('Turn reporting on')
+  .requiredOption('--endpoint <url>', 'https:// URL, or file:/abs/path.jsonl to pilot with no server')
+  .option('--token <token>', 'bearer token for an https endpoint')
+  .option('--redact', 'send command fingerprints instead of the commands')
+  .option('--interval <minutes>', 'how often the running server pushes', (v) => parseInt(v, 10))
+  .action((o: { endpoint: string; token?: string; redact?: boolean; interval?: number }) => {
+    reportingEnable({
+      endpoint: o.endpoint,
+      token: o.token,
+      redact: o.redact,
+      intervalMinutes: o.interval,
+    });
+  });
+
+reporting
+  .command('disable')
+  .description('Stop sending, keeping the endpoint for later')
+  .action(() => {
+    reportingDisable();
+  });
+
+reporting
+  .command('preview')
+  .description('Print the exact batch that would be sent, and send nothing')
+  .action(() => {
+    reportingPreview();
+  });
+
+reporting
+  .command('push')
+  .description('Send everything queued now')
+  .action(async () => {
+    await reportingPush();
   });
 
 program
@@ -414,24 +482,6 @@ goals
   .description('Remove a goal')
   .action(async (id: string) => {
     await removeGoalCmd(id);
-  });
-
-const license = program
-  .command('license')
-  .description('Manage your Solix Pro license (offline, local-only)');
-
-license
-  .command('status', { isDefault: true })
-  .description('Show your current tier and license')
-  .action(() => {
-    licenseStatusCmd();
-  });
-
-license
-  .command('activate <key>')
-  .description('Activate a Pro license key')
-  .action(async (key: string) => {
-    await activateLicenseCmd(key);
   });
 
 const collect = (v: string, acc: string[]): string[] => {

@@ -5,6 +5,65 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`solix reporting`** — send decisions to a server your company runs.
+  Increment 1 of Solix Teams, and **off until you turn it on**: with no
+  endpoint configured there is no network call, ever.
+
+  `enable` takes an `https://` URL or `file:/abs/path.jsonl`, so a pilot runs
+  with no server at all. `preview` prints the exact body and sends nothing.
+  `--redact` swaps commands for fingerprints. `status` says where it goes and
+  what is queued; `disable` stops it and keeps the endpoint.
+
+  What crosses the wire is fixed and narrow: decisions, containment blocks and
+  spend. **Prompts, model output, diffs and file contents never do** — there
+  is no code path that reads them, and a test asserts the record shape so a
+  future field cannot widen it quietly.
+
+  The queue is the audit log itself, drained from the old end with a
+  high-water cursor. A failed send leaves the cursor untouched, so nothing is
+  lost; a re-send is a duplicate the server ignores.
+
+- **`solix report`** — a signed, tamper-evident record of every decision, for
+  someone other than you to read. `gain` counts what was stopped and `ledger`
+  lists what got through; both are plain editable text. This is the same facts
+  with a SHA-256 chain over them and an Ed25519 signature on the digest, in
+  Markdown, CSV or JSON. `--verify` re-checks a JSON report, `--redact`
+  replaces commands with stable fingerprints.
+
+  Scoped honestly: a verified report proves **the file has not been altered
+  since the machine produced it**. It does *not* prove the machine reported
+  honestly — that machine holds the key. The report says so on its face, and
+  so does the CLI, every time.
+
+  This is increment 0 of Solix Teams (`docs/TEAMS-SPEC.md`): the records are
+  exactly what a Teams server would aggregate, so the format is exercised by a
+  real artifact before anything depends on it over a wire. It needs no server
+  and no network.
+
+### Removed
+
+- **The Pro tier, entirely.** Solix is free and MIT, all of it. Gone: the
+  three-task cap on free plans, the Pro requirement on full-auto, the
+  `solix license` command, `/api/system/entitlement`,
+  `/api/license/activate`, the entitlement badge and the paste-a-key box.
+
+  It was unenforceable and aimed at the wrong person. Under MIT the seven
+  gate call sites were one edit away from open, and with no telemetry there
+  was nothing to meter against — but worse, `FREE_TASK_LIMIT = 3` throttled
+  the developer running a twenty-task plan, who is the advocate, not the
+  freeloader. See `docs/MONETISATION.md` for where the money goes instead.
+
+### Changed
+
+- **Full-auto now needs only intact worker containment**, which was always a
+  safety gate rather than a commercial one. It still skips the *plan*
+  approval only: every risky command its workers run is held by the gate,
+  which `autoMode` never reaches. The plan panel says so now.
+
 ## [1.13.0] — 2026-10-25
 
 **Evidence, and a way to see it without leaving the terminal.**

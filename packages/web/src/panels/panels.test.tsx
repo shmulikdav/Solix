@@ -83,9 +83,6 @@ function stubFetch(overrides: Array<[RegExp, unknown]> = []) {
     if (/\/api\/system\/containment/.test(url)) {
       return { ok: true, json: async () => ({ ok: true, reasons: [] }) } as Response;
     }
-    if (/\/api\/system\/entitlement/.test(url)) {
-      return { ok: true, json: async () => ({ tier: 'pro', reason: 'beta' }) } as Response;
-    }
     if (/\/thread$/.test(url) && (init?.method ?? 'GET') === 'GET') {
       return { ok: true, json: async () => THREAD } as Response;
     }

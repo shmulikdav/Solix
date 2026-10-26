@@ -77,6 +77,13 @@ export interface ListAuditOptions {
   since?: number;
   until?: number;
   limit?: number;
+  /**
+   * Which end of the window `limit` keeps. `desc` (the default) is what a UI
+   * wants: the most recent N. `asc` keeps the OLDEST N, which is what anything
+   * draining a backlog in order needs — taking the newest N and then advancing
+   * past them would step over everything older that had not been handled yet.
+   */
+  order?: 'asc' | 'desc';
 }
 
 export function listAudit(
@@ -106,7 +113,7 @@ export function listAudit(
   const rows = db
     .prepare(
       `SELECT * FROM audit_events ${whereClause}
-       ORDER BY ts DESC
+       ORDER BY ts ${opts.order === 'asc' ? 'ASC' : 'DESC'}
        LIMIT ?`,
     )
     .all(...params, limit) as AuditRow[];

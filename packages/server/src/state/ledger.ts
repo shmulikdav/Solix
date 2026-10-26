@@ -50,7 +50,17 @@ function detailOf(payload: Record<string, unknown> | undefined): string {
 
 export function listLedger(
   db: DB,
-  opts: { since?: number; until?: number; limit?: number } = {},
+  opts: {
+    since?: number;
+    until?: number;
+    limit?: number;
+    /**
+     * Keep the OLDEST `limit` entries rather than the newest. Only matters
+     * when the window holds more than `limit`: a backlog has to be drained
+     * from the old end or the un-drained remainder is stepped over.
+     */
+    oldestFirst?: boolean;
+  } = {},
 ): LedgerEntry[] {
   const until = opts.until ?? Date.now();
   const since = opts.since ?? until - 30 * 24 * 60 * 60 * 1000;
@@ -59,7 +69,12 @@ export function listLedger(
   const names = new Map<string, string | undefined>();
   const entries: LedgerEntry[] = [];
 
-  for (const e of listAudit(db, { since, until, limit: opts.limit ?? 5000 })) {
+  for (const e of listAudit(db, {
+    since,
+    until,
+    limit: opts.limit ?? 5000,
+    ...(opts.oldestFirst ? { order: 'asc' as const } : {}),
+  })) {
     const decision = KIND_TO_DECISION[e.kind];
     if (!decision) continue;
     const payload = e.payload;
@@ -78,8 +93,8 @@ export function listLedger(
         : {}),
     });
   }
-  // Oldest first reads as a record; listAudit hands back newest first.
-  return entries.reverse();
+  // Oldest first reads as a record. An `asc` query already is.
+  return opts.oldestFirst ? entries : entries.reverse();
 }
 
 export interface LedgerPattern {

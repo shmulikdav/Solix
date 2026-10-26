@@ -479,7 +479,7 @@ describe('Orchestrator Pro gate (approvePlan)', () => {
     db = resetDbForTests();
   });
 
-  function makeGated(planJson: string, tier: 'pro' | 'community') {
+  function makeOrch(planJson: string) {
     return new Orchestrator({
       db,
       runner: new FakeRunner({ ok: true, output: planJson }),
@@ -488,35 +488,52 @@ describe('Orchestrator Pro gate (approvePlan)', () => {
       knownModels: ['opus', 'sonnet', 'haiku', 'default'],
       getMaestroPrompt: () => 'MAESTRO PROMPT',
       fullAutoStatus: () => ({ ok: true, reasons: [] }),
-      getEntitlement: () => ({ tier, reason: tier === 'pro' ? 'licensed' : 'x' }),
     });
   }
 
-  it('Community can run a small (≤3-task) plan', async () => {
-    const orch = makeGated(PLAN_JSON, 'community'); // 2 tasks
+  /**
+   * There used to be a commercial cap here: free plans were limited to three
+   * tasks. It is gone, and these assert that nothing reintroduces a size
+   * limit — a four-task plan is the smallest one the old cap would have
+   * refused, so it is the shape worth guarding.
+   */
+  it('runs a small plan', async () => {
+    const orch = makeOrch(PLAN_JSON); // 2 tasks
     const { planId } = await orch.createPlanFromGoal({ goal: 'g', cwd: '/tmp/p' });
     expect(orch.approvePlan(planId!)).toEqual({ ok: true });
     expect(orch.getPlanWithTasks(planId!)!.plan.status).toBe('running');
   });
 
-  it('Community is upsold on a large (>3-task) plan; the plan stays parked', async () => {
-    const orch = makeGated(BIG_PLAN_JSON, 'community'); // 4 tasks
+  it('runs a plan larger than the old three-task cap', async () => {
+    const orch = makeOrch(BIG_PLAN_JSON); // 4 tasks
     const { planId } = await orch.createPlanFromGoal({ goal: 'g', cwd: '/tmp/p' });
-    const res = orch.approvePlan(planId!);
-    expect(res.ok).toBe(false);
-    expect(res.upsell).toBe(true);
-    expect(orch.getPlanWithTasks(planId!)!.plan.status).toBe('awaiting_approval');
-  });
-
-  it('Pro can run a large plan', async () => {
-    const orch = makeGated(BIG_PLAN_JSON, 'pro');
-    const { planId } = await orch.createPlanFromGoal({ goal: 'g', cwd: '/tmp/p' });
-    expect(orch.approvePlan(planId!).ok).toBe(true);
+    expect(orch.approvePlan(planId!)).toEqual({ ok: true });
     expect(orch.getPlanWithTasks(planId!)!.plan.status).toBe('running');
   });
 
-  it('Community full-auto is downgraded to the approval gate', async () => {
-    const orch = makeGated(PLAN_JSON, 'community');
+  it('full-auto needs containment, and nothing else', async () => {
+    const orch = makeOrch(PLAN_JSON);
+    const res = await orch.createPlanFromGoal({
+      goal: 'g',
+      cwd: '/tmp/p',
+      autoMode: true,
+    });
+    const b = orch.getPlanWithTasks(res.planId!)!;
+    expect(b.plan.status).toBe('running');
+    expect(b.plan.autoMode).toBe(true);
+    expect(res.warnings ?? []).toEqual([]);
+  });
+
+  it('full-auto is still refused when containment is not intact', async () => {
+    const orch = new Orchestrator({
+      db,
+      runner: new FakeRunner({ ok: true, output: PLAN_JSON }),
+      broadcast: () => {},
+      getKnownAdvisorRoles: () => ['forge', 'argus', 'mira'],
+      knownModels: ['opus', 'sonnet', 'haiku', 'default'],
+      getMaestroPrompt: () => 'MAESTRO PROMPT',
+      fullAutoStatus: () => ({ ok: false, reasons: ['containment disabled'] }),
+    });
     const res = await orch.createPlanFromGoal({
       goal: 'g',
       cwd: '/tmp/p',
@@ -525,17 +542,17 @@ describe('Orchestrator Pro gate (approvePlan)', () => {
     const b = orch.getPlanWithTasks(res.planId!)!;
     expect(b.plan.status).toBe('awaiting_approval');
     expect(b.plan.autoMode).toBe(false);
-    expect(res.warnings?.some((w) => w.includes('Pro feature'))).toBe(true);
+    expect(res.warnings?.some((w) => w.includes('containment disabled'))).toBe(true);
   });
 });
 
-describe('Orchestrator gate — reconcile + resume (defense in depth)', () => {
+describe('Orchestrator reconcile + resume', () => {
   let db: DB;
   beforeEach(() => {
     db = resetDbForTests();
   });
 
-  function orchWith(tier: 'pro' | 'community') {
+  function orch() {
     return new Orchestrator({
       db,
       runner: new RoleFakeRunner({ plan: PLAN_JSON, verifierPass: true }),
@@ -544,12 +561,10 @@ describe('Orchestrator gate — reconcile + resume (defense in depth)', () => {
       knownModels: ['opus', 'sonnet', 'haiku', 'default'],
       getMaestroPrompt: () => 'MAESTRO PROMPT',
       fullAutoStatus: () => ({ ok: true, reasons: [] }),
-      getEntitlement: () => ({ tier, reason: 'test' }),
     });
   }
 
-  // Seed a plan already at `running` with N pending tasks (simulating a state a
-  // pre-fix client could reach, or a license that lapsed while stopped).
+  /** Seed a plan already at `running` with N pending tasks. */
   function seedRunningPlan(taskCount: number): string {
     const plan = createPlan(db, {
       name: 'seeded',
@@ -569,42 +584,23 @@ describe('Orchestrator gate — reconcile + resume (defense in depth)', () => {
     return plan.id;
   }
 
-  it('reconcile pauses a running plan that is no longer entitled', async () => {
-    const planId = seedRunningPlan(4); // >3 tasks, Community
-    await orchWith('community').reconcile();
-    expect(db.prepare('SELECT status FROM plans WHERE id=?').get(planId)).toEqual(
-      { status: 'paused' },
-    );
-  });
-
-  it('reconcile resumes a running plan that is still entitled (Pro)', async () => {
+  it('reconcile drives a running plan to completion', async () => {
     const planId = seedRunningPlan(4);
-    const orch = orchWith('pro');
-    await orch.reconcile();
-    expect(orch.getPlanWithTasks(planId)!.plan.status).toBe('completed');
+    const o = orch();
+    await o.reconcile();
+    expect(o.getPlanWithTasks(planId)!.plan.status).toBe('completed');
   });
 
-  it('resumePlan re-gates: Community is upsold on a large paused plan', () => {
+  it('resumePlan flips a paused plan back to running', () => {
     const planId = seedRunningPlan(4);
     updatePlan(db, planId, { status: 'paused' });
-    const res = orchWith('community').resumePlan(planId);
-    expect(res.ok).toBe(false);
-    expect(res.upsell).toBe(true);
-    expect(orchWith('community').getPlanWithTasks(planId)!.plan.status).toBe(
-      'paused',
-    );
-  });
-
-  it('resumePlan flips a paused plan back to running for Pro', () => {
-    const planId = seedRunningPlan(4);
-    updatePlan(db, planId, { status: 'paused' });
-    expect(orchWith('pro').resumePlan(planId)).toEqual({ ok: true });
-    expect(orchWith('pro').getPlanWithTasks(planId)!.plan.status).toBe('running');
+    expect(orch().resumePlan(planId)).toEqual({ ok: true });
+    expect(orch().getPlanWithTasks(planId)!.plan.status).toBe('running');
   });
 
   it('resumePlan errors on a non-paused plan', () => {
     const planId = seedRunningPlan(1);
-    const r = orchWith('pro').resumePlan(planId);
+    const r = orch().resumePlan(planId);
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/not paused/);
   });
