@@ -5,7 +5,20 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.14.0] — 2026-10-26
+
+**Free and MIT, all of it — and the evidence to prove it was worth it.**
+
+The Pro tier is gone, because it was unenforceable under MIT, unmeterable
+without telemetry, and throttling the wrong person. In its place: two ways to
+show what the governance actually prevented, one for a single machine and one
+for a fleet.
+
+> **A minor version for a removal.** `solix license`,
+> `/api/system/entitlement` and `/api/license/activate` are gone, which is
+> strictly a breaking change. They are treated as a minor here because no key
+> could ever verify against them — `PUBLIC_KEY_PEM` was `null` — so nothing
+> that worked has stopped working.
 
 ### Added
 
