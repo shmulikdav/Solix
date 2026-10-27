@@ -243,6 +243,8 @@ export function createHttpApp(opts: {
       ok: true,
       service: 'solix',
       version: opts.version ?? 'unknown',
+      /** True inside a `solix demo` sandbox — every figure here is invented. */
+      demo: process.env.SOLIX_DEMO === '1',
       ts: Date.now(),
     }),
   );

@@ -8,6 +8,7 @@ import {
   HOOKS_DIR,
   HOOK_NAMES,
   SOLIX_HOME,
+  SOLIX_INSTALL_STAMP,
   SOLIX_SKILLS_DIR,
 } from './paths.js';
 
@@ -194,10 +195,29 @@ export async function doctor(): Promise<void> {
     detail: CLAUDE_SETTINGS,
   });
 
+  /**
+   * Red on a perfectly healthy machine, until now.
+   *
+   * install() only takes a backup when a settings.json already existed —
+   * there is nothing to preserve otherwise. So a clean first install had no
+   * backup, this reported ✗ "not yet created", set exit 1, and told the
+   * user to run `solix install`, which could never produce one. A health
+   * check that is permanently red on a healthy machine teaches people to
+   * ignore health checks, which is worse than not having it.
+   *
+   * The stamp distinguishes the two cases: present means install() ran, so
+   * no backup means there was nothing to back up.
+   */
+  const hasBackup = existsSync(CLAUDE_BACKUP);
+  const everInstalled = existsSync(SOLIX_INSTALL_STAMP);
   checks.push({
-    ok: existsSync(CLAUDE_BACKUP),
+    ok: hasBackup || everInstalled,
     label: 'Backup of settings.json',
-    detail: existsSync(CLAUDE_BACKUP) ? CLAUDE_BACKUP : 'not yet created',
+    detail: hasBackup
+      ? CLAUDE_BACKUP
+      : everInstalled
+        ? 'not needed — you had no settings.json before Solix'
+        : 'not yet created — run `solix install`',
   });
 
   let advisorCount = 0;
@@ -233,11 +253,15 @@ export async function doctor(): Promise<void> {
       skillCount = 0;
     }
   }
+  // `skillCount >= 0` on a .length — a check that could not fail, and so
+  // reported health it had never established.
   checks.push({
-    ok: skillCount >= 0,
+    ok: skillCount > 0,
     label: 'Solix skill pack',
     detail:
-      skillCount > 0 ? `${skillCount} skills in ${SOLIX_SKILLS_DIR}` : 'none',
+      skillCount > 0
+        ? `${skillCount} skills in ${SOLIX_SKILLS_DIR}`
+        : `none in ${SOLIX_SKILLS_DIR} — run \`solix install\``,
   });
 
   checks.push(await probeHealth(port));

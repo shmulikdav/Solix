@@ -6,6 +6,7 @@ import {
 } from '../shell/surfaces.js';
 import { ConnectionDot } from './ConnectionDot.js';
 import { NotifyOptIn } from './NotifyOptIn.js';
+import { DemoBadge } from './DemoBadge.js';
 
 /**
  * The top strip, after the nav rail took the destinations.
@@ -99,6 +100,8 @@ export function TopBar(): JSX.Element {
       >
         ⌘K
       </kbd>
+
+      <DemoBadge />
 
       <NotifyOptIn />
 

@@ -389,9 +389,24 @@ const TOOL_CALL_TTL_MS = 2000;
 const MOTION_KEY = 'solix.motion.v1';
 const VIEW_KEY = 'solix.viewMode.v1';
 
+/**
+ * Orbital motion, on unless the user turned it off.
+ *
+ * This defaulted to off, so the flagship orbiting galaxy was motionless on
+ * first load — and the key that starts it, Space, is the one the keymap
+ * hijacks. A new user saw a static picture of the thing the product is
+ * named after and had no reason to think it ever moved.
+ *
+ * Blocked storage still means off: a reduced-motion or locked-down browser
+ * is the one case where erring toward stillness is right.
+ */
 function readMotionPref(): boolean {
   try {
     const v = localStorage.getItem(MOTION_KEY);
+    if (v === null) {
+      // Respect the OS setting when there is no stored choice.
+      return !window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    }
     return v === '1';
   } catch {
     return false;

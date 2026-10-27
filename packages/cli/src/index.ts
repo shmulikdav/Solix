@@ -66,10 +66,12 @@ program
 program
   .command('start', { isDefault: true })
   .description('Start the Solix server and open the browser')
-  .option('-p, --port <port>', 'port to listen on', (v) => parseInt(v, 10), 4242)
+  // No commander default: it would always beat SOLIX_PORT, which is
+  // documented and was therefore dead. start() applies the fallback.
+  .option('-p, --port <port>', 'port to listen on', (v) => parseInt(v, 10))
   .option('--no-open', 'do not open browser automatically')
   .option('--no-wire', 'do not touch ~/.claude — real sessions will not appear')
-  .action(async (opts: { port: number; open: boolean; wire: boolean }) => {
+  .action(async (opts: { port?: number; open: boolean; wire: boolean }) => {
     await start({ port: opts.port, noOpen: !opts.open, noWire: !opts.wire });
   });
 

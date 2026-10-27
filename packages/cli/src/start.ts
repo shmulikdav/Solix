@@ -143,24 +143,63 @@ export async function start(opts: StartOptions = {}): Promise<void> {
   const port = opts.port ?? Number(process.env.SOLIX_PORT ?? 4242);
   console.log(BANNER);
   ensureWired(opts.noWire);
-  const handle = await createSolixServer({
-    port,
+  let handle: Awaited<ReturnType<typeof createSolixServer>>;
+  try {
+    handle = await createSolixServer({
+      port,
     version: __SOLIX_VERSION__,
     // The CLI owns the install, so it is the only thing that can honestly
     // answer "are the hooks wired, and are they this version's". Without it
     // a bug report cannot distinguish "broken" from "never set up".
-    hookStatus: () => ({
-      installed: hooksInstalled(),
-      upToDate: hooksUpToDate(),
-      stampedVersion: installedVersion(),
-      claudeCodePresent: claudeCodePresent(),
-      supported: hooksSupported(),
-    }),
-  });
+      hookStatus: () => ({
+        installed: hooksInstalled(),
+        upToDate: hooksUpToDate(),
+        stampedVersion: installedVersion(),
+        claudeCodePresent: claudeCodePresent(),
+        supported: hooksSupported(),
+      }),
+    });
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'EADDRINUSE') {
+      console.error(
+        `[solix] port ${port} is already in use — nothing was started.\n` +
+          '        Another Solix is probably still running: open\n' +
+          `        http://127.0.0.1:${port} to check. If it is something else,\n` +
+          `        run \`solix start --port ${port + 1}\`.`,
+      );
+    } else if (code === 'EACCES') {
+      console.error(
+        `[solix] not allowed to listen on port ${port}. Ports below 1024\n` +
+          '        need elevated privileges — pick a higher one with --port.',
+      );
+    } else {
+      console.error(`[solix] could not start the server: ${String(err)}`);
+    }
+    process.exitCode = 1;
+    return;
+  }
+
   const url = `http://${handle.hostname}:${handle.port}`;
   console.log(`[solix] server listening on ${url}`);
+
+  // Said BEFORE the browser takes focus. These two lines are the only
+  // actionable ones in sixteen, and they used to print after `open(url)` —
+  // so a first-time user sat looking at an empty galaxy while the
+  // instructions for filling it scrolled past behind the window.
+  console.log(
+    claudeCodePresent() && hooksSupported()
+      ? '[solix] start any `claude` session to see your first planet appear'
+      : '[solix] run `solix demo` to see a galaxy without Claude Code',
+  );
+  offerImportWhenEmpty();
+  announceGovernance();
+
+  // Wire plumbing last. Nobody needs the POST endpoint before they need to
+  // know how to make a planet appear.
   console.log(`[solix] events  -> POST ${url}/events`);
   console.log(`[solix] ws      -> ws://${handle.hostname}:${handle.port}/ws`);
+
   if (!opts.noOpen) {
     try {
       await open(url);
@@ -168,13 +207,6 @@ export async function start(opts: StartOptions = {}): Promise<void> {
       console.log(`[solix] open ${url} in your browser to view`);
     }
   }
-  console.log(
-    claudeCodePresent() && hooksSupported()
-      ? '[solix] start any `claude` session to see your first planet appear'
-      : '[solix] run `solix demo` to see a galaxy without Claude Code',
-  );
-  announceGovernance();
-  offerImportWhenEmpty();
 
   const shutdown = async (sig: string): Promise<void> => {
     console.log(`\n[solix] ${sig} — shutting down`);
