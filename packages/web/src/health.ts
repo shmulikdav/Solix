@@ -1,81 +1,88 @@
 import type { Mission, Session } from '@solix/shared';
 
 /**
- * Per-session health score 0–100.
+ * Per-session health score 0–100. Pure heuristic — no LLM, no I/O.
  *
- * Pure heuristic — no LLM, no I/O. Composed of four bands:
+ * **100 means nothing is wrong**, and the score comes down as things are.
+ * That is a change: it used to be built up from four bands, one of which
+ * (`progress`, worth 15) was only awarded when a mission was active or
+ * completed. An idle agent with nothing whatsoever wrong therefore topped
+ * out at **85** — and with 456 idle sessions imported from months of
+ * history, the column was a wall of identical 85s. It was computing
+ * correctly and telling you nothing, which reads exactly like a bug.
  *
- *   stability  (30) — current status (idle/active/spawning ok; error 0;
- *                     plan_review/awaiting_input partial)
- *   attention  (30) — penalty for unresolved permissions on this session
- *   budget     (25) — proportional to remaining context (1 - pct/100)
- *   progress   (15) — credit for tool calls in the active mission
+ * The deductions, and why each is a health problem rather than a statistic:
  *
- * Returned alongside `reasons[]` so the SidePanel and the List view can
- * surface *why* a planet's score is low. Callers can pick the first
- * reason as a tooltip.
+ *   context    up to 40, quadratic — the agent starts forgetting what it was
+ *              doing and quietly producing worse work. Low usage barely
+ *              dents; the curve bites near the top, which is where it hurts.
+ *   attention  up to 50 — work has STOPPED pending an answer from you. The
+ *              first held command costs the most; a queue behind it adds up.
+ *   status     an error is total; `terminated` is over rather than unwell;
+ *              `plan_review`/`awaiting_input` need you without having raised
+ *              a permission.
  *
- * V2: replace stability heuristic with a per-mission failure rate and
- * per-session retry counter. Defer.
+ * `reasons[]` comes back alongside so the List and the SidePanel can say
+ * *why*. A score with no reason is a number nobody acts on.
  */
 export function computeHealth(
   session: Session,
-  mission: Mission | undefined,
+  /**
+   * Retained for the call signature and for a future stall signal (an active
+   * mission making no tool calls for a long time). Deliberately unused for
+   * scoring: crediting mission progress is what made 100 unreachable for an
+   * idle agent, and "has a mission in flight" is not the same question as
+   * "is this agent in good shape".
+   */
+  _mission: Mission | undefined,
   pendingForSession: number,
 ): { score: number; reasons: string[] } {
   const reasons: string[] = [];
 
-  let stability = 30;
-  switch (session.status) {
-    case 'error':
-      stability = 0;
-      reasons.push('In error state');
-      break;
-    case 'plan_review':
-    case 'awaiting_input':
-      stability = 15;
-      reasons.push(`Status: ${session.status}`);
-      break;
-    case 'awaiting_permission':
-      stability = 12;
-      reasons.push('Awaiting permission');
-      break;
-    case 'terminated':
-      stability = 5;
-      reasons.push('Terminated');
-      break;
-    default:
-      stability = 30;
+  if (session.status === 'error') {
+    return { score: 0, reasons: ['In error state'] };
   }
 
-  const attention = Math.max(0, 30 - pendingForSession * 15);
+  let score = 100;
+
+  // ── Context pressure ──────────────────────────────────────────────
+  const pct = Math.max(0, Math.min(100, session.contextUsagePct ?? 0));
+  const contextPenalty = 40 * (pct / 100) ** 2;
+  score -= contextPenalty;
+  if (pct >= 90) reasons.push(`Context at ${pct.toFixed(0)}% — compact soon`);
+  else if (pct >= 75) reasons.push(`Context at ${pct.toFixed(0)}%`);
+
+  // ── Waiting on you ────────────────────────────────────────────────
   if (pendingForSession > 0) {
+    score -= Math.min(50, 30 + (pendingForSession - 1) * 10);
     reasons.push(
-      `${pendingForSession} pending permission${pendingForSession === 1 ? '' : 's'}`,
+      `${pendingForSession} command${pendingForSession === 1 ? '' : 's'} waiting on you`,
     );
   }
 
-  const ctxRatio = Math.max(0, 1 - session.contextUsagePct / 100);
-  const budget = 25 * ctxRatio;
-  if (session.contextUsagePct >= 90) {
-    reasons.push(`Context at ${session.contextUsagePct.toFixed(0)}%`);
-  } else if (session.contextUsagePct >= 80) {
-    reasons.push(`Context warm (${session.contextUsagePct.toFixed(0)}%)`);
+  // ── Status ────────────────────────────────────────────────────────
+  switch (session.status) {
+    case 'terminated':
+      score -= 20;
+      reasons.push('Terminated');
+      break;
+    case 'plan_review':
+    case 'awaiting_input':
+      // Needs you, but hasn't raised a permission — so `attention` above
+      // did not already account for it.
+      if (pendingForSession === 0) {
+        score -= 20;
+        reasons.push(`Status: ${session.status}`);
+      }
+      break;
+    default:
+      break;
   }
 
-  let progress = 0;
-  if (mission && mission.status === 'active') {
-    const tools = mission.metrics.toolCallCount;
-    // Saturating curve: a few tool calls show motion; many are diminishing.
-    progress = Math.min(15, tools * 2);
-  } else if (mission && mission.status === 'completed') {
-    progress = 15;
-  }
-
-  const score = Math.round(
-    Math.max(0, Math.min(100, stability + attention + budget + progress)),
-  );
-  return { score, reasons };
+  return {
+    score: Math.round(Math.max(0, Math.min(100, score))),
+    reasons,
+  };
 }
 
 export function healthColor(score: number): string {
