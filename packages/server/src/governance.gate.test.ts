@@ -36,7 +36,7 @@ describe('governance level', () => {
     router = new EventRouter(db, new Broadcaster());
   });
 
-  function seed(id: string, role?: 'worker'): void {
+  function seed(id: string, role?: 'worker' | 'verifier' | 'routine'): void {
     const project = ensureProject(db, '/tmp/gov');
     upsertSession(db, {
       id,
@@ -76,9 +76,48 @@ describe('governance level', () => {
       expect(router.pendingPermissions()).toHaveLength(1);
     });
 
-    it('auto-allows a contained worker that passed the denylist', async () => {
+    /**
+     * This asserted the opposite until 1.14.0, and the opposite is what
+     * shipped: a Maestro worker ran `rm -rf` on a real machine and nobody was
+     * asked, while the product's front page promised the command would be
+     * held. The level's own description always said it would be. This is the
+     * contract, now enforced.
+     */
+    it('HOLDS a worker — a plan you are watching is the whole promise', async () => {
       seed('w1', 'worker');
-      await expect(router.requestPermission(bashEvent('w1', 'ls'))).resolves.toEqual({
+      const pending = router.requestPermission(bashEvent('w1', 'rm -rf ./canary'));
+      let settled = false;
+      void pending.then(() => (settled = true));
+      await new Promise((r) => setTimeout(r, 50));
+
+      expect(settled).toBe(false);
+      expect(router.pendingPermissions()).toHaveLength(1);
+
+      // And a denial really denies.
+      const [req] = router.pendingPermissions();
+      router.resolvePermission(req!.requestId, false);
+      await expect(pending).resolves.toEqual({ approved: false, timedOut: false });
+    });
+
+    it('holds a verifier too', async () => {
+      seed('v1', 'verifier');
+      const pending = router.requestPermission(bashEvent('v1', 'rm -rf ./build'));
+      let settled = false;
+      void pending.then(() => (settled = true));
+      await new Promise((r) => setTimeout(r, 50));
+      expect(settled).toBe(false);
+      expect(router.pendingPermissions()).toHaveLength(1);
+    });
+
+    /**
+     * The exception, and the reason this is not simply "hold everything":
+     * a routine fires on a schedule with nobody at the keyboard. Holding one
+     * would stall until the gate timed out and then deny, turning every
+     * unattended run into a silent failure. The denylist is its boundary.
+     */
+    it('auto-allows a ROUTINE, which fires with nobody watching', async () => {
+      seed('r1', 'routine');
+      await expect(router.requestPermission(bashEvent('r1', 'ls'))).resolves.toEqual({
         approved: true,
         timedOut: false,
       });
@@ -112,9 +151,9 @@ describe('governance level', () => {
   });
 
   describe('strict', () => {
-    it('holds a contained worker that standard would auto-allow', async () => {
+    it('holds a ROUTINE, which standard auto-allows', async () => {
       setGovernanceLevel(db, 'strict');
-      seed('w1', 'worker');
+      seed('w1', 'routine');
 
       const pending = router.requestPermission(bashEvent('w1', 'ls'));
       let settled = false;

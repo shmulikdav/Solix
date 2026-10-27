@@ -493,18 +493,20 @@ export class EventRouter {
         return Promise.resolve({ approved: false, timedOut: false });
       }
 
-      // An autonomous worker/verifier has no human at the keyboard: a SAFE tool
-      // call (passed containment) auto-allows so the fleet can proceed. The
-      // denylist + cwd-confinement above is the boundary, not a per-step prompt.
-      //
-      // `strict` is the exception — it sends these to the gate too, for
-      // someone who wants to watch an autonomous run step by step.
+      // Whether a safe call (one that passed containment) still goes to a
+      // human depends on whether there IS one. A worker or verifier runs from
+      // a plan someone just approved and is watching, so it is held — that is
+      // the product's promise. A routine fires on a schedule with nobody
+      // there, so holding it would stall until the gate timed out and then
+      // deny; it runs under the denylist unless the level is `strict`.
       if (
         session.sessionRole === 'worker' ||
         session.sessionRole === 'verifier' ||
         session.sessionRole === 'routine'
       ) {
-        if (!shouldGateContainedRole(getGovernanceLevel(this.db))) {
+        if (
+          !shouldGateContainedRole(getGovernanceLevel(this.db), session.sessionRole)
+        ) {
           return Promise.resolve({ approved: true, timedOut: false });
         }
       }

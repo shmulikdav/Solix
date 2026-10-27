@@ -7,17 +7,33 @@
 [![license](https://img.shields.io/npm/l/@shmulikdav/solix.svg)](LICENSE)
 [![node](https://img.shields.io/node/v/@shmulikdav/solix.svg)](https://nodejs.org)
 
-**Launch agents that have to ask first.**
+**Build with agents that have to ask first.**
 
-Start a task in Solix and it governs everything that task does: a risky command
-is held until you approve it, with the exact line in front of you. Give it a
-branch and it runs in its own git worktree. Give a plan a cap and it pauses
-before spending past it.
+Describe a goal to Maestro and it plans the work, then dispatches one agent per
+task — and every risky command those agents run is **held until you approve
+it**, with the exact line in front of you. Give a task a branch and it runs in
+its own git worktree. Give the plan a cap and it pauses before spending past it.
 
 Claude Code sessions you start yourself show up too — every running session is
 a planet orbiting a central sun, with its live cost — so you see the whole
-fleet at a glance. Those keep Claude Code's own approval prompt; the blocking
-gate applies to the tasks Solix launches.
+fleet at a glance.
+
+### What is held, and what is not
+
+Worth being exact, because the difference matters:
+
+| | Held for your approval |
+|---|---|
+| A **Maestro** plan's workers and verifiers | **Yes** — at the default level, and at `strict` |
+| A **routine** firing on a schedule | At `strict`. Otherwise the denylist governs it, because nobody is at the keyboard to ask |
+| A **New task** you launch from the UI | No — it keeps Claude Code's own permission prompt |
+| A `claude` session you started yourself | No — same, and Solix observes and costs it |
+
+**The command denylist is not on that dial.** `rm -rf /`, a fork bomb, piping
+the internet into a shell — refused at every level, including `observe`, in
+every one of those rows.
+
+Set how much is held with `solix level observe|standard|strict`.
 
 All of it on your machine. No account, no telemetry.
 

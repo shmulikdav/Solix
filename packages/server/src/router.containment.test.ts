@@ -30,7 +30,7 @@ describe('router containment gate', () => {
     router = new EventRouter(db, new Broadcaster());
   });
 
-  function seedWorker(id: string): void {
+  function seedWorker(id: string, role: 'worker' | 'routine' = 'worker'): void {
     const project = ensureProject(db, '/srv/project');
     upsertSession(db, {
       id,
@@ -40,7 +40,7 @@ describe('router containment gate', () => {
       origin: 'internal',
       model: 'default',
       kind: 'user',
-      sessionRole: 'worker',
+      sessionRole: role,
     });
   }
 
@@ -63,9 +63,26 @@ describe('router containment gate', () => {
     expect(listAudit(db).some((a) => a.kind === 'permission_denied')).toBe(false);
   });
 
-  it('auto-allows a worker running a SAFE command (no human, no pending gate)', async () => {
+  /**
+   * A worker runs from a plan someone just approved and is watching, so a
+   * safe-but-sensitive call is HELD. This asserted auto-allow until 1.14.0,
+   * which is how a Maestro worker came to run `rm -rf` on a real machine
+   * without anyone being asked.
+   */
+  it('holds a worker running a sensitive command, for the human who is watching', async () => {
     seedWorker('w2');
-    const res = await router.requestPermission(bashEvent('w2', 'npm test'));
+    const pending = router.requestPermission(bashEvent('w2', 'npm test'));
+    let settled = false;
+    void pending.then(() => (settled = true));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(settled).toBe(false);
+    expect(router.pendingPermissions()).toHaveLength(1);
+  });
+
+  /** A routine has nobody at the keyboard, so it proceeds under the denylist. */
+  it('auto-allows a ROUTINE running a SAFE command (no human to ask)', async () => {
+    seedWorker('r2', 'routine');
+    const res = await router.requestPermission(bashEvent('r2', 'npm test'));
     expect(res).toEqual({ approved: true, timedOut: false });
     expect(router.pendingPermissions()).toHaveLength(0); // never entered the gate
   });
