@@ -167,3 +167,238 @@ describe('hooksInstalled', () => {
     expect(JSON.stringify(merged.hooks)).toContain('hooks');
   });
 });
+
+/**
+ * The install path used to read an unparseable settings.json as `{}` and then
+ * write that back out, so one trailing comma in the user's file replaced
+ * their permissions, env, model and MCP config with Solix's hooks alone —
+ * and printed "merged hooks into ..." as though it had merged. The backup
+ * covered only the first such write, since it is taken once and never
+ * refreshed.
+ *
+ * `uninstall.ts` had already argued the general case and got it right:
+ * uninstalling a tool is not consent to roll back a config file the tool
+ * does not own. Neither is installing one.
+ *
+ * The property under test is the strong one — not "it warns" but "the file
+ * on disk is byte-for-byte what it was".
+ */
+describe('install() and an unreadable settings.json', () => {
+  const REAL_CONFIG = `{
+  // a comment, which JSON does not allow and Claude Code tolerates
+  "permissions": { "allow": ["Bash(npm test)"] },
+  "env": { "ANTHROPIC_API_KEY": "sk-dont-lose-me" },
+  "model": "opus",
+  "statusLine": { "type": "command", "command": "~/bin/line.sh" },
+}`;
+
+  async function withSettings(body: string) {
+    const claude = join(home, '.claude');
+    mkdirSync(claude, { recursive: true });
+    const settings = join(claude, 'settings.json');
+    writeFileSync(settings, body);
+    return { claude, settings, mod: await load() };
+  }
+
+  it('throws instead of writing, and leaves the file untouched', async () => {
+    const { settings, mod } = await withSettings(REAL_CONFIG);
+    const { readFileSync } = await import('node:fs');
+
+    expect(() => mod.install()).toThrow(mod.SettingsUnreadableError);
+    expect(readFileSync(settings, 'utf8')).toBe(REAL_CONFIG);
+  });
+
+  it('says what it did not do, and how to fix it', async () => {
+    const { mod } = await withSettings(REAL_CONFIG);
+    let message = '';
+    try {
+      mod.install();
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    // The three things someone needs: nothing changed, why, what to do.
+    expect(message).toContain('nothing was changed');
+    expect(message).toMatch(/permissions/);
+    expect(message).toMatch(/run Solix again/);
+  });
+
+  it('does not claim to have merged', async () => {
+    const { mod } = await withSettings(REAL_CONFIG);
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      mod.install();
+    } catch {
+      /* expected */
+    }
+    const said = log.mock.calls.flat().join('\n');
+    expect(said).not.toContain('merged hooks into');
+    log.mockRestore();
+  });
+
+  it('refuses a file that parses but is not an object', async () => {
+    const { settings, mod } = await withSettings('["not", "settings"]');
+    const { readFileSync } = await import('node:fs');
+    expect(() => mod.install()).toThrow(mod.SettingsUnreadableError);
+    expect(readFileSync(settings, 'utf8')).toBe('["not", "settings"]');
+  });
+
+  it('does not write the install stamp, so the next start retries', async () => {
+    const { mod } = await withSettings(REAL_CONFIG);
+    const { existsSync } = await import('node:fs');
+    try {
+      mod.install();
+    } catch {
+      /* expected */
+    }
+    expect(existsSync(join(home, '.solix', 'installed-version'))).toBe(false);
+    expect(mod.hooksUpToDate()).toBe(false);
+  });
+
+  /** An empty file is not malformed — Claude Code reads it as no settings. */
+  it('treats an empty file as no settings and installs normally', async () => {
+    const { settings, mod } = await withSettings('   \n');
+    const { readFileSync } = await import('node:fs');
+    expect(() => mod.install()).not.toThrow();
+    expect(JSON.stringify(JSON.parse(readFileSync(settings, 'utf8')).hooks)).toContain(
+      'hooks',
+    );
+  });
+});
+
+/**
+ * CLAUDE_BACKUP is the pre-Solix original and `uninstall` restores from it,
+ * so it must never be refreshed — otherwise "restore my settings" restores a
+ * file Solix wrote. That left upgrades, which re-run the install and
+ * re-write settings.json, with no backup at all.
+ */
+describe('install() backups across an upgrade', () => {
+  it('keeps the original backup and adds a pre-write one', async () => {
+    const claude = join(home, '.claude');
+    mkdirSync(claude, { recursive: true });
+    const settings = join(claude, 'settings.json');
+    writeFileSync(settings, JSON.stringify({ era: 'before solix' }));
+
+    const { install } = await load();
+    install();
+
+    // Simulate the user editing their settings, then an upgrade re-running.
+    const between = JSON.parse(
+      (await import('node:fs')).readFileSync(settings, 'utf8'),
+    );
+    between.era = 'after my own edit';
+    writeFileSync(settings, JSON.stringify(between));
+    install({ force: true });
+
+    const { readFileSync } = await import('node:fs');
+    expect(
+      JSON.parse(readFileSync(join(claude, 'settings.solix.backup.json'), 'utf8')).era,
+    ).toBe('before solix');
+    expect(
+      JSON.parse(readFileSync(join(claude, 'settings.solix.prev.json'), 'utf8')).era,
+    ).toBe('after my own edit');
+  });
+});
+
+/**
+ * `~/.claude/agents` is Claude Code's directory, and a user may have written
+ * their own agents into it. install() copied fifteen advisor files in with an
+ * unconditional copyFileSync — no existence check, no backup, no mention
+ * beyond "installed 15 advisor agents" — so an agent you wrote called
+ * `forge.md` was gone. And uninstall never removed any of them, which made
+ * start's "undo any time with `solix uninstall`" untrue.
+ */
+describe('advisor agents in the user\'s own directory', () => {
+  const MINE = '# my own forge agent\nDo not lose me.\n';
+
+  function writeMyAgent(): string {
+    const dir = join(home, '.claude', 'agents');
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, 'forge.md');
+    writeFileSync(path, MINE);
+    return path;
+  }
+
+  it('preserves a colliding agent file instead of just overwriting it', async () => {
+    const mine = writeMyAgent();
+    const { install } = await load();
+    install();
+
+    const { readFileSync, existsSync } = await import('node:fs');
+    expect(existsSync(`${mine}.pre-solix.bak`)).toBe(true);
+    expect(readFileSync(`${mine}.pre-solix.bak`, 'utf8')).toBe(MINE);
+    // Solix's own version is in place, so the product still works.
+    expect(readFileSync(mine, 'utf8')).not.toBe(MINE);
+  });
+
+  it('does not overwrite that backup on a second install', async () => {
+    const mine = writeMyAgent();
+    const { install } = await load();
+    install();
+    install({ force: true });
+
+    const { readFileSync } = await import('node:fs');
+    expect(readFileSync(`${mine}.pre-solix.bak`, 'utf8')).toBe(MINE);
+  });
+
+  it('records what it installed', async () => {
+    const { install, readAgentsManifest } = await load();
+    install();
+    const names = readAgentsManifest();
+    expect(names).toContain('forge.md');
+    expect(names.length).toBe(15);
+  });
+
+  it('uninstall removes the agents it installed', async () => {
+    const { install } = await load();
+    install();
+    const { existsSync } = await import('node:fs');
+    const forge = join(home, '.claude', 'agents', 'forge.md');
+    expect(existsSync(forge)).toBe(true);
+
+    const { uninstall } = await import('./uninstall.js');
+    uninstall();
+    expect(existsSync(forge)).toBe(false);
+  });
+
+  it('uninstall puts back an agent of yours that it displaced', async () => {
+    const mine = writeMyAgent();
+    const { install } = await load();
+    install();
+    const { uninstall } = await import('./uninstall.js');
+    uninstall();
+
+    const { readFileSync, existsSync } = await import('node:fs');
+    expect(readFileSync(mine, 'utf8')).toBe(MINE);
+    expect(existsSync(`${mine}.pre-solix.bak`)).toBe(false);
+  });
+
+  /** The reason the manifest exists rather than deleting by pattern. */
+  it('uninstall leaves an agent Solix never installed', async () => {
+    const { install } = await load();
+    install();
+
+    const dir = join(home, '.claude', 'agents');
+    const stranger = join(dir, 'my-own-thing.md');
+    writeFileSync(stranger, 'mine\n');
+
+    const { uninstall } = await import('./uninstall.js');
+    uninstall();
+
+    const { existsSync } = await import('node:fs');
+    expect(existsSync(stranger)).toBe(true);
+  });
+
+  /** Uninstalling a wrapper is not consent to delete your cost history. */
+  it('uninstall keeps the database', async () => {
+    const { install } = await load();
+    install();
+    const db = join(home, '.solix', 'solix.db');
+    writeFileSync(db, 'pretend sqlite\n');
+
+    const { uninstall } = await import('./uninstall.js');
+    uninstall();
+
+    const { existsSync } = await import('node:fs');
+    expect(existsSync(db)).toBe(true);
+  });
+});

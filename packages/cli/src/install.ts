@@ -15,10 +15,12 @@ import {
   CLAUDE_AGENTS_DIR,
   CLAUDE_BACKUP,
   CLAUDE_DIR,
+  CLAUDE_PREV_BACKUP,
   CLAUDE_SETTINGS,
   HOOK_NAMES,
   HOOKS_DIR,
   SOLIX_HOME,
+  SOLIX_AGENTS_MANIFEST,
   SOLIX_INSTALL_STAMP,
   SOLIX_SKILLS_DIR,
   SOLIX_TOKEN_FILE,
@@ -37,15 +39,72 @@ interface ClaudeSettings {
   [k: string]: unknown;
 }
 
-function readSettings(): ClaudeSettings {
-  if (!existsSync(CLAUDE_SETTINGS)) return {};
-  try {
-    const txt = readFileSync(CLAUDE_SETTINGS, 'utf8');
-    return JSON.parse(txt) as ClaudeSettings;
-  } catch (err) {
-    console.warn(`[solix] could not parse ${CLAUDE_SETTINGS}: ${String(err)}`);
-    return {};
+/**
+ * Thrown when `~/.claude/settings.json` exists but cannot be read as a JSON
+ * object, so Solix has no idea what is in it.
+ *
+ * Its own class because the one thing callers must not do is carry on. See
+ * `readSettings` for why.
+ */
+export class SettingsUnreadableError extends Error {
+  constructor(readonly detail: string) {
+    super(
+      `${CLAUDE_SETTINGS} could not be parsed, so nothing was changed.\n` +
+        `        ${detail}\n` +
+        '        Solix merges its hooks into that file. It will not overwrite a\n' +
+        '        file it cannot read, because that would discard whatever else\n' +
+        '        is in it — permissions, env, model, MCP servers. Fix the JSON\n' +
+        '        (or move it aside) and run Solix again.',
+    );
+    this.name = 'SettingsUnreadableError';
   }
+}
+
+type SettingsRead =
+  | { ok: true; settings: ClaudeSettings }
+  | { ok: false; detail: string };
+
+/**
+ * Read the user's Claude Code settings, or say why not.
+ *
+ * This returned `{}` on a parse failure and logged a warning. The warning was
+ * line 3 of sixteen identical `[solix]` lines and the `{}` went straight into
+ * `{ ...existing, hooks: merged }` — so one trailing comma in the user's
+ * settings.json replaced their permissions, env, model, apiKeyHelper,
+ * statusLine and MCP config with Solix's hooks alone, and then printed
+ * "merged hooks into ..." as though it had merged. The backup only covered
+ * the first such write, because it is taken once and never refreshed.
+ *
+ * `uninstall.ts` already argues the general case and gets it right:
+ * uninstalling a tool is not consent to roll back a config file the tool
+ * does not own. Neither is installing one. A file we cannot parse is a file
+ * we must not write.
+ *
+ * An absent file is not an error — there is nothing to lose, and a fresh
+ * install is the common case. Nor is an empty one: Claude Code treats
+ * whitespace as no settings, so we do too.
+ */
+function readSettings(): SettingsRead {
+  if (!existsSync(CLAUDE_SETTINGS)) return { ok: true, settings: {} };
+  let txt: string;
+  try {
+    txt = readFileSync(CLAUDE_SETTINGS, 'utf8');
+  } catch (err) {
+    return { ok: false, detail: `could not read it: ${String(err)}` };
+  }
+  if (txt.trim() === '') return { ok: true, settings: {} };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(txt);
+  } catch (err) {
+    return { ok: false, detail: String(err) };
+  }
+  // A top-level array or scalar parses but is not settings. Spreading it
+  // would produce an object with numeric keys and silently drop the rest.
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { ok: false, detail: 'it parsed, but it is not a JSON object.' };
+  }
+  return { ok: true, settings: parsed as ClaudeSettings };
 }
 
 function hookCommand(name: string): string {
@@ -147,15 +206,65 @@ function installAdvisorAgents(): number {
     advisors: ManifestAdvisor[];
   };
   mkdirSync(CLAUDE_AGENTS_DIR, { recursive: true });
+
+  // Which of these files we installed last time. Anything on disk that is
+  // NOT in here belongs to the user, and overwriting it unannounced is how
+  // someone loses an agent they wrote. There are fifteen advisors, so
+  // fifteen possible collisions.
+  const ours = readAgentsManifest();
+  const installed: string[] = [];
+  const displaced: string[] = [];
   let copied = 0;
+
   for (const a of manifest.advisors) {
     const from = join(src, a.agentMd);
     const to = join(CLAUDE_AGENTS_DIR, a.agentMd);
     if (!existsSync(from)) continue;
+
+    if (existsSync(to) && !ours.includes(a.agentMd)) {
+      // Preserve it once. A second install must not overwrite the backup
+      // with our own copy of the file.
+      const aside = `${to}.pre-solix.bak`;
+      if (!existsSync(aside)) copyFileSync(to, aside);
+      displaced.push(a.agentMd);
+    }
+
     copyFileSync(from, to);
+    installed.push(a.agentMd);
     copied += 1;
   }
+
+  writeAgentsManifest(installed);
+
+  if (displaced.length > 0) {
+    console.log(
+      `[solix] ${displaced.length} agent file(s) in ${CLAUDE_AGENTS_DIR} had the\n` +
+        `        same name as a Solix advisor: ${displaced.join(', ')}\n` +
+        '        Yours were copied to <name>.md.pre-solix.bak first.',
+    );
+  }
   return copied;
+}
+
+/** Filenames Solix has installed into `~/.claude/agents`, or none. */
+export function readAgentsManifest(): string[] {
+  if (!existsSync(SOLIX_AGENTS_MANIFEST)) return [];
+  try {
+    const parsed = JSON.parse(
+      readFileSync(SOLIX_AGENTS_MANIFEST, 'utf8'),
+    ) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((n): n is string => typeof n === 'string');
+  } catch {
+    // A corrupt manifest means we no longer know which files are ours, and
+    // guessing would risk deleting the user's. Treat it as "none are ours".
+    return [];
+  }
+}
+
+function writeAgentsManifest(names: string[]): void {
+  mkdirSync(SOLIX_HOME, { recursive: true });
+  writeFileSync(SOLIX_AGENTS_MANIFEST, JSON.stringify(names, null, 2) + '\n');
 }
 
 function installSolixSkills(): number {
@@ -249,8 +358,11 @@ export function hooksInstalled(): boolean {
     if (!existsSync(join(HOOKS_DIR, `${name}.sh`))) return false;
   }
   if (!existsSync(CLAUDE_SETTINGS)) return false;
-  const settings = readSettings();
-  const wired = JSON.stringify(settings.hooks ?? {});
+  const read = readSettings();
+  // Unreadable counts as not wired, so `install()` runs and fails with the
+  // explanation rather than this predicate swallowing it as a false.
+  if (!read.ok) return false;
+  const wired = JSON.stringify(read.settings.hooks ?? {});
   return wired.includes(HOOKS_DIR);
 }
 
@@ -262,12 +374,28 @@ export function install(opts: InstallOptions = {}): void {
   mkdirSync(SOLIX_HOME, { recursive: true });
   mkdirSync(CLAUDE_DIR, { recursive: true });
 
-  const existing = readSettings();
-  if (existsSync(CLAUDE_SETTINGS) && !existsSync(CLAUDE_BACKUP)) {
-    copyFileSync(CLAUDE_SETTINGS, CLAUDE_BACKUP);
-    console.log(`[solix] backed up settings.json -> ${CLAUDE_BACKUP}`);
-  } else if (opts.force && existsSync(CLAUDE_SETTINGS)) {
-    copyFileSync(CLAUDE_SETTINGS, CLAUDE_BACKUP);
+  // First, before touching anything: if we cannot read what is already
+  // there, we cannot merge into it, and overwriting it would lose it.
+  const read = readSettings();
+  if (!read.ok) throw new SettingsUnreadableError(read.detail);
+  const existing = read.settings;
+
+  if (existsSync(CLAUDE_SETTINGS)) {
+    // CLAUDE_BACKUP is the pre-Solix state and `uninstall` restores from it,
+    // so it is written once and never refreshed — refreshing it on an
+    // upgrade would make "restore my original settings" restore a file Solix
+    // wrote. CLAUDE_PREV_BACKUP is the other half: the file as it was
+    // immediately before this write, which is what you want after an
+    // upgrade goes wrong.
+    // Deliberately not refreshed by --force. --force means "re-install the
+    // hooks even though some are present"; it used to also overwrite this
+    // file, which is the only copy of the user's pre-Solix settings and the
+    // one `uninstall` restores.
+    if (!existsSync(CLAUDE_BACKUP)) {
+      copyFileSync(CLAUDE_SETTINGS, CLAUDE_BACKUP);
+      console.log(`[solix] backed up settings.json -> ${CLAUDE_BACKUP}`);
+    }
+    copyFileSync(CLAUDE_SETTINGS, CLAUDE_PREV_BACKUP);
   }
 
   ensureToken();

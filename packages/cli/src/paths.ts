@@ -20,7 +20,28 @@ export const SOLIX_INSTALL_STAMP = join(SOLIX_HOME, 'installed-version');
 export const CLAUDE_DIR = join(homedir(), '.claude');
 export const CLAUDE_SETTINGS = join(CLAUDE_DIR, 'settings.json');
 export const CLAUDE_BACKUP = join(CLAUDE_DIR, 'settings.solix.backup.json');
+/**
+ * The settings file as it was immediately before the most recent Solix write.
+ *
+ * CLAUDE_BACKUP is the pre-Solix original and `uninstall` restores from it,
+ * so it must never be refreshed. That left upgrades — which re-run the
+ * install and re-write settings.json — with no backup at all. This is that
+ * backup, and it is overwritten every time, which is the point.
+ */
+export const CLAUDE_PREV_BACKUP = join(
+  CLAUDE_DIR,
+  'settings.solix.prev.json',
+);
 export const CLAUDE_AGENTS_DIR = join(CLAUDE_DIR, 'agents');
+/**
+ * The advisor files Solix has copied into `~/.claude/agents`.
+ *
+ * That directory is Claude Code's, not ours, and it may already hold agents
+ * the user wrote. Without a record of which files are ours, `uninstall` can
+ * only choose between leaving all of them behind (which it did) and deleting
+ * agents it never installed. This is the record.
+ */
+export const SOLIX_AGENTS_MANIFEST = join(SOLIX_HOME, 'installed-agents.json');
 export const CLAUDE_SKILLS_DIR = join(CLAUDE_DIR, 'skills');
 
 export const HOOK_NAMES = [
