@@ -15,6 +15,51 @@ export interface Suggestion {
  * already renders `null` as "no suggestion," so adding async won't break
  * anything.
  */
+/**
+ * Does this shell command destroy something?
+ *
+ * This used to be `/\brm\s+-rf\b/ || /\bsudo\b/`, which is the *obvious*
+ * spelling and therefore the one least likely to need a warning. A denied
+ * agent reworded `rm -rf ./canary` as
+ *
+ *     rm /abs/canary/keep.txt && rmdir /abs/canary
+ *
+ * — identical effect, no warning shown. The rephrased form is exactly the one
+ * a tired person waves through, so the narrow pattern was warning about the
+ * wrong half of the problem.
+ *
+ * Deliberately generous. A false positive costs one extra second of reading;
+ * a false negative is what this exists to prevent. It is a *hint* on a card
+ * that already shows the full command — the hard guarantee is the containment
+ * denylist, not this.
+ */
+export function isDestructive(command: string): boolean {
+  const c = command.toLowerCase();
+  return (
+    // Any rm, not only -rf. `rm file`, `rm -r dir`, `rm -f x` all delete.
+    /\brm\s+-{0,2}[a-z]*\s*[^|;&]*\S/.test(c) ||
+    /\brmdir\b/.test(c) ||
+    /\bsudo\b/.test(c) ||
+    // Removes untracked files, including ones never backed up anywhere.
+    /\bgit\s+clean\b/.test(c) ||
+    /\bgit\s+reset\s+--hard\b/.test(c) ||
+    /\bgit\s+checkout\s+--\s/.test(c) ||
+    /\bgit\s+branch\s+-[dD]\b/.test(c) ||
+    // Overwrites or shreds in place.
+    /\bshred\b/.test(c) ||
+    /\btruncate\b/.test(c) ||
+    /\bdd\b[^|;&]*\bof=/.test(c) ||
+    /\bmkfs\b/.test(c) ||
+    // find … -delete / -exec rm
+    /\bfind\b[^|;&]*\s-delete\b/.test(c) ||
+    /\bfind\b[^|;&]*-exec\s+rm\b/.test(c) ||
+    // Package and container teardown.
+    /\bdocker\s+(rm|rmi|system\s+prune|volume\s+rm)\b/.test(c) ||
+    // Truncating redirect onto a path that looks like a real file.
+    /(^|[^>\d])>\s*\/\S+/.test(c)
+  );
+}
+
 export function suggestForPermission(
   session: Session,
   _mission: Mission | undefined,
@@ -27,7 +72,7 @@ export function suggestForPermission(
 
   // Tool-specific rules — most specific first.
   if (tool === 'Bash' && command) {
-    if (/\brm\s+-rf\b/i.test(command) || /\bsudo\b/i.test(command)) {
+    if (isDestructive(command)) {
       return {
         severity: 'danger',
         text: 'Destructive command. Deny unless you have already confirmed the diff.',

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { containmentGateEnv } from './launcher.js';
 
@@ -17,12 +18,13 @@ import { containmentGateEnv } from './launcher.js';
  * port so the gate is unreachable, and assert the decision.
  */
 const HOOKS = ['pre-tool-bash', 'pre-tool-file', 'pre-tool-task'] as const;
+const HOOK_DIR = 'packages/cli/hooks';
 
 function runHook(
   name: string,
   env: Record<string, string>,
 ): { stdout: string; status: number | null } {
-  const r = spawnSync('sh', [resolve(`packages/cli/hooks/${name}.sh`)], {
+  const r = spawnSync('sh', [resolve(`${HOOK_DIR}/${name}.sh`)], {
     input: JSON.stringify({
       session_id: 's1',
       hook_event_name: 'PreToolUse',
@@ -104,5 +106,40 @@ describe('launcher→hook gate policy contract', () => {
       SOLIX_GATE_POLICY: 'fail-closed',
     });
     expect(stdout).toContain('"permissionDecision":"deny"');
+  });
+
+  /**
+   * Every JSON payload these hooks emit is wrapped in SHELL SINGLE QUOTES:
+   *
+   *     printf '%s\n' '{"hookSpecificOutput":{...}}'
+   *
+   * so a single apostrophe anywhere inside terminates the string early and
+   * the hook emits garbage. That is not theoretical — writing
+   * "wastes the reviewer's attention" into a deny reason broke all three
+   * hooks at once, and the only symptom was five unrelated tests failing on
+   * a JSON parse.
+   *
+   * This asserts the shape directly, so the next person gets one obvious
+   * failure naming the file instead of a parse error three layers away.
+   */
+  describe('the emitted payloads are shell-safe and valid JSON', () => {
+    const PAYLOAD = /printf '%s\\n' '(\{.*?\})'/g;
+
+    it.each(HOOKS)('%s', (hook) => {
+      const src = readFileSync(resolve(HOOK_DIR, `${hook}.sh`), 'utf8');
+      const payloads = [...src.matchAll(PAYLOAD)].map((m) => m[1]!);
+      expect(payloads.length).toBeGreaterThan(0);
+
+      for (const raw of payloads) {
+        // A single quote here would have ended the shell string already.
+        expect(raw).not.toContain("'");
+        expect(() => JSON.parse(raw)).not.toThrow();
+        const parsed = JSON.parse(raw) as {
+          hookSpecificOutput?: { permissionDecision?: string; permissionDecisionReason?: string };
+        };
+        expect(parsed.hookSpecificOutput?.permissionDecision).toMatch(/^(allow|deny)$/);
+        expect(parsed.hookSpecificOutput?.permissionDecisionReason ?? '').not.toBe('');
+      }
+    });
   });
 });

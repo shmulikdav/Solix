@@ -144,6 +144,35 @@ describe('gate end-to-end: real hook against a listening server', () => {
   }, 20000);
 
   /**
+   * A denial has to tell the agent it was a PERSON saying no, or the agent
+   * treats it as a transient obstacle and tries again in different words.
+   * Observed in the wild: denied `rm -rf ./canary`, so it came back with
+   * `rm ./canary/keep.txt && rmdir ./canary`, three times. Each retry is
+   * another card for a human to read, and the fourth one gets approved out
+   * of fatigue.
+   *
+   * The reason text is what Claude Code feeds back to the model, so this is
+   * the only channel that can stop the loop.
+   */
+  it('tells the agent a person decided, and not to reword it', async () => {
+    const run = runHook(gateEnv, 'rm -rf ./canary');
+    const requestId = await pendingRequestId();
+    router.resolvePermission(requestId, false);
+
+    const { stdout } = await run;
+    const out = JSON.parse(stdout.trim()) as {
+      hookSpecificOutput: { permissionDecisionReason: string };
+    };
+    const reason = out.hookSpecificOutput.permissionDecisionReason;
+
+    expect(reason).toMatch(/person/i);
+    expect(reason).toMatch(/do not retry/i);
+    expect(reason).toMatch(/reword/i);
+    // And it must not read as a glitch the agent should route around.
+    expect(reason).toMatch(/not a transient failure/i);
+  }, 20000);
+
+  /**
    * The escape hatch an interactive session would use. Nothing sets
    * SOLIX_GATE_ENABLED for a `claude` you start yourself, but a user can
    * export it — and if the site is ever going to mention that, the path has

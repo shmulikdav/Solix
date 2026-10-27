@@ -47,7 +47,7 @@ case "$DECISION" in
     exit 0
     ;;
   deny)
-    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Denied in Solix"}}'
+    printf '%s\n' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"A person reviewed this exact command in Solix and denied it. This was a deliberate decision, not a transient failure or a sandbox limitation. Do NOT retry it, and do NOT reword it to achieve the same effect another way - a rephrased retry will be denied again and wastes the attention of the person reviewing. Stop, explain what you were trying to accomplish and why you believe it is needed, and let the person decide."}}'
     exit 0
     ;;
   *)

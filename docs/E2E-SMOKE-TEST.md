@@ -50,12 +50,25 @@ Do this once, before Suite A.
 
 ```bash
 # A scratch project Solix can work in. Never point these tests at real work.
-mkdir -p ~/solix-qa && cd ~/solix-qa && git init -q && echo "# qa" > README.md
-git add -A && git commit -qm "init"
+# Every command names its target explicitly — `git -C`, absolute paths — so
+# none of it depends on which directory you are standing in.
+mkdir -p ~/solix-qa/canary
+git -C ~/solix-qa init -q
+printf '# qa\n' > ~/solix-qa/README.md
 
 # Canaries the destructive tests will try to delete. They must survive.
-mkdir -p ~/solix-qa/canary && echo "do not delete" > ~/solix-qa/canary/keep.txt
+printf 'do not delete\n' > ~/solix-qa/canary/keep.txt
+
+git -C ~/solix-qa add -A
+git -C ~/solix-qa commit -qm "init"
 ```
+
+> **Why it is written that awkwardly.** The first version of this block was
+> `cd ~/solix-qa && … && git add -A && git commit`, on two lines. If anything
+> in the first line fails, the second still runs — **in whatever repository
+> you happen to be in**. That is not hypothetical: it truncated this project's
+> own README to one line and pushed the result to `main`. `git -C` cannot do
+> that.
 
 Back up your Claude Code settings so a failed uninstall test is recoverable:
 
