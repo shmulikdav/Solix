@@ -5,6 +5,49 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.16.0] — 2026-10-27
+
+**Three things found by watching someone use the gate for the first time.**
+
+Suite E passed on 1.15.0 — a worker was held, denied, and the canary survived.
+These are what the passing run exposed on the way past.
+
+### Fixed
+
+- **A denial told the agent nothing, so it tried again in different words.**
+  Denied `rm -rf ./canary`, it came back with
+  `rm ./canary/keep.txt && rmdir ./canary`, three times. Each retry is another
+  card for a person to read, and the fourth gets approved out of fatigue.
+  `permissionDecisionReason` — the only channel back to the model — said
+  "Denied in Solix", which reads like a transient obstacle. It now says a
+  person reviewed this exact command and decided, that it is not a transient
+  failure, and not to reword it.
+
+- **The destructive-command hint only matched the obvious spelling.** It
+  tested for `rm -rf` and `sudo`, so the reworded deletion above drew no
+  warning at all — and the rephrased form is the one a tired reviewer waves
+  through. `isDestructive` now covers any `rm`, `rmdir`, `git clean`,
+  `git reset --hard`, branch deletes, `shred`, `truncate`, `dd of=`,
+  `find -delete`, docker teardown and truncating redirects. 36 tests, half of
+  them ordinary commands that must stay quiet.
+
+- **"2 need you" that opened an empty panel.** Pending requests live in
+  memory and session status lives in SQLite, so a restart left rows marked
+  `awaiting_permission` with nothing behind them — permanently. The badge sat
+  on a stale count all day while Decisions correctly said "Nothing waiting",
+  and the natural conclusion was that Decisions was broken. The router now
+  clears those holds at construction, before any hook can arrive, and tells
+  connected browsers.
+
+### Added
+
+- **A guard for the hook payloads.** Every JSON object the hooks emit is
+  wrapped in shell single quotes, so one apostrophe inside terminates the
+  string and the hook emits garbage. Writing "the reviewer's attention" into
+  the new deny reason broke all three hooks at once, and the only symptom was
+  five unrelated tests failing on a JSON parse. The contract test now asserts
+  each payload is apostrophe-free and parses, naming the file that broke.
+
 ## [1.15.0] — 2026-10-27
 
 **The gate actually holds now.**

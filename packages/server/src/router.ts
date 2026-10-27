@@ -67,7 +67,45 @@ export class EventRouter {
     private broadcaster: Broadcaster,
     private launcher?: Launcher,
     private transcripts?: TranscriptWatcherManager,
-  ) {}
+  ) {
+    this.clearStalePermissionHolds();
+  }
+
+  /**
+   * Clear `awaiting_permission` rows left behind by a previous process.
+   *
+   * Pending requests live in `this.permissions`, which is memory — so after a
+   * restart the map is empty while the *status* persists in SQLite. The agent
+   * that was waiting is long gone (its hook timed out and fail-closed, or it
+   * was killed with the server), but the row still says it is waiting. It
+   * counts toward "need you", badges the Galaxy, and opens an empty Decisions
+   * panel, forever.
+   *
+   * That combination is worse than a missing signal: it teaches people that
+   * the attention badge is noise, which is precisely the badge that must be
+   * believed when it is real. Anything still marked waiting at construction
+   * has nothing behind it by definition — this runs before any hook can
+   * register a new one.
+   */
+  private clearStalePermissionHolds(): void {
+    try {
+      const stale = this.db
+        .prepare(`SELECT id FROM sessions WHERE status = 'awaiting_permission'`)
+        .all() as { id: string }[];
+      for (const { id } of stale) {
+        const session = setSessionStatus(this.db, id, 'idle');
+        if (session) this.broadcaster.broadcast({ type: 'session_upsert', session });
+      }
+      if (stale.length > 0) {
+        console.log(
+          `[solix] cleared ${stale.length} stale permission hold${stale.length === 1 ? '' : 's'} from a previous run`,
+        );
+      }
+    } catch (err) {
+      // Never let bookkeeping stop the server coming up.
+      console.warn('[solix] could not clear stale permission holds', err);
+    }
+  }
 
   setLauncher(launcher: Launcher): void {
     this.launcher = launcher;
