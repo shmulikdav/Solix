@@ -215,6 +215,25 @@ function sandboxWrap(
  * surgery — and so the end-to-end launcher test can drive the REAL spawn path
  * against a stand-in binary instead of mocking it away.
  */
+/**
+ * Turn a raw spawn failure into something that points at the real cause.
+ *
+ * Node reports a missing CWD as `spawn claude ENOENT` — naming the COMMAND,
+ * not the directory. A plan whose project path does not exist therefore fails
+ * with a message that reads as a broken Claude Code install, which sends you
+ * looking in exactly the wrong place. (This is not hypothetical: it is how a
+ * plain unexpanded `~/project` presented.)
+ */
+export function explainSpawnError(
+  err: NodeJS.ErrnoException,
+  cwd: string,
+  bin: string,
+): string {
+  if (err.code !== 'ENOENT') return err.message;
+  if (cwd && !existsSync(cwd)) return `project directory does not exist: ${cwd}`;
+  return `could not run "${bin}" — is Claude Code installed and on PATH? (${err.message})`;
+}
+
 export function resolveAgentBin(runtime: 'claude' | 'codex' = 'claude'): string {
   const override =
     runtime === 'codex'
@@ -1023,7 +1042,7 @@ export class Launcher {
       this.broadcaster.broadcast({
         type: 'toast',
         level: 'error',
-        message: `Task error: ${err.message}`,
+        message: `Task error: ${explainSpawnError(err, opts.cwd, resolveAgentBin('claude'))}`,
       });
     });
 
@@ -1143,7 +1162,11 @@ export class Launcher {
       child.stderr?.setEncoding('utf8').on('data', (c: string) => (stderr += c));
       child.on('error', (err) => {
         cleanup();
-        resolve({ ok: false, output: stdout, error: err.message });
+        resolve({
+          ok: false,
+          output: stdout,
+          error: explainSpawnError(err, opts.cwd, bin),
+        });
       });
       child.on('exit', (code) => {
         cleanup();

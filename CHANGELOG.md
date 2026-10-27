@@ -5,6 +5,53 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.15.0] — 2026-10-27
+
+**The gate actually holds now.**
+
+Suite E was run against a real agent for the first time and failed: a Maestro
+worker ran `rm -rf` on a canary directory, the verifier certified it, and
+nobody was ever asked — while the front page promised the command would be
+held. This release makes the promise true, and narrows it where it was never
+true at all.
+
+### Fixed
+
+- **The approval gate never fired at the default level.** A Maestro worker ran
+  `rm -rf /Users/…/solix-qa/canary` on a real machine, the verifier certified
+  it, and nobody was asked — while the front page promised the command would
+  be held. `shouldGateContainedRole` returned true only for `strict`, and
+  contained roles are the *only* sessions carrying the gate env, so at
+  `standard` the human gate was unreachable code.
+
+  `governance.ts`'s own description of `standard` always read *"sensitive
+  calls from a task Solix launched are held"*. The contract was right; the
+  implementation never kept it.
+
+  **A worker or verifier is now held at `standard`** — it runs from a plan you
+  just approved and are watching, so there is someone to ask. **A routine is
+  not**, because it fires on a schedule with nobody at the keyboard: holding
+  one would stall until the gate timed out and then deny, turning every
+  unattended run into a silent failure. `strict` holds routines too.
+
+  Two tests asserted the old behaviour and now assert the new one. They are
+  the reason this shipped three times.
+
+- **`~` was never expanded in a project path.** `~/solix-qa` reached
+  `spawn({ cwd })` literally, and Node reports a missing cwd as
+  `spawn claude ENOENT` — naming the command, so it read as a broken Claude
+  Code install. `expandHome()` now runs at every point a cwd enters the API,
+  and `explainSpawnError()` checks whether the directory exists before
+  blaming the binary.
+
+### Changed
+
+- **The gate's scope is stated honestly** in the README, on the website and in
+  `docs/E2E-SMOKE-TEST.md`. A **New task** launched from the UI is *not*
+  gated — it carries no gate env at any level and keeps Claude Code's own
+  prompt. The smoke-test doc had listed it as gated, which is why Suite E was
+  run against a path with no gate and appeared to find a UI fault instead.
+
 ## [1.14.0] — 2026-10-26
 
 **Free and MIT, all of it — and the evidence to prove it was worth it.**

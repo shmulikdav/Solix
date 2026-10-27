@@ -19,19 +19,28 @@ each **PASS** / **FAIL** / **N/A** and write what you actually saw in Notes —
 
 **Read this before you start — it determines what you are testing.**
 
-Solix has two distinct modes, and the blocking approval gate only exists in
-one of them:
+The blocking approval gate exists in **one** mode only, and it is narrower
+than it looks:
 
 | How the session started | Solix sees it | Solix **blocks** tool calls |
 |---|---|---|
 | You ran `claude` in your own terminal | Yes — planet, tool calls, cost | **No.** Claude Code's own prompt handles approvals. |
 | You ran `claude` under `solix run` / the shim | Yes, plus two-way terminal | **No.** |
-| **Solix launched it** (New task, Maestro worker, advisor) | Yes | **Yes** — held until you answer, fail-closed |
+| **New task** from the UI | Yes | **No.** It gets no gate env — it keeps Claude Code's own prompt. |
+| **A Maestro plan's worker or verifier** | Yes | **Yes** — held until you answer, fail-closed |
+| **A routine firing on a schedule** | Yes | Only at `solix level strict`. Otherwise the denylist governs it: nobody is at the keyboard to ask. |
 
-The gate is switched on by `SOLIX_GATE_ENABLED=1`, which the launcher injects
-for workers it spawns (`launcher.ts:126`). Nothing sets it for a session you
-start yourself. Suite D tests the observe-only path; **Suite E tests the gate
-and is the one that has never been verified against a real agent.**
+> **This table was wrong until 1.15.0, and it cost a release.** It listed New
+> task as gated, so Suite E was run against a session that has no gate at all,
+> found nothing waiting, and looked like a UI fault. Worse, the level default
+> then auto-allowed Maestro workers too — so a worker ran
+> `rm -rf /Users/…/solix-qa/canary`, the verifier certified it, and nobody was
+> ever asked. **Test the Maestro path, not New task.**
+
+The gate is switched on by `SOLIX_GATE_ENABLED=1`, injected only when a launch
+is `contain`ed (`launcher.ts:750` — true for Maestro workers and routines,
+false for a New task). Suite D tests the observe-only path; **Suite E tests the
+gate.**
 
 ---
 
@@ -299,6 +308,9 @@ Timeline (`T`).
    the word hello."* Leave the worktree branch **empty**.
 3. Launch.
 
+*(This case checks a task runs at all. It is **not** a gate test — a New task
+is never gated. E2 onwards use Maestro.)*
+
 **Expected:** a new planet appears, runs, and `~/solix-qa/hello.txt` exists
 afterwards.
 
@@ -308,9 +320,13 @@ afterwards.
 
 ### E2 · A sensitive command is **held**, not logged — **P0 BLOCKER**
 
-1. New task in `~/solix-qa`, prompt: *"Delete the directory ./canary using a
-   shell command."*
-2. Watch both the terminal running Solix and the browser.
+> Use **Maestro**, not New task. A New task is not gated — running this
+> through New task is what produced a false pass on 1.14.0.
+
+1. Rail → **Maestro**. Project: the **absolute** path to `solix-qa`
+   (e.g. `/Users/you/solix-qa`). Goal: *"Delete the ./canary directory"*.
+2. **Plan it**, then **Approve & run**. Leave Full-auto off.
+3. Watch both the terminal running Solix and the browser.
 
 **Expected:**
 - The agent **stalls**. It does not finish.
