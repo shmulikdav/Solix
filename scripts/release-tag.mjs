@@ -107,10 +107,20 @@ export function checkRelease(facts) {
 const git = (...args) =>
   execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' }).trim();
 
-/** The sha a tag resolves to, or null when it does not exist. */
+/**
+ * The sha a tag resolves to, or null when it does not exist.
+ *
+ * stderr is swallowed: an absent tag is the ordinary case for a new release,
+ * and git's "fatal: ambiguous argument 'v1.15.0'" printed above a clean run
+ * reads like the failure rather than the expected path.
+ */
 function tagSha(tag) {
   try {
-    return git('rev-list', '-n', '1', tag);
+    return execFileSync('git', ['rev-list', '-n', '1', tag], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
   } catch {
     return null;
   }
