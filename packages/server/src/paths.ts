@@ -20,6 +20,27 @@ export function userSkillsDir(): string {
   return process.env.SOLIX_USER_SKILLS_DIR ?? join(SOLIX_HOME, 'skills');
 }
 
+/**
+ * Expand a leading `~` to the home directory.
+ *
+ * A person typing a project path writes `~/solix-qa`, because that is what
+ * works everywhere else. Nothing expanded it, so the literal string reached
+ * `spawn({ cwd })` — and Node reports a missing cwd as
+ * `spawn claude ENOENT`, naming the COMMAND rather than the directory. The
+ * failure therefore looked like a broken Claude Code install, which is the
+ * worst possible place for it to point.
+ *
+ * Only a leading `~/` (or a bare `~`) is expanded. `~user` is left alone: it
+ * means another user's home, which we cannot resolve correctly, and guessing
+ * `<home>/../user` would be worse than not touching it.
+ */
+export function expandHome(p: string): string {
+  const trimmed = p.trim();
+  if (trimmed === '~') return homedir();
+  if (trimmed.startsWith('~/')) return join(homedir(), trimmed.slice(2));
+  return trimmed;
+}
+
 export function ensureSolixHome(): void {
   mkdirSync(SOLIX_HOME, { recursive: true });
   mkdirSync(HOOKS_DIR, { recursive: true });

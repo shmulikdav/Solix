@@ -3,6 +3,8 @@ import { dirname, extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
+import { expandHome } from './paths.js';
+
 /**
  * Agent View shipped in Claude Code v2.1.139. Parse the version string
  * (e.g. "2.1.139" or "2.1.139 (Claude Code)") and compare numerically.
@@ -961,7 +963,7 @@ export function createHttpApp(opts: {
     registerWrapper({
       wrapperId: body.wrapperId,
       socketPath: body.socketPath,
-      cwd: body.cwd,
+      cwd: expandHome(body.cwd),
       registeredAt: Date.now(),
     });
     return c.json({ ok: true });
@@ -1001,7 +1003,7 @@ export function createHttpApp(opts: {
       );
     }
     const schedule = createSchedule(opts.db, {
-      cwd: body.cwd,
+      cwd: expandHome(body.cwd),
       prompt: body.prompt,
       cadence: body.cadence,
       name: body.name,
@@ -1075,7 +1077,7 @@ export function createHttpApp(opts: {
       return c.json({ ok: false, warnings: ['cwd is required'] }, 400);
     }
     const result = installTeamTemplate(opts.db, c.req.param('id'), {
-      cwd: body.cwd,
+      cwd: expandHome(body.cwd),
       includeRoutines: body.includeRoutines,
     });
     if (!result.ok) {
@@ -1083,7 +1085,7 @@ export function createHttpApp(opts: {
       return c.json(result, 400);
     }
     // Push every applied change so connected clients update without a refresh.
-    opts.router.broadcastProjectUpsert(ensureProject(opts.db, body.cwd.trim()));
+    opts.router.broadcastProjectUpsert(ensureProject(opts.db, expandHome(body.cwd)));
     for (const advisorId of result.advisorsEnabled) {
       const a = getAdvisor(opts.db, advisorId);
       if (a) opts.router.broadcastAdvisorUpsert(a);
@@ -1208,7 +1210,7 @@ export function createHttpApp(opts: {
     const plan = createPlan(opts.db, {
       name: body.name,
       goalPrompt: body.goalPrompt,
-      cwd: body.cwd,
+      cwd: expandHome(body.cwd),
       status: body.status,
       autoMode: body.autoMode,
       goalId: body.goalId,
@@ -1291,7 +1293,8 @@ export function createHttpApp(opts: {
       acceptanceCriteria: body.acceptanceCriteria,
       dependsOn: body.dependsOn,
       assignedAdvisorRole: body.assignedAdvisorRole,
-      cwd: body.cwd,
+      // Optional here: a task without its own cwd inherits the plan's.
+      cwd: body.cwd ? expandHome(body.cwd) : undefined,
       model: body.model,
       budgetUsd: body.budgetUsd,
       orderIndex: body.orderIndex,
@@ -1372,7 +1375,7 @@ export function createHttpApp(opts: {
     }
     const res = await opts.orchestrator.createPlanFromGoal({
       goal: body.goal,
-      cwd: body.cwd,
+      cwd: expandHome(body.cwd),
       name: body.name,
       autoMode: body.autoMode,
       goalId: body.goalId,
