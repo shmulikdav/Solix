@@ -27,9 +27,14 @@
 import { execFileSync } from 'node:child_process';
 import { createInterface } from 'node:readline/promises';
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const ROOT = resolve(import.meta.dirname, '..');
+// `import.meta.dirname` only exists from Node 20.11, and package.json declares
+// `node >= 20` — so using it crashed this script with an unreadable
+// ERR_INVALID_ARG_TYPE on a supported runtime. fileURLToPath works everywhere.
+const HERE = dirname(fileURLToPath(import.meta.url));
+const ROOT = resolve(HERE, '..');
 const PKG = resolve(ROOT, 'packages/cli/package.json');
 const CHANGELOG = resolve(ROOT, 'CHANGELOG.md');
 const RELEASE_BRANCH = 'main';
@@ -220,7 +225,7 @@ async function main() {
 }
 
 // Only run when invoked directly, so the tests can import the predicates.
-if (process.argv[1] && resolve(process.argv[1]) === resolve(import.meta.filename)) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch((err) => {
     console.error(`${C.red}✗${C.reset} ${err.message}`);
     process.exit(1);
