@@ -275,9 +275,24 @@ function NewRoutineForm(): JSX.Element {
     setPrompt('');
   };
 
+  /**
+   * Does the server understand this cadence?
+   *
+   * Nothing checked, and the server parked anything unparseable one hour
+   * out — so `1w`, plausible given the placeholder below, created a routine
+   * that fired hourly while this warning and the card both said "every 1w".
+   * 168x the agreed cost, concealed by the two bits of UI whose job was to
+   * disclose it. Mirrors cadenceToMs on the server.
+   */
+  const cadenceOk = /^\d+\s*[mhd]$/i.test(cadence.trim());
+  const cadenceProblem =
+    trigger === 'interval' && cadence.trim() !== '' && !cadenceOk;
+
   const consequence =
     trigger === 'interval'
-      ? `This starts a real agent session every ${cadence || '—'} and costs money on every run, until you disable it.`
+      ? cadenceProblem
+        ? `Solix does not understand "${cadence.trim()}", so this cannot be created. Use a number followed by m, h or d — 30m, 2h, 1d. For a week, use 7d.`
+        : `This starts a real agent session every ${cadence.trim() || '—'} and costs money on every run, until you disable it.`
       : trigger === 'webhook'
         ? 'This runs only when its webhook URL is called — each call starts a real agent session and costs money.'
         : 'This runs only when you trigger it by hand.';
@@ -325,14 +340,18 @@ function NewRoutineForm(): JSX.Element {
           />
         )}
       </div>
-      <div className="text-[11px] text-solix-warn/90 leading-snug">
+      <div
+        className={`text-[11px] leading-snug ${
+          cadenceProblem ? 'text-solix-danger' : 'text-solix-warn/90'
+        }`}
+      >
         {consequence}
       </div>
       {err && <div className="text-[11px] text-solix-danger">{err}</div>}
       <Button
         variant="warn"
         onClick={() => void submit()}
-        disabled={!cwd.trim() || !prompt.trim()}
+        disabled={!cwd.trim() || !prompt.trim() || cadenceProblem}
         busy={busy}
         busyLabel="Creating…"
       >

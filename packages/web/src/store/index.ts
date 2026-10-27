@@ -1547,8 +1547,17 @@ export interface WorkspaceSummary {
   totalSpendUsd: number;
   totalTokens: number;
   completedMissions: number;
-  costPerCompletedMission: number;
-  interventions: number;
+  /**
+   * Null when no mission has completed, because there is no such figure yet.
+   *
+   * This was 0, rendered as "$0.00" directly beside a Total spend tile
+   * showing real money — a panel contradicting itself in adjacent tiles, in
+   * a product whose pitch is knowing what your agents cost. The same
+   * component already does this correctly one tile over
+   * (`interventions === null ? '—'`), which is what makes it a bug rather
+   * than a choice.
+   */
+  costPerCompletedMission: number | null;
   pendingPermissions: number;
   activeCount: number;
   attentionCount: number;
@@ -1559,8 +1568,9 @@ export interface WorkspaceSummary {
   advisorCount: number;
   skillCount: number;
   needsYou: Session[];
-  contextAvgPct: number;
-  contextMaxPct: number;
+  /** Null when no session has reported context usage — "0%" is a claim. */
+  contextAvgPct: number | null;
+  contextMaxPct: number | null;
 }
 
 /**
@@ -1619,8 +1629,7 @@ export function selectWorkspaceSummary(state: SolixState): WorkspaceSummary {
     totalSpendUsd,
     totalTokens,
     completedMissions: completed,
-    costPerCompletedMission: completed > 0 ? totalSpendUsd / completed : 0,
-    interventions: 0,
+    costPerCompletedMission: completed > 0 ? totalSpendUsd / completed : null,
     pendingPermissions: Object.keys(state.pendingPermissions).length,
     activeCount,
     attentionCount,
@@ -1631,8 +1640,8 @@ export function selectWorkspaceSummary(state: SolixState): WorkspaceSummary {
     advisorCount: Object.keys(state.advisors).length,
     skillCount: Object.keys(state.skills).length,
     needsYou,
-    contextAvgPct: ctxN > 0 ? ctxSum / ctxN : 0,
-    contextMaxPct: ctxMax,
+    contextAvgPct: ctxN > 0 ? ctxSum / ctxN : null,
+    contextMaxPct: ctxN > 0 ? ctxMax : null,
   };
 }
 

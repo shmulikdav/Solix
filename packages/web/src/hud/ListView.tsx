@@ -194,6 +194,10 @@ export function ListView(): JSX.Element {
   const sortIndicator = (key: SortKey): string =>
     sortKey !== key ? '' : sortDir === 'asc' ? ' ▲' : ' ▼';
 
+  /** The same fact as the glyph, in a form assistive tech can read. */
+  const sortState = (key: SortKey): 'ascending' | 'descending' | undefined =>
+    sortKey !== key ? undefined : sortDir === 'asc' ? 'ascending' : 'descending';
+
   const selectedCount = selectedSessionIds.size;
 
   return (
@@ -312,29 +316,33 @@ export function ListView(): JSX.Element {
                           className="cursor-pointer"
                         />
                       </Th>
-                      <Th onClick={() => onSort('needs')}>
-                        ● {sortIndicator('needs')}
+                      <Th onClick={() => onSort('needs')} sort={sortState('needs')}>
+                        {/* The glyph is the whole header, so the name has
+                            to come from somewhere a reader can find. */}
+                        <span aria-hidden="true">●</span>
+                        <span className="sr-only">Needs attention</span>
+                        {sortIndicator('needs')}
                       </Th>
-                      <Th onClick={() => onSort('name')}>
+                      <Th onClick={() => onSort('name')} sort={sortState('name')}>
                         Agent{sortIndicator('name')}
                       </Th>
                       <Th>Advisor</Th>
-                      <Th onClick={() => onSort('status')}>
+                      <Th onClick={() => onSort('status')} sort={sortState('status')}>
                         Status{sortIndicator('status')}
                       </Th>
-                      <Th onClick={() => onSort('attention')}>
+                      <Th onClick={() => onSort('attention')} sort={sortState('attention')}>
                         Attention{sortIndicator('attention')}
                       </Th>
-                      <Th onClick={() => onSort('progress')}>
+                      <Th onClick={() => onSort('progress')} sort={sortState('progress')}>
                         Mission · tools{sortIndicator('progress')}
                       </Th>
-                      <Th onClick={() => onSort('context')} numeric>
+                      <Th onClick={() => onSort('context')} sort={sortState('context')} numeric>
                         Context{sortIndicator('context')}
                       </Th>
-                      <Th onClick={() => onSort('cost')} numeric>
+                      <Th onClick={() => onSort('cost')} sort={sortState('cost')} numeric>
                         Cost{sortIndicator('cost')}
                       </Th>
-                      <Th onClick={() => onSort('lastActivity')} numeric>
+                      <Th onClick={() => onSort('lastActivity')} sort={sortState('lastActivity')} numeric>
                         Last activity{sortIndicator('lastActivity')}
                       </Th>
                       <Th numeric>Actions</Th>
@@ -345,6 +353,21 @@ export function ListView(): JSX.Element {
                       <tr
                         key={row.session.id}
                         onClick={() => selectSession(row.session.id)}
+                        // Opening an agent was mouse-only: a bare onClick on
+                        // a <tr>, with no role, tabIndex or key handler. The
+                        // only focusable things in a row were the checkbox
+                        // and a Terminate button that is invisible until
+                        // hover, so tabbing through 473 rows could not open
+                        // any of them.
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Open ${row.session.name || row.session.id}`}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            selectSession(row.session.id);
+                          }
+                        }}
                         className={`group border-t border-solix-border hover:bg-solix-border/20 cursor-pointer ${
                           row.needsAttention ? 'bg-solix-danger/5' : ''
                         } ${
@@ -576,21 +599,45 @@ function AdvisorCell({
   );
 }
 
+/**
+ * A column header, sortable or not.
+ *
+ * A sortable one was a bare `<th onClick>`: no role, no tabIndex, no key
+ * handler, and no `aria-sort` — direction was carried only by a ' ▲' / ' ▼'
+ * glyph appended to the label. Eight of eleven columns could neither be
+ * reached nor read without a mouse.
+ */
 function Th({
   children,
   onClick,
   numeric,
+  sort,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   numeric?: boolean;
+  /** Which way this column is currently sorted, when it is the active one. */
+  sort?: 'ascending' | 'descending';
 }): JSX.Element {
   return (
     <th
       onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      aria-sort={onClick ? (sort ?? 'none') : undefined}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
       className={`px-3 py-2 select-none ${
         numeric ? 'text-right' : 'text-left'
-      } ${onClick ? 'cursor-pointer hover:text-slate-300' : ''}`}
+      } ${onClick ? 'cursor-pointer hover:text-slate-300 focus-visible:outline focus-visible:outline-1 focus-visible:outline-solix-accent' : ''}`}
     >
       {children}
     </th>

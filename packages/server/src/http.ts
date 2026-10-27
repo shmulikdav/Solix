@@ -65,7 +65,7 @@ import {
 } from './state/sessions.js';
 import { listMissions } from './state/missions.js';
 import { loadTimeline } from './state/timeline.js';
-import { listAudit, summarizeImpact } from './state/audit.js';
+import { countAudit, listAudit, summarizeImpact } from './state/audit.js';
 import type { AuditKind } from '@solix/shared';
 import {
   getAdvisor,
@@ -80,6 +80,7 @@ import {
 } from './state/wrappers.js';
 import { clearSessionWrapper } from './state/sessions.js';
 import {
+  cadenceToMs,
   createSchedule,
   deleteSchedule,
   getSchedule,
@@ -664,6 +665,18 @@ export function createHttpApp(opts: {
     return c.json(summarizeImpact(opts.db, { since, until }));
   });
 
+  app.get('/api/audit/count', (c) => {
+    const kindStr = c.req.query('kind');
+    const sinceStr = c.req.query('since');
+    return c.json({
+      count: countAudit(opts.db, {
+        sessionId: c.req.query('sessionId') ?? undefined,
+        kind: kindStr ? (kindStr as AuditKind) : undefined,
+        since: sinceStr ? parseInt(sinceStr, 10) : undefined,
+      }),
+    });
+  });
+
   app.get('/api/audit', (c) => {
     const sessionId = c.req.query('sessionId') ?? undefined;
     const kindStr = c.req.query('kind');
@@ -1006,6 +1019,20 @@ export function createHttpApp(opts: {
     if (!body.cwd || !body.prompt || (trigger === 'interval' && !body.cadence)) {
       return c.json(
         { error: 'cwd, prompt required (cadence required for interval triggers)' },
+        400,
+      );
+    }
+    // Nothing validated the cadence, and nextRunFrom parks anything it
+    // cannot parse one hour out. So `1w` — plausible given the "30m / 2h /
+    // 1d" placeholder — produced a routine whose warning said "every 1w",
+    // whose card said "every 1w", and which fired every hour forever: 168
+    // times the cost the user agreed to, concealed by both. And there is no
+    // PATCH for a routine, so it could not be corrected.
+    if (trigger === 'interval' && cadenceToMs(body.cadence ?? '') === null) {
+      return c.json(
+        {
+          error: `cadence "${body.cadence}" is not one Solix understands. Use a number followed by m, h or d — for example 30m, 2h or 1d. Weeks are not supported yet; use 7d.`,
+        },
         400,
       );
     }

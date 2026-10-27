@@ -86,6 +86,45 @@ export interface ListAuditOptions {
   order?: 'asc' | 'desc';
 }
 
+/**
+ * How many audit rows match, without fetching them.
+ *
+ * Mission Control's "Interventions" tile fired three `/api/audit?kind=…`
+ * requests with no limit and summed their `.length`. listAudit caps at 200
+ * per call, so the tile was a count of three pages of rows: it stopped at
+ * 600 and stayed there forever, with nothing saying so. The comment above
+ * those fetches worried about "quietly shrink[ing] this number for the
+ * users with the most to show" — which is precisely who it was wrong for.
+ */
+export function countAudit(
+  db: DB,
+  opts: Pick<ListAuditOptions, 'sessionId' | 'kind' | 'since' | 'until'> = {},
+): number {
+  const where: string[] = [];
+  const params: (string | number)[] = [];
+  if (opts.sessionId) {
+    where.push('session_id = ?');
+    params.push(opts.sessionId);
+  }
+  if (opts.kind) {
+    where.push('kind = ?');
+    params.push(opts.kind);
+  }
+  if (opts.since !== undefined) {
+    where.push('ts >= ?');
+    params.push(opts.since);
+  }
+  if (opts.until !== undefined) {
+    where.push('ts <= ?');
+    params.push(opts.until);
+  }
+  const sql =
+    'SELECT COUNT(*) AS c FROM audit_events' +
+    (where.length > 0 ? ` WHERE ${where.join(' AND ')}` : '');
+  const row = db.prepare(sql).get(...params) as { c: number } | undefined;
+  return row?.c ?? 0;
+}
+
 export function listAudit(
   db: DB,
   opts: ListAuditOptions = {},

@@ -57,6 +57,12 @@ export function cadenceToMs(cadence: string): number | null {
 export function nextRunFrom(fromMs: number, cadence: string): number {
   const ms = cadenceToMs(cadence);
   // Unparseable cadence → park it ~1h out so a typo doesn't busy-fire.
+  //
+  // This is a backstop for rows that predate validation, not a policy: for
+  // a cadence like `1w` it is not a safeguard but a 168x overbill that the
+  // card and the cost warning both conceal, because they echo the string
+  // the user typed. POST /api/schedules now rejects anything cadenceToMs
+  // cannot read, so new routines never reach this branch.
   return fromMs + (ms ?? 3_600_000);
 }
 
