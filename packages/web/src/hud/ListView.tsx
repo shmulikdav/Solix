@@ -6,7 +6,7 @@ import {
   useSolixStore,
 } from '../store/index.js';
 import { modelColor, statusLabel } from '../scene/colors.js';
-import { computeHealth, healthColor } from '../health.js';
+import { severityRank, suggestForSession, type Suggestion } from '../suggestions.js';
 import { GLOSSARY } from '../glossary.js';
 
 const COLLAPSED_KEY = 'solix.list.collapsed.v1';
@@ -18,7 +18,7 @@ type SortKey =
   | 'context'
   | 'lastActivity'
   | 'needs'
-  | 'health'
+  | 'attention'
   | 'cost';
 
 interface Row {
@@ -26,8 +26,8 @@ interface Row {
   project?: Project;
   mission?: Mission;
   needsAttention: boolean;
-  health: number;
-  healthReasons: string[];
+  /** The one thing worth saying about this agent, or null when nothing is. */
+  attention: Suggestion | null;
 }
 
 const STATUS_PRIORITY: Record<string, number> = {
@@ -82,7 +82,7 @@ export function ListView(): JSX.Element {
       const pendingForSession = Object.values(pendingPermissions).filter(
         (p) => p.sessionId === s.id,
       ).length;
-      const { score, reasons } = computeHealth(s, mission, pendingForSession);
+      const attention = suggestForSession(s, mission, pendingForSession);
       return {
         session: s,
         project: projects[s.projectId],
@@ -92,8 +92,7 @@ export function ListView(): JSX.Element {
           s.status === 'awaiting_permission' ||
           s.status === 'awaiting_input' ||
           s.status === 'plan_review',
-        health: score,
-        healthReasons: reasons,
+        attention,
       };
     });
   }, [planets, advisorPlanets, projects, missions, pendingPermissions]);
@@ -171,8 +170,13 @@ export function ListView(): JSX.Element {
         // True first when ascending — that's "needs attention at top".
         if (a.needsAttention === b.needsAttention) return 0;
         return a.needsAttention ? -1 * dir : 1 * dir;
-      case 'health':
-        return (a.health - b.health) * dir;
+      case 'attention': {
+        // Severity first, then context, so rows with the same label keep a
+        // stable, meaningful order instead of shuffling.
+        const bySeverity = severityRank(a.attention) - severityRank(b.attention);
+        if (bySeverity !== 0) return bySeverity * dir;
+        return (a.session.contextUsagePct - b.session.contextUsagePct) * dir;
+      }
       case 'cost':
         return (a.session.costUsd - b.session.costUsd) * dir;
     }
@@ -318,8 +322,8 @@ export function ListView(): JSX.Element {
                       <Th onClick={() => onSort('status')}>
                         Status{sortIndicator('status')}
                       </Th>
-                      <Th onClick={() => onSort('health')} numeric>
-                        Health{sortIndicator('health')}
+                      <Th onClick={() => onSort('attention')}>
+                        Attention{sortIndicator('attention')}
                       </Th>
                       <Th onClick={() => onSort('progress')}>
                         Mission · tools{sortIndicator('progress')}
@@ -436,11 +440,8 @@ export function ListView(): JSX.Element {
                         >
                           {statusLabel(row.session.status)}
                         </td>
-                        <td className="px-3 py-2 text-right">
-                          <HealthBar
-                            score={row.health}
-                            reasons={row.healthReasons}
-                          />
+                        <td className="px-3 py-2">
+                          <AttentionCell suggestion={row.attention} />
                         </td>
                         <td
                           className="px-3 py-2 text-xs text-slate-300 truncate max-w-xs"
@@ -596,56 +597,32 @@ function Th({
   );
 }
 
-function HealthBar({
-  score,
-  reasons,
-}: {
-  score: number;
-  reasons: string[];
-}): JSX.Element {
-  const color = healthColor(score);
+/**
+ * The one thing worth saying about an agent, or a dash.
+ *
+ * This replaced a 0–100 score with a bar. The score was a weighting of three
+ * things already on the same row — Status, Context % and the needs-attention
+ * dot — so it added no fact, only arithmetic nobody could act on. Its bar
+ * also sat one cell from the context bar and moved with it, because context
+ * was 40 of its 100 points.
+ *
+ * A dash for a healthy agent is the point: with hundreds of idle sessions,
+ * a column that says something on every row says nothing.
+ */
+function AttentionCell({ suggestion }: { suggestion: Suggestion | null }): JSX.Element {
+  if (!suggestion) {
+    return <span className="text-slate-600 select-none">—</span>;
+  }
+  const tone =
+    suggestion.severity === 'danger'
+      ? 'text-solix-danger'
+      : suggestion.severity === 'warn'
+        ? 'text-solix-warn'
+        : 'text-slate-400';
   return (
-    <div className="relative inline-flex items-center gap-2 group">
-      <span
-        className="text-[11px] font-mono font-bold"
-        style={{ color }}
-      >
-        {score}
-      </span>
-      <div className="w-16 h-1.5 rounded-full bg-slate-800 overflow-hidden">
-        <div
-          className="h-full"
-          style={{
-            width: `${Math.max(2, score)}%`,
-            background: color,
-          }}
-        />
-      </div>
-      <div className="pointer-events-none absolute right-0 top-full mt-1 z-50 hidden group-hover:block w-64 rounded border border-solix-border bg-solix-panel/95 backdrop-blur p-2 text-left shadow-xl">
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-[10px] uppercase tracking-wide text-slate-400">
-            Health
-          </span>
-          <span className="text-xs font-bold" style={{ color }}>
-            {score}/100
-          </span>
-        </div>
-        {reasons.length === 0 ? (
-          <div className="text-[11px] text-slate-400 italic">
-            All four bands healthy: stable status, no pending decisions,
-            context budget, mission progress.
-          </div>
-        ) : (
-          <ul className="space-y-0.5">
-            {reasons.map((r) => (
-              <li key={r} className="text-[11px] text-slate-200 leading-snug">
-                · {r}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
+    <span className={`text-[11px] ${tone}`} title={suggestion.text}>
+      {suggestion.text}
+    </span>
   );
 }
 

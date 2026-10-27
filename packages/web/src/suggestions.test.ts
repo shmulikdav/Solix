@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { isDestructive, suggestForPermission } from './suggestions.js';
+import {
+  isDestructive,
+  severityRank,
+  suggestForPermission,
+  suggestForSession,
+} from './suggestions.js';
 import type { Session } from '@solix/shared';
 
 /**
@@ -99,5 +104,108 @@ describe('suggestForPermission', () => {
       file_path: '/app/.env',
     });
     expect(s?.severity).toBe('danger');
+  });
+});
+
+/**
+ * This took over from `health.ts`, a second scorer over the same three
+ * signals that produced a 0–100 number. The number was unreadable — it
+ * blended "will start forgetting soon" with "is blocked waiting on you", so
+ * nobody could say why an agent was 70 rather than 65 — and a terminated
+ * agent scored 80 and showed green, which is what made the problem plain.
+ *
+ * The property that matters most is the quietest one: a healthy agent gets
+ * nothing at all.
+ */
+function sess(over: Record<string, unknown> = {}) {
+  return {
+    id: 's1',
+    status: 'idle',
+    contextUsagePct: 0,
+    ...over,
+  } as unknown as Session;
+}
+
+describe('suggestForSession', () => {
+  it('says NOTHING about a healthy idle agent', () => {
+    expect(suggestForSession(sess(), undefined, 0)).toBeNull();
+  });
+
+  it('says nothing about a healthy active agent either', () => {
+    expect(suggestForSession(sess({ status: 'active' }), undefined, 0)).toBeNull();
+  });
+
+  /** The case that prompted the whole change: terminated is over, not unwell. */
+  it('reads "Done" for a terminated agent, not a score', () => {
+    const s = suggestForSession(sess({ status: 'terminated' }), undefined, 0);
+    expect(s?.text).toBe('Done');
+    expect(s?.severity).toBe('info');
+  });
+
+  describe('held commands', () => {
+    it('names how many are waiting', () => {
+      expect(suggestForSession(sess(), undefined, 2)?.text).toBe(
+        '2 commands waiting on you',
+      );
+    });
+
+    it('is singular for one', () => {
+      expect(suggestForSession(sess(), undefined, 1)?.text).toBe(
+        '1 command waiting on you',
+      );
+    });
+
+    /**
+     * Being blocked stops work now; a full context degrades it later. The
+     * first match wins, so the order of the checks is the priority.
+     */
+    it('outranks context pressure', () => {
+      const s = suggestForSession(sess({ contextUsagePct: 95 }), undefined, 1);
+      expect(s?.text).toMatch(/waiting on you/);
+    });
+
+    it('is outranked by an error, which is worse than blocked', () => {
+      const s = suggestForSession(sess({ status: 'error' }), undefined, 3);
+      expect(s?.text).toMatch(/error state/i);
+    });
+  });
+
+  describe('context pressure', () => {
+    it('keeps the real percentage in the text, so it says what to do', () => {
+      expect(suggestForSession(sess({ contextUsagePct: 92 }), undefined, 0)?.text).toContain(
+        '92%',
+      );
+    });
+
+    it('stays quiet while there is plenty left', () => {
+      expect(suggestForSession(sess({ contextUsagePct: 24 }), undefined, 0)).toBeNull();
+    });
+
+    it('warns louder past 90 than past 80', () => {
+      const warm = suggestForSession(sess({ contextUsagePct: 85 }), undefined, 0);
+      const hot = suggestForSession(sess({ contextUsagePct: 95 }), undefined, 0);
+      expect(severityRank(hot)).toBeGreaterThan(severityRank(warm));
+    });
+  });
+
+  it('flags a needs-you status that raised no permission', () => {
+    expect(suggestForSession(sess({ status: 'awaiting_input' }), undefined, 0)?.text).toBe(
+      'Needs you',
+    );
+  });
+
+  it('leaves existing callers alone — the pending count defaults to none', () => {
+    expect(suggestForSession(sess({ contextUsagePct: 95 }), undefined)).not.toBeNull();
+  });
+});
+
+describe('severityRank', () => {
+  /** The List sorts on this, so the order has to be strict. */
+  it('orders danger > warn > info > nothing', () => {
+    const rank = (sev: 'danger' | 'warn' | 'info') =>
+      severityRank({ severity: sev, text: 'x' });
+    expect(rank('danger')).toBeGreaterThan(rank('warn'));
+    expect(rank('warn')).toBeGreaterThan(rank('info'));
+    expect(rank('info')).toBeGreaterThan(severityRank(null));
   });
 });

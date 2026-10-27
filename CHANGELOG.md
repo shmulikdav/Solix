@@ -7,26 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.18.0] — 2026-10-27
 
-**Two numbers that were telling you nothing.**
+**A number nobody could act on, and a list nobody could read.**
 
-### Fixed
+### Changed
 
-- **Health read 85 for every idle agent.** Not a placeholder — the formula's
-  honest answer, built from four bands of which `progress` (worth 15) was
-  only awarded for an active or completed mission. An idle agent can never
-  earn it, so 85 was the ceiling, and with hundreds of imported sessions the
-  column was a wall of identical numbers. Correct arithmetic, no information,
-  which reads exactly like a bug.
+- **The List's Health score is a word now.** It read 85 for every idle agent,
+  which was the formula's honest answer — the `progress` band was only
+  awarded for an active mission, so an idle agent could never earn it and 85
+  was the ceiling. Rescaling it so a healthy agent read 100 fixed the
+  arithmetic and not the problem: a number blending *"will start forgetting
+  soon"* with *"is blocked waiting on you"* cannot be acted on, and nobody
+  could say why an agent was 70 rather than 65. A terminated agent scored 80
+  and showed green, which made it plain — a finished agent is not healthy, it
+  is not anything.
 
-  Inverted: start at 100 and deduct, so the score answers *how much is wrong
-  with this agent* rather than *how far through a mission is it*. Context
-  pressure is quadratic — barely registers early, bites near the top where it
-  hurts. A held command drops an agent out of the green, because work has
-  stopped whoever is at fault. `awaiting_permission` and a pending count
-  describe the same fact, so only one of them charges.
+  The column is now **Attention**, and says the one thing worth doing:
+  `3 commands waiting on you`, `Context at 92% — compact…`, `Done`, or a
+  dash. **A dash is the common case and the point** — with hundreds of idle
+  sessions, a column that says something on every row says nothing.
 
-  Idle 100 · 24% context 98 · 75% context 78 · 92% context 66 · one held
-  command 70 · three held 50 · held at 90% context 38.
+### Removed
+
+- **`health.ts`, a second scoring system.** It consumed the same three
+  signals as `suggestForSession` — status, context pressure, held commands —
+  and the List rendered one while the SidePanel rendered the other, so the
+  two could disagree about the same agent. The score also recombined three
+  columns already on the row: Status, Context % (same thresholds, its own
+  bar, one cell away and moving in step), and the needs-attention dot. It
+  added no fact, only arithmetic.
+
+  `suggestForSession` gained the held-command case and is now the single
+  source for the List column, the 3D planet label, and the SidePanel banner.
+  The planet's atmosphere glow, the only continuous consumer, is driven by
+  context headroom — the term that dominated the score anyway — so it still
+  dims as an agent fills up, from one honest input.
 
 ### Added
 

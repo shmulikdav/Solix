@@ -14,7 +14,7 @@ import {
 } from './orbits.js';
 import { Moon } from './Moon.js';
 import { AtmosphereRim } from './AtmosphereRim.js';
-import { computeHealth, healthColor as healthBadgeColor } from '../health.js';
+import { suggestForSession } from '../suggestions.js';
 import { GLOSSARY } from '../glossary.js';
 import { useHoverCursor } from './useHoverCursor.js';
 
@@ -50,9 +50,9 @@ export function Planet({ session }: PlanetProps): JSX.Element {
   const selectedSessionId = useSolixStore((s) => s.selectedSessionId);
   const isSelected = selectedSessionId === session.id;
   const isAdvisor = session.kind === 'advisor';
-  // Health drives the atmosphere rim intensity — high-health planets
-  // glow brighter, struggling ones recede. computeHealth is cheap; we
-  // pull current mission + pending count from the store.
+  // Context headroom drives the atmosphere rim — a planet dims as it fills
+  // up. Mission + pending count are still read from the store, for the label
+  // that says what (if anything) this agent needs.
   const currentMission = useSolixStore((s) =>
     session.currentMissionId
       ? s.missions[session.currentMissionId]
@@ -64,12 +64,18 @@ export function Planet({ session }: PlanetProps): JSX.Element {
         (p) => p.sessionId === session.id,
       ).length,
   );
-  const healthDetail = useMemo(
-    () => computeHealth(session, currentMission, pendingForSession),
+  const attention = useMemo(
+    () => suggestForSession(session, currentMission, pendingForSession),
     [session, currentMission, pendingForSession],
   );
-  const health = healthDetail.score;
-  const rimIntensity = 0.4 + (health / 100) * 0.8;
+  /**
+   * The glow used to be driven by a 0–100 health score. Context pressure was
+   * 40 of those 100 points and the term that actually moved, so driving it
+   * from context headroom directly keeps the same visual meaning — a planet
+   * dims as it fills up — with one honest input instead of a composite.
+   */
+  const rimIntensity =
+    0.4 + (1 - Math.min(100, Math.max(0, session.contextUsagePct ?? 0)) / 100) * 0.8;
 
   const baseColor = useMemo(
     () =>
@@ -352,20 +358,20 @@ export function Planet({ session }: PlanetProps): JSX.Element {
               {session.agentViewSummary}
             </div>
           )}
-          <div
-            className="opacity-70"
-            title={
-              healthDetail.reasons.length
-                ? healthDetail.reasons.join(' · ')
-                : 'Stable, low context, no pending decisions'
-            }
-          >
-            <span style={{ color: healthBadgeColor(health) }}>♥</span>{' '}
-            health {health}
-            {healthDetail.reasons[0] && (
-              <span className="opacity-80"> · {healthDetail.reasons[0]}</span>
-            )}
-          </div>
+          {attention && (
+            <div
+              className={
+                attention.severity === 'danger'
+                  ? 'text-solix-danger'
+                  : attention.severity === 'warn'
+                    ? 'text-solix-warn'
+                    : 'opacity-70'
+              }
+              title={attention.text}
+            >
+              {attention.text}
+            </div>
+          )}
         </div>
       </Html>
     </group>

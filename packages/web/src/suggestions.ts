@@ -145,19 +145,62 @@ export function suggestForPermission(
   return null;
 }
 
+/** Severity as a sortable ordinal. Higher is more urgent. */
+export const SEVERITY_RANK: Record<Suggestion['severity'], number> = {
+  danger: 3,
+  warn: 2,
+  info: 1,
+};
+
+/** Nothing to say outranks nothing at all, for sorting. */
+export function severityRank(s: Suggestion | null): number {
+  return s ? SEVERITY_RANK[s.severity] : 0;
+}
+
 /**
- * Standing suggestions for a session that aren't tied to a specific
- * pending permission. Shown in the SidePanel header when relevant.
+ * The one thing worth saying about a session right now, or null.
+ *
+ * This replaced a second scoring system. `health.ts` computed a 0–100 score
+ * from the same three signals — status, context pressure, held commands —
+ * and the List rendered it while the SidePanel rendered this. Two scorers
+ * over one set of facts can disagree, and the number could not be acted on
+ * anyway: it blended "will start forgetting soon" with "is blocked waiting
+ * on you", so nobody could say why an agent was 70 rather than 65. A
+ * terminated agent scored 80 and showed green, which is what finally made
+ * the problem plain — a finished agent is not healthy, it is not anything.
+ *
+ * Ordered by what you would act on first. The first match wins, so a held
+ * command outranks context pressure: being blocked stops work now, while a
+ * full context degrades it later.
+ *
+ * Returning **null** for a healthy session is deliberate. Printing "OK" on
+ * every idle row recreates exactly the wall of identical values this exists
+ * to remove.
  */
 export function suggestForSession(
   session: Session,
   mission: Mission | undefined,
+  /** Commands from this session currently held for a human. */
+  pendingForSession = 0,
 ): Suggestion | null {
   if (session.status === 'error') {
     return {
       severity: 'danger',
       text: 'Session is in error state. Check the chat tab and consider restarting.',
     };
+  }
+  if (pendingForSession > 0) {
+    return {
+      severity: 'danger',
+      text: `${pendingForSession} command${pendingForSession === 1 ? '' : 's'} waiting on you`,
+    };
+  }
+  if (session.status === 'awaiting_input' || session.status === 'plan_review') {
+    return { severity: 'warn', text: 'Needs you' };
+  }
+  // Over, not unwell. The case that prompted replacing the score.
+  if (session.status === 'terminated') {
+    return { severity: 'info', text: 'Done' };
   }
   if (session.contextUsagePct >= 90) {
     return {
