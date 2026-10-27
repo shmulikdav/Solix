@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { Advisor, Mission, Project, Session } from '@solix/shared';
 import {
   selectAdvisorPlanets,
@@ -8,6 +8,8 @@ import {
 import { modelColor, statusLabel } from '../scene/colors.js';
 import { computeHealth, healthColor } from '../health.js';
 import { GLOSSARY } from '../glossary.js';
+
+const COLLAPSED_KEY = 'solix.list.collapsed.v1';
 
 type SortKey =
   | 'name'
@@ -95,6 +97,37 @@ export function ListView(): JSX.Element {
       };
     });
   }, [planets, advisorPlanets, projects, missions, pendingPermissions]);
+
+  /**
+   * Which project groups are collapsed.
+   *
+   * Persisted, because the reason to collapse a group is that it is noise to
+   * *you* — 456 idle sessions imported from months of history — and that is
+   * still true after a reload. Storing the collapsed set rather than the
+   * expanded one means a newly-discovered project shows up open.
+   */
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(COLLAPSED_KEY);
+      return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+    } catch {
+      return new Set();
+    }
+  });
+
+  const toggleCollapsed = useCallback((id: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      try {
+        localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next]));
+      } catch {
+        // A blocked localStorage costs the preference, not the feature.
+      }
+      return next;
+    });
+  }, []);
 
   const groups = useMemo(() => {
     const map = new Map<string, { project?: Project; rows: Row[] }>();
@@ -199,26 +232,51 @@ export function ListView(): JSX.Element {
           groups.map(({ project, rows }) => {
             const sorted = [...rows].sort(cmp);
             const projectName = project?.name ?? '(unassigned)';
+            const groupId = project?.id ?? '_';
+            const isCollapsed = collapsed.has(groupId);
+            // Worth seeing without expanding: a collapsed group must not hide
+            // an agent that is waiting on you.
+            const needsYou = rows.filter((r) => r.needsAttention).length;
             return (
               <section
-                key={project?.id ?? '_'}
+                key={groupId}
                 className="mb-8 rounded border border-solix-border overflow-hidden"
               >
-                <header className="bg-solix-panel/60 px-4 py-2 flex items-center justify-between">
-                  <div>
+                <header className="bg-solix-panel/60 flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => toggleCollapsed(groupId)}
+                    aria-expanded={!isCollapsed}
+                    aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${projectName}`}
+                    className="flex items-center gap-2 px-4 py-2 flex-1 text-left hover:bg-white/[0.03] transition-colors"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`text-slate-500 text-[10px] transition-transform ${
+                        isCollapsed ? '' : 'rotate-90'
+                      }`}
+                    >
+                      ▶
+                    </span>
                     <span className="text-sm font-semibold text-slate-100">
                       {projectName}
                     </span>
-                    <span className="ml-2 text-[10px] uppercase tracking-wide text-slate-500">
+                    <span className="text-[10px] uppercase tracking-wide text-slate-500">
                       {rows.length} agent{rows.length === 1 ? '' : 's'}
                     </span>
-                  </div>
+                    {isCollapsed && needsYou > 0 && (
+                      <span className="text-[10px] uppercase tracking-wide text-solix-warn">
+                        · {needsYou} need{needsYou === 1 ? 's' : ''} you
+                      </span>
+                    )}
+                  </button>
                   {project?.cwd && (
-                    <span className="text-[10px] font-mono text-slate-500 truncate max-w-[55%]">
+                    <span className="px-4 text-[10px] font-mono text-slate-500 truncate max-w-[45%]">
                       {project.cwd}
                     </span>
                   )}
                 </header>
+                {!isCollapsed && (
 
                 <table className="w-full text-sm">
                   <thead className="bg-black/30 text-[10px] uppercase tracking-wide text-slate-500">
@@ -445,6 +503,7 @@ export function ListView(): JSX.Element {
                     ))}
                   </tbody>
                 </table>
+                )}
               </section>
             );
           })
