@@ -31,6 +31,8 @@ export function DecisionQueue(): JSX.Element | null {
   const selectSession = useSolixStore((s) => s.selectSession);
   const activePanel = useSolixStore((s) => s.activePanel);
   const closePanel = useSolixStore((s) => s.closePanel);
+  const connected = useSolixStore((s) => s.connected);
+  const resolving = useSolixStore((s) => s.resolvingPermissions);
 
   // Shared with the Y/N key handler in App.tsx — see
   // selectPendingPermissionsOrdered. Do not re-sort locally.
@@ -110,6 +112,8 @@ export function DecisionQueue(): JSX.Element | null {
               onApprove={() => resolve(p.requestId, true)}
               onDeny={() => resolve(p.requestId, false)}
               onAsk={() => onAsk(p.sessionId)}
+              sending={resolving.has(p.requestId)}
+              connected={connected}
             />
           );
         })}
@@ -222,6 +226,9 @@ interface DecisionCardProps {
   onApprove: () => void;
   onDeny: () => void;
   onAsk: () => void;
+  /** Decision sent, waiting for the server to confirm it. */
+  sending: boolean;
+  connected: boolean;
 }
 
 function DecisionCard({
@@ -232,6 +239,8 @@ function DecisionCard({
   onApprove,
   onDeny,
   onAsk,
+  sending,
+  connected,
 }: DecisionCardProps): JSX.Element {
   const name =
     session?.name ?? session?.id.slice(0, 8) ?? 'unknown agent';
@@ -270,16 +279,35 @@ function DecisionCard({
 
       {suggestion && <SuggestionLine suggestion={suggestion} />}
 
+      {/*
+        A decision cannot be taken back, so the window between sending one and
+        hearing that it landed has to be visible. Offline, the buttons say why
+        they will not work rather than accepting a click and dropping it.
+      */}
+      {!connected && !sending && (
+        <div className="mt-2 text-[11px] text-solix-warn" role="status">
+          Not connected — the agent is still waiting. Reconnecting; the
+          buttons work again when it does.
+        </div>
+      )}
+      {sending && (
+        <div className="mt-2 text-[11px] text-slate-400" role="status">
+          Sent — waiting for the server to confirm…
+        </div>
+      )}
+
       <div className="mt-3 flex gap-1.5">
         <button
           onClick={onApprove}
-          className="flex-1 py-1.5 rounded bg-solix-ok/20 border border-solix-ok text-solix-ok text-xs hover:bg-solix-ok/30"
+          disabled={sending || !connected}
+          className="flex-1 py-1.5 rounded bg-solix-ok/20 border border-solix-ok text-solix-ok text-xs hover:bg-solix-ok/30 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-solix-ok/20"
         >
           Approve · Y
         </button>
         <button
           onClick={onDeny}
-          className="flex-1 py-1.5 rounded bg-solix-danger/20 border border-solix-danger text-solix-danger text-xs hover:bg-solix-danger/30"
+          disabled={sending || !connected}
+          className="flex-1 py-1.5 rounded bg-solix-danger/20 border border-solix-danger text-solix-danger text-xs hover:bg-solix-danger/30 disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-solix-danger/20"
         >
           Deny · N
         </button>

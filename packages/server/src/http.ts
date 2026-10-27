@@ -519,8 +519,10 @@ export function createHttpApp(opts: {
 
   app.post('/api/sessions/:id/terminate', (c) => {
     const id = c.req.param('id');
-    const s = setSessionStatus(opts.db, id, 'terminated');
-    return c.json({ ok: Boolean(s) });
+    // Was `setSessionStatus(...)` alone, which cleared the planet and left
+    // the process running and spending.
+    const res = opts.router.terminateSession(id);
+    return c.json(res);
   });
 
   app.post('/api/sessions/:id/context', async (c) => {

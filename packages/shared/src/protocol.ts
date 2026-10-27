@@ -39,6 +39,25 @@ export type ServerMessage =
       args: Record<string, unknown>;
       requestId: string;
     }
+  /**
+   * A held tool call is no longer held, and why.
+   *
+   * Without this the client could only guess. It deleted the decision card
+   * the moment it sent `permission_response`, so a response dropped by a
+   * closed socket looked exactly like a successful one — the card vanished,
+   * the badge cleared, and the agent stayed blocked forever. A second tab
+   * kept the card indefinitely with live buttons behind it. And the 300s
+   * gate timeout denied with no announcement at all, so five minutes after
+   * walking away the agent had been refused and nothing on screen said so.
+   *
+   * The client removes a card when this arrives, not when it sends.
+   */
+  | {
+      type: 'permission_resolved';
+      requestId: string;
+      sessionId: string;
+      outcome: 'approved' | 'denied' | 'timed_out';
+    }
   | { type: 'plan_proposed'; sessionId: string; plan: string }
   | { type: 'chat_delta'; sessionId: string; delta: ChatDelta }
   | { type: 'context_update'; sessionId: string; usagePct: number }

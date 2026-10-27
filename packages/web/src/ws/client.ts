@@ -15,9 +15,22 @@ export function startWsClient(): void {
   let socket: WebSocket | null = null;
   let stopped = false;
 
-  const send = (msg: ClientMessage): void => {
-    if (socket && socket.readyState === WebSocket.OPEN) {
+  /**
+   * Returns false when the message did not go out.
+   *
+   * This returned void, so every caller assumed success. The socket drops on
+   * any server restart — which is every upgrade — and for the ~1.5s until it
+   * reconnects, approvals, launches, prompts and terminations were discarded
+   * in silence while the UI reported them as done.
+   */
+  const send = (msg: ClientMessage): boolean => {
+    if (!socket || socket.readyState !== WebSocket.OPEN) return false;
+    try {
       socket.send(JSON.stringify(msg));
+      return true;
+    } catch {
+      // A socket can report OPEN and still throw on send.
+      return false;
     }
   };
 

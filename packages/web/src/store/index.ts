@@ -216,6 +216,12 @@ interface SolixState {
   planBudgetAlerts: Record<string, PlanBudgetAlert>;
   recentToolCalls: RecentToolCall[];
   pendingPermissions: Record<string, PendingPermission>;
+  /**
+   * Requests whose decision has been sent but not yet confirmed by the
+   * server. The card stays up, disabled, until `permission_resolved` lands —
+   * so a decision that never arrived is visible rather than invisible.
+   */
+  resolvingPermissions: Set<string>;
   // Per-session chat log, in arrival order. Capped at 200 entries per session.
   chatBySessionId: Record<string, ChatEntry[]>;
   /** The single open right-dock panel, or null. Source of dock exclusivity. */
@@ -341,7 +347,8 @@ interface SolixState {
   unpinAdvisor: (advisorId: string) => void;
   enableAdvisor: (advisorId: string) => void;
   disableAdvisor: (advisorId: string) => void;
-  sendPromptTo: (sessionId: string, text: string) => void;
+  /** False when the socket was down and the prompt never left. */
+  sendPromptTo: (sessionId: string, text: string) => boolean;
   launchTask: (
     cwd: string,
     model: string,
@@ -354,7 +361,8 @@ interface SolixState {
       budgetUsd?: number;
       goalId?: string;
     },
-  ) => void;
+    /** False when the socket was down and the launch never left. */
+  ) => boolean;
   raiseBudget: (sessionId: string, budgetUsd: number) => void;
   dismissBudgetAlert: (sessionId: string) => void;
   selectedSessionIds: Set<string>;
@@ -372,8 +380,8 @@ interface SolixState {
   setPlaybackPlaying: (playing: boolean) => void;
   setPlaybackLoading: (loading: boolean) => void;
 
-  send: (msg: ClientMessage) => void;
-  attachSocket: (send: (msg: ClientMessage) => void) => void;
+  send: (msg: ClientMessage) => boolean;
+  attachSocket: (send: (msg: ClientMessage) => boolean) => void;
 }
 
 const TOOL_CALL_TTL_MS = 2000;
@@ -458,6 +466,7 @@ export const useSolixStore = create<SolixState>((set, get) => ({
   chatBySessionId: {},
   recentToolCalls: [],
   pendingPermissions: {},
+  resolvingPermissions: new Set<string>(),
   activePanel: null,
   selectedSessionId: null,
   selectedAdvisorId: null,
@@ -610,6 +619,16 @@ export const useSolixStore = create<SolixState>((set, get) => ({
           whenHidden: true,
         });
         chime();
+        break;
+      }
+      case 'permission_resolved': {
+        set((s) => {
+          const next = { ...s.pendingPermissions };
+          delete next[msg.requestId];
+          const resolving = new Set(s.resolvingPermissions);
+          resolving.delete(msg.requestId);
+          return { pendingPermissions: next, resolvingPermissions: resolving };
+        });
         break;
       }
       case 'context_update': {
@@ -1254,14 +1273,31 @@ export const useSolixStore = create<SolixState>((set, get) => ({
   dismissToast: (id) =>
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
 
+  /**
+   * Send a decision and wait to be told it landed.
+   *
+   * This deleted the card immediately after a fire-and-forget send. With the
+   * socket down that was indistinguishable from success: the card vanished,
+   * the "needs you" badge cleared, and the agent stayed blocked on a
+   * decision the user believed they had made. For a product whose whole
+   * claim is that it holds commands until you approve them, that is the one
+   * interaction that must not lie.
+   */
   resolvePermission: (requestId, approved) => {
-    const send = get().send;
-    send({ type: 'permission_response', requestId, approved });
-    set((s) => {
-      const next = { ...s.pendingPermissions };
-      delete next[requestId];
-      return { pendingPermissions: next };
-    });
+    if (!get().pendingPermissions[requestId]) return;
+    const sent = get().send({ type: 'permission_response', requestId, approved });
+    if (!sent) {
+      get().applyMessage({
+        type: 'toast',
+        level: 'error',
+        message:
+          'Not connected — that decision was not sent. The agent is still waiting; try again when the dot turns green.',
+      });
+      return;
+    }
+    set((s) => ({
+      resolvingPermissions: new Set(s.resolvingPermissions).add(requestId),
+    }));
   },
 
   invokeAdvisor: (advisorId, prompt) => {
@@ -1287,8 +1323,17 @@ export const useSolixStore = create<SolixState>((set, get) => ({
   },
 
   sendPromptTo: (sessionId, text) => {
-    if (!text.trim()) return;
-    get().send({ type: 'send_prompt', sessionId, text });
+    if (!text.trim()) return false;
+    if (!get().send({ type: 'send_prompt', sessionId, text })) {
+      // The optimistic entry below used to be appended regardless, so a
+      // dropped prompt appeared in the transcript and was never answered.
+      get().applyMessage({
+        type: 'toast',
+        level: 'error',
+        message: 'Not connected — that prompt was not sent.',
+      });
+      return false;
+    }
     // Optimistically render the user's prompt — the watcher will replace it
     // with the canonical entry from the transcript a second later.
     const optimistic: ChatEntry = {
@@ -1307,10 +1352,18 @@ export const useSolixStore = create<SolixState>((set, get) => ({
         ),
       },
     }));
+    return true;
   },
 
+  /**
+   * Returns false when the launch never left the browser.
+   *
+   * NewTaskModal cleared the prompt and closed itself unconditionally after
+   * this, so with the socket down you lost what you typed and no session
+   * appeared, with nothing said.
+   */
   launchTask: (cwd, model, initialPrompt, opts) => {
-    get().send({
+    const sent = get().send({
       type: 'launch_session',
       cwd,
       model,
@@ -1322,6 +1375,15 @@ export const useSolixStore = create<SolixState>((set, get) => ({
       budgetUsd: opts?.budgetUsd,
       goalId: opts?.goalId,
     });
+    if (!sent) {
+      get().applyMessage({
+        type: 'toast',
+        level: 'error',
+        message:
+          'Not connected — the task was not launched. Your prompt is still here; try again when the dot turns green.',
+      });
+    }
+    return sent;
   },
 
   raiseBudget: (sessionId, budgetUsd) => {
@@ -1356,10 +1418,21 @@ export const useSolixStore = create<SolixState>((set, get) => ({
   },
   terminateSessions: (ids) => {
     const send = get().send;
+    let dropped = 0;
     for (const sessionId of ids) {
-      send({ type: 'terminate_session', sessionId });
+      if (!send({ type: 'terminate_session', sessionId })) dropped += 1;
     }
-    set({ selectedSessionIds: new Set<string>() });
+    // Only clear the selection for the ones that actually went, so a retry
+    // does not mean re-selecting 473 rows.
+    if (dropped === 0) {
+      set({ selectedSessionIds: new Set<string>() });
+      return;
+    }
+    get().applyMessage({
+      type: 'toast',
+      level: 'error',
+      message: `Not connected — ${dropped} agent${dropped === 1 ? '' : 's'} not stopped. Still running; try again when the dot turns green.`,
+    });
   },
 
   setMotionEnabled: (b) => {
@@ -1425,9 +1498,9 @@ export const useSolixStore = create<SolixState>((set, get) => ({
   setPlaybackLoading: (loading) =>
     set((s) => ({ playback: { ...s.playback, loading } })),
 
-  send: () => {
-    /* replaced when socket attaches */
-  },
+  // Not attached yet means not sent. Returning true here would make every
+  // caller believe a message went out before the socket existed.
+  send: () => false,
   attachSocket: (send) => set({ send }),
 }));
 

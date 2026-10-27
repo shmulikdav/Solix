@@ -40,6 +40,15 @@ interface InternalTaskRecord {
   // can persist them onto the session row (keyed by cwd, like worktreePath).
   budgetUsd?: number;
   goalId?: string;
+  /**
+   * The running process, while it runs.
+   *
+   * Kept so Terminate can actually terminate. `terminate_session` was a bare
+   * `break` in the websocket handler, so the danger-red Terminate button —
+   * on a list where you can select every agent at once — did nothing at all
+   * and said nothing either.
+   */
+  child?: ChildProcess;
 }
 
 interface WorktreeResult {
@@ -531,6 +540,42 @@ export class Launcher {
   /** Returns the advisor role bound to a given pid, if any. */
   advisorRoleForPid(pid: number): string | undefined {
     return this.byPid.get(pid)?.advisorId;
+  }
+
+  /**
+   * Signal the process behind a session, if Solix started it.
+   *
+   * Returns whether anything was actually signalled. Solix can only stop
+   * what it spawned: for a session running in the user's own terminal it has
+   * a PID from the hook, but killing that would reach into a foreground
+   * shell it does not own. The caller owns the state transition and the
+   * message — this owns only the signal, so there is one place that decides
+   * what "terminated" means.
+   */
+  killSession(sessionId: string): boolean {
+    const record = this.internalTasks.get(sessionId);
+    const child = record?.child;
+    if (!child || child.exitCode !== null || child.signalCode !== null) {
+      return false;
+    }
+    try {
+      child.kill('SIGTERM');
+    } catch (err) {
+      console.warn(`[launcher] kill failed for ${sessionId}:`, err);
+      return false;
+    }
+    // SIGKILL after a grace period if it lingers — the same pattern the plan
+    // abort path uses.
+    const grace = setTimeout(() => {
+      try {
+        child.kill('SIGKILL');
+      } catch {
+        /* already gone */
+      }
+    }, 2000);
+    grace.unref?.();
+    record.child = undefined;
+    return true;
   }
 
   /**
@@ -1056,7 +1101,11 @@ export class Launcher {
         worktreePath: opts.worktreePath,
         budgetUsd: opts.budgetUsd,
         goalId: opts.goalId,
+        child,
       });
+    } else {
+      const rec = this.internalTasks.get(opts.sessionId);
+      if (rec) rec.child = child;
     }
 
     let stdout = '';

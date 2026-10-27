@@ -108,7 +108,7 @@ export function NewTaskModal({
       useAgentView && preflight?.agentViewAvailable === true;
     const budgetNum = parseFloat(budget);
     const budgetUsd = Number.isFinite(budgetNum) && budgetNum > 0 ? budgetNum : undefined;
-    launchTask(trimmedCwd, finalModel, finalPrompt, {
+    const launched = launchTask(trimmedCwd, finalModel, finalPrompt, {
       worktreeBranch: dispatchViaAgentView ? undefined : trimmedBranch || undefined,
       worktreeBaseRef: dispatchViaAgentView
         ? undefined
@@ -120,6 +120,11 @@ export function NewTaskModal({
       budgetUsd,
       goalId: goalId ?? undefined,
     });
+    // Only discard what the user typed once the launch has actually gone out.
+    // This cleared the form and closed the modal unconditionally, so with the
+    // socket down your prompt was wiped, no session appeared and nothing said
+    // why. launchTask raises the toast; the form stays as it was.
+    if (!launched) return;
     setPrompt('');
     setAdvisorId(null);
     setWorktreeBranch('');

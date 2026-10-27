@@ -107,6 +107,49 @@ export class EventRouter {
     }
   }
 
+  /**
+   * Stop an agent.
+   *
+   * `terminate_session` was a bare `break` in the websocket handler, under a
+   * comment claiming it marked the row terminated — it did not do even that.
+   * The danger-red Terminate button, on a list where you can select every
+   * agent at once, cleared the selection and left every process running,
+   * with no toast and no error.
+   *
+   * What Solix can honestly do depends on who started the session, and the
+   * result says which happened rather than implying the stronger one.
+   */
+  terminateSession(sessionId: string): {
+    ok: boolean;
+    killed: boolean;
+    detail: string;
+  } {
+    const session = getSession(this.db, sessionId);
+    if (!session) return { ok: false, killed: false, detail: 'no such session' };
+    if (session.status === 'terminated') {
+      return { ok: true, killed: false, detail: 'already stopped' };
+    }
+
+    const killed = this.launcher?.killSession(sessionId) ?? false;
+
+    const updated = setSessionStatus(this.db, sessionId, 'terminated');
+    if (updated) {
+      this.broadcaster.broadcast({ type: 'session_upsert', session: updated });
+    }
+
+    const name = session.name || sessionId.slice(0, 8);
+    const detail = killed
+      ? `Stopped ${name}.`
+      : `Cleared ${name} from the galaxy. Solix did not start this one, so the ` +
+        'claude process in your terminal is still running — stop it there.';
+    this.broadcaster.broadcast({
+      type: 'toast',
+      level: killed ? 'info' : 'warn',
+      message: detail,
+    });
+    return { ok: Boolean(updated), killed, detail };
+  }
+
   setLauncher(launcher: Launcher): void {
     this.launcher = launcher;
   }
@@ -568,6 +611,28 @@ export class EventRouter {
         this.permissions.delete(requestId);
         const s = setSessionStatus(this.db, sessionId, 'active');
         if (s) this.broadcaster.broadcast({ type: 'session_upsert', session: s });
+
+        // This used to expire in silence: no audit row, no toast, and the
+        // decision card left on screen with the rail still counting it. The
+        // agent had been denied and the only person who could have approved
+        // it was told nothing.
+        recordAudit(this.db, {
+          kind: 'permission_denied',
+          sessionId,
+          summary: `Timed out after ${Math.round(timeoutMs / 1000)}s and was denied: ${tool}`,
+          payload: { tool, args, timedOut: true },
+        });
+        this.broadcaster.broadcast({
+          type: 'permission_resolved',
+          requestId,
+          sessionId,
+          outcome: 'timed_out',
+        });
+        this.broadcaster.broadcast({
+          type: 'toast',
+          level: 'error',
+          message: `No answer after ${Math.round(timeoutMs / 60_000)} min — denied ${tool}. The agent was refused, not left waiting.`,
+        });
         resolve({ approved: false, timedOut: true });
       }, timeoutMs);
 
@@ -746,6 +811,15 @@ export class EventRouter {
     const session = setSessionStatus(this.db, pending.sessionId, status);
     if (session)
       this.broadcaster.broadcast({ type: 'session_upsert', session });
+    // Tell every client the hold is gone, including the one that asked.
+    // Clients remove the card on this, not on send, so a response that never
+    // arrived leaves the card up instead of pretending it landed.
+    this.broadcaster.broadcast({
+      type: 'permission_resolved',
+      requestId,
+      sessionId: pending.sessionId,
+      outcome: approved ? 'approved' : 'denied',
+    });
     const argSummary = (() => {
       const k = Object.keys(pending.args)[0];
       if (!k) return '';

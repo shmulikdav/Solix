@@ -113,7 +113,7 @@ function handleClientMessage(
       ctx.router.resolvePermission(msg.requestId, msg.approved);
       break;
     case 'terminate_session':
-      // M3.5: hand off to launcher; for M0 we just mark terminated.
+      ctx.router.terminateSession(msg.sessionId);
       break;
     case 'send_prompt':
       ctx.router.sendPromptToSession(msg.sessionId, msg.text);

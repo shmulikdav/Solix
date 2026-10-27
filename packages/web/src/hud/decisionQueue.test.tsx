@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { act, cleanup, render, screen } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from '@testing-library/react';
 import {
   selectCanResolveByKey,
   useSolixStore,
@@ -140,5 +146,109 @@ describe('the rail carries the signal', () => {
       seed({ a: perm('a', 1) });
     });
     expect(useSolixStore.getState().activePanel).toBeNull();
+  });
+});
+
+/**
+ * Approve and Deny cannot be taken back, so the two states where a click
+ * would be thrown away have to be visible on the buttons themselves.
+ *
+ * The store used to delete the card the moment it sent, over a socket that
+ * discarded the message when it was not OPEN — so clicking Approve while
+ * disconnected cleared the card, cleared the "needs you" badge, and left the
+ * agent blocked forever. Nothing in the UI disabled anything; the only hint
+ * was a red dot elsewhere on screen.
+ */
+describe('DecisionQueue while the socket is down', () => {
+  function offline(perms: Record<string, ReturnType<typeof perm>>) {
+    seed(perms);
+    useSolixStore.setState({ connected: false });
+    useSolixStore.getState().attachSocket(() => false);
+  }
+
+  function online(perms: Record<string, ReturnType<typeof perm>>) {
+    seed(perms);
+    useSolixStore.setState({ connected: true });
+    useSolixStore.getState().attachSocket(() => true);
+  }
+
+  function openPanel() {
+    useSolixStore.setState({ activePanel: 'decisions' });
+  }
+
+  /** jest-dom is not wired up here, so read the DOM property directly. */
+  function button(name: RegExp): HTMLButtonElement {
+    return screen.getByRole('button', { name }) as HTMLButtonElement;
+  }
+
+  it('disables Approve and Deny rather than dropping the click', () => {
+    offline({ r1: perm('r1', 1000) });
+    openPanel();
+    render(<DecisionQueue />);
+
+    expect(button(/approve/i).disabled).toBe(true);
+    expect(button(/deny/i).disabled).toBe(true);
+  });
+
+  it('says the agent is still waiting', () => {
+    offline({ r1: perm('r1', 1000) });
+    openPanel();
+    render(<DecisionQueue />);
+    expect(screen.getByText(/still waiting/i)).toBeTruthy();
+  });
+
+  /** The property that matters: the card survives a click that went nowhere. */
+  it('keeps the card if a click gets through anyway', () => {
+    offline({ r1: perm('r1', 1000) });
+    openPanel();
+    render(<DecisionQueue />);
+
+    act(() => {
+      useSolixStore.getState().resolvePermission('r1', true);
+    });
+    expect(useSolixStore.getState().pendingPermissions.r1).toBeDefined();
+    expect(screen.getByText('Bash')).toBeTruthy();
+  });
+
+  it('enables them again once connected', () => {
+    online({ r1: perm('r1', 1000) });
+    openPanel();
+    render(<DecisionQueue />);
+    expect(button(/approve/i).disabled).toBe(false);
+  });
+
+  /**
+   * Between sending and being told it landed, the decision is in flight and
+   * must not be sendable twice.
+   */
+  it('shows the in-flight state and locks the buttons', () => {
+    online({ r1: perm('r1', 1000) });
+    openPanel();
+    render(<DecisionQueue />);
+
+    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
+
+    expect(screen.getByText(/waiting for the server to confirm/i)).toBeTruthy();
+    expect(button(/approve/i).disabled).toBe(true);
+    expect(button(/deny/i).disabled).toBe(true);
+    // Still on screen — "sent" is not "landed".
+    expect(screen.getByText('Bash')).toBeTruthy();
+  });
+
+  it('clears the card when the server confirms', () => {
+    online({ r1: perm('r1', 1000) });
+    openPanel();
+    render(<DecisionQueue />);
+    fireEvent.click(screen.getByRole('button', { name: /approve/i }));
+
+    act(() => {
+      useSolixStore.getState().applyMessage({
+        type: 'permission_resolved',
+        requestId: 'r1',
+        sessionId: 'sess-r1',
+        outcome: 'approved',
+      });
+    });
+    expect(screen.queryByText('Bash')).toBeNull();
   });
 });
