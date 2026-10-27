@@ -5,6 +5,7 @@ import {
   type WorkspaceSurface,
 } from '../shell/surfaces.js';
 import { ConnectionDot } from './ConnectionDot.js';
+import { NotifyOptIn } from './NotifyOptIn.js';
 
 /**
  * The top strip, after the nav rail took the destinations.
@@ -98,6 +99,8 @@ export function TopBar(): JSX.Element {
       >
         ⌘K
       </kbd>
+
+      <NotifyOptIn />
 
       <ConnectionDot />
     </header>

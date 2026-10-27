@@ -1,13 +1,25 @@
 // Browser notifications + sound on attention-needed events.
 //
 // Behavior:
-//   - First time a permission_request comes in while the tab is hidden,
-//     we ask for Notification permission (it's a no-op if the user
-//     never has the tab in the background).
-//   - Subsequent permission_requests fire a notification only when the
-//     tab is hidden — when the user is looking at Solix, the red flare
-//     and the Decision Queue are enough.
+//   - Permission is requested from a user gesture, never from notify().
+//   - A notification fires only when the tab is hidden — when the user is
+//     looking at Solix, the red flare and the Decision Queue are enough.
 //   - User can opt out via the SOLIX_NOTIFICATIONS=off localStorage key.
+//
+// The first bullet used to read "the first time a permission_request comes
+// in while the tab is hidden, we ask for Notification permission (it's a
+// no-op if the user never has the tab in the background)". That is a
+// contradiction, and the parenthesis is the tell: the only moment it asked
+// was the one moment it could not. Browsers require transient user
+// activation for Notification.requestPermission(), and Chrome will not
+// prompt a hidden tab — so the request silently resolved to 'default',
+// `permissionAsked` latched, and nothing was ever asked again that page
+// load. Every caller passes whenHidden: true, so there was no other path.
+//
+// The effect was that the one signal the product exists to deliver — an
+// agent is blocked and waiting for you — never reached anyone who had
+// tabbed away, which is precisely the problem the landing page sells
+// against.
 //
 // Kept separate from the store so it has zero React dependency.
 
@@ -36,13 +48,24 @@ export function notificationsPref(): Pref {
   return readPref();
 }
 
-let permissionAsked = false;
+/** 'unsupported' when the browser has no Notification API at all. */
+export type NotifyState = NotificationPermission | 'unsupported';
 
-export async function ensurePermission(): Promise<NotificationPermission> {
-  if (typeof Notification === 'undefined') return 'denied';
+/** What the browser currently allows. Safe to call during render. */
+export function notificationState(): NotifyState {
+  if (typeof Notification === 'undefined') return 'unsupported';
+  return Notification.permission;
+}
+
+/**
+ * Ask the browser for permission. **Call this from a click handler.**
+ *
+ * Browsers require transient user activation, so calling it from a
+ * background event — which is what `notify()` used to do — cannot work.
+ */
+export async function requestPermission(): Promise<NotifyState> {
+  if (typeof Notification === 'undefined') return 'unsupported';
   if (Notification.permission !== 'default') return Notification.permission;
-  if (permissionAsked) return Notification.permission;
-  permissionAsked = true;
   try {
     return await Notification.requestPermission();
   } catch {
@@ -76,8 +99,9 @@ export async function notify(opts: NotifyOptions): Promise<void> {
   ) {
     return;
   }
-  const perm = await ensurePermission();
-  if (perm !== 'granted') return;
+  // Only check. Asking from here is what made this never work: see the
+  // note at the top of the file.
+  if (Notification.permission !== 'granted') return;
   try {
     new Notification(opts.title, {
       body: opts.body,
