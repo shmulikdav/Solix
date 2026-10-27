@@ -5,7 +5,15 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.15.0] — 2026-10-27
+
+**The gate actually holds now.**
+
+Suite E was run against a real agent for the first time and failed: a Maestro
+worker ran `rm -rf` on a canary directory, the verifier certified it, and
+nobody was ever asked — while the front page promised the command would be
+held. This release makes the promise true, and narrows it where it was never
+true at all.
 
 ### Fixed
 
