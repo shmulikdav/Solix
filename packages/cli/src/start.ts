@@ -9,6 +9,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import open from 'open';
 import {
+  SettingsUnreadableError,
   claudeCodePresent,
   hooksInstalled,
   hooksSupported,
@@ -16,6 +17,11 @@ import {
   install,
   installedVersion,
 } from './install.js';
+import {
+  CLAUDE_AGENTS_DIR,
+  CLAUDE_SETTINGS,
+  HOOK_NAMES,
+} from './paths.js';
 
 // Injected at build time by tsup (same define as index.ts). Lets the
 // server report the real product version at /api/health instead of a
@@ -25,6 +31,8 @@ declare const __SOLIX_VERSION__: string;
 export interface StartOptions {
   port?: number;
   noOpen?: boolean;
+  /** Skip wiring Claude Code. Real sessions will not appear. */
+  noWire?: boolean;
 }
 
 // Standard FIGlet font, S O L I X. The previous banner accidentally
@@ -50,7 +58,16 @@ const BANNER = `
  * overwritten, and `solix uninstall` reverses it, so the step is done rather
  * than demanded.
  */
-function ensureWired(): void {
+function ensureWired(noWire = false): void {
+  if (noWire) {
+    console.log(
+      '[solix] --no-wire: leaving Claude Code alone. Real sessions will not\n' +
+        '        appear here; `solix demo` works, and `solix install` wires it\n' +
+        '        when you want it.',
+    );
+    return;
+  }
+
   // Say it before doing anything. Writing hooks that cannot execute would
   // leave a user staring at an empty galaxy with the UI insisting all is
   // well — the exact silent failure this whole function exists to end.
@@ -84,15 +101,37 @@ function ensureWired(): void {
     return;
   }
 
+  // On first run, say what is about to be written before writing it.
+  // "first run — wiring Claude Code hooks" was true and far too small: the
+  // install registers hooks that run in the blocking path of every tool call
+  // of every Claude Code session on the machine, and copies fifteen agent
+  // files into a directory Claude Code owns. Someone who curates their agent
+  // list, or who cares what runs on every Bash call, would like to have been
+  // told — and to be able to decline.
   console.log(
     stale
       ? `[solix] hooks are from ${installedVersion() ?? 'an older release'} — updating to ${__SOLIX_VERSION__}`
-      : '[solix] first run — wiring Claude Code hooks',
+      : '[solix] first run — about to wire Claude Code:\n' +
+          `        • ${HOOK_NAMES.length} hooks into ${CLAUDE_SETTINGS}, backed up first.\n` +
+          '          Two of them run on every tool call of every Claude Code\n' +
+          '          session, in the agent\'s blocking path (~2ms each).\n' +
+          `        • advisor agents into ${CLAUDE_AGENTS_DIR}. An agent of yours\n` +
+          '          with the same name is kept as <name>.md.pre-solix.bak.\n' +
+          '        • hook scripts and skills under ~/.solix.\n' +
+          '        `solix uninstall` removes all of it. To skip it for now,\n' +
+          '        stop here and run `solix start --no-wire`.',
   );
   try {
     install();
     console.log('[solix] undo any time with `solix uninstall`');
   } catch (err) {
+    // An unreadable settings.json already explains itself, and its fix is
+    // not "run the same thing by hand" — that fails identically. Print it
+    // as-is rather than burying it under generic advice.
+    if (err instanceof SettingsUnreadableError) {
+      console.warn(`[solix] ${err.message}`);
+      return;
+    }
     console.warn(
       `[solix] could not wire hooks automatically: ${String(err)}\n` +
         '        Run `solix install` to do it by hand, then `solix doctor`.',
@@ -103,25 +142,64 @@ function ensureWired(): void {
 export async function start(opts: StartOptions = {}): Promise<void> {
   const port = opts.port ?? Number(process.env.SOLIX_PORT ?? 4242);
   console.log(BANNER);
-  ensureWired();
-  const handle = await createSolixServer({
-    port,
+  ensureWired(opts.noWire);
+  let handle: Awaited<ReturnType<typeof createSolixServer>>;
+  try {
+    handle = await createSolixServer({
+      port,
     version: __SOLIX_VERSION__,
     // The CLI owns the install, so it is the only thing that can honestly
     // answer "are the hooks wired, and are they this version's". Without it
     // a bug report cannot distinguish "broken" from "never set up".
-    hookStatus: () => ({
-      installed: hooksInstalled(),
-      upToDate: hooksUpToDate(),
-      stampedVersion: installedVersion(),
-      claudeCodePresent: claudeCodePresent(),
-      supported: hooksSupported(),
-    }),
-  });
+      hookStatus: () => ({
+        installed: hooksInstalled(),
+        upToDate: hooksUpToDate(),
+        stampedVersion: installedVersion(),
+        claudeCodePresent: claudeCodePresent(),
+        supported: hooksSupported(),
+      }),
+    });
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'EADDRINUSE') {
+      console.error(
+        `[solix] port ${port} is already in use — nothing was started.\n` +
+          '        Another Solix is probably still running: open\n' +
+          `        http://127.0.0.1:${port} to check. If it is something else,\n` +
+          `        run \`solix start --port ${port + 1}\`.`,
+      );
+    } else if (code === 'EACCES') {
+      console.error(
+        `[solix] not allowed to listen on port ${port}. Ports below 1024\n` +
+          '        need elevated privileges — pick a higher one with --port.',
+      );
+    } else {
+      console.error(`[solix] could not start the server: ${String(err)}`);
+    }
+    process.exitCode = 1;
+    return;
+  }
+
   const url = `http://${handle.hostname}:${handle.port}`;
   console.log(`[solix] server listening on ${url}`);
+
+  // Said BEFORE the browser takes focus. These two lines are the only
+  // actionable ones in sixteen, and they used to print after `open(url)` —
+  // so a first-time user sat looking at an empty galaxy while the
+  // instructions for filling it scrolled past behind the window.
+  console.log(
+    claudeCodePresent() && hooksSupported()
+      ? '[solix] start any `claude` session to see your first planet appear'
+      : '[solix] run `solix demo` to see a galaxy without Claude Code',
+  );
+  offerImportWhenEmpty();
+  announceGovernance();
+
+  // Wire plumbing last. Nobody needs the POST endpoint before they need to
+  // know how to make a planet appear.
   console.log(`[solix] events  -> POST ${url}/events`);
   console.log(`[solix] ws      -> ws://${handle.hostname}:${handle.port}/ws`);
+
   if (!opts.noOpen) {
     try {
       await open(url);
@@ -129,13 +207,6 @@ export async function start(opts: StartOptions = {}): Promise<void> {
       console.log(`[solix] open ${url} in your browser to view`);
     }
   }
-  console.log(
-    claudeCodePresent() && hooksSupported()
-      ? '[solix] start any `claude` session to see your first planet appear'
-      : '[solix] run `solix demo` to see a galaxy without Claude Code',
-  );
-  announceGovernance();
-  offerImportWhenEmpty();
 
   const shutdown = async (sig: string): Promise<void> => {
     console.log(`\n[solix] ${sig} — shutting down`);

@@ -75,11 +75,12 @@ export interface CreatePlanResult {
 }
 
 /**
- * The Maestro orchestrator. Phase 1 scope: turn a goal into an approved plan.
+ * The Maestro orchestrator: turn a goal into an approved plan, then run it.
  * It runs a planner session (via the injected SessionRunner), parses + validates
  * the JSON into a Plan + PlanTasks, and parks it at `awaiting_approval` for a
  * one-click human approve (or `running` in autoMode). **No dispatch yet** —
- * `approvePlan` only flips status; Phase 2 wires the actual worker fan-out.
+ * `approvePlan` flips the status and dispatches: `dispatchTask`, `advance`
+ * and `kickAdvance` below are the worker fan-out.
  */
 export class Orchestrator {
   /** Plan ids with a task currently executing. Phase-2 uses serialized
@@ -703,7 +704,7 @@ export class Orchestrator {
 
   /**
    * Agent delegation (P2 #8). A completed task may have proposed subtasks in its
-   * output; parse them (strict), enforce the depth cap + the Pro task-count gate,
+   * output; parse them (strict), enforce the depth cap,
    * and append each as a pending task depending ONLY on this (completed) parent —
    * a flat batch, so no cycle is possible. The orchestrator still owns dispatch;
    * the worker only proposed. Records a `delegated` thread entry either way.

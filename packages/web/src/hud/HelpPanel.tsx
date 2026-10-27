@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { clearDismissed } from './onboarding.js';
 import { useSolixStore } from '../store/index.js';
 import type { ChecklistItem } from './onboarding.js';
 
@@ -14,9 +15,12 @@ import type { ChecklistItem } from './onboarding.js';
 export function HelpPanel({
   open,
   onClose,
+  onShowWelcome,
 }: {
   open: boolean;
   onClose: () => void;
+  /** Re-opens the welcome modal after clearing its dismissed flag. */
+  onShowWelcome?: () => void;
 }): JSX.Element | null {
   const sessionCount = useSolixStore((s) => Object.keys(s.sessions).length);
   const planCount = useSolixStore((s) => Object.keys(s.plans).length);
@@ -220,6 +224,19 @@ export function HelpPanel({
         </div>
 
         <div className="px-6 py-3 border-t border-solix-border flex items-center">
+          {/* Until this existed, dismissing the welcome modal — including by
+              one Escape that also closed this panel — ended onboarding
+              permanently, with DevTools as the only way back. */}
+          <button
+            onClick={() => {
+              clearDismissed();
+              onClose();
+              onShowWelcome?.();
+            }}
+            className="px-3 py-1.5 rounded border border-solix-border text-xs text-slate-400 hover:text-white"
+          >
+            Show the welcome again
+          </button>
           <div className="flex-1" />
           <span className="text-[10px] font-mono text-slate-500 mr-3">
             Solix v{__SOLIX_VERSION__}

@@ -4,6 +4,10 @@
  * SidePanel headers. New terms get added here as we notice them.
  */
 export const GLOSSARY: Record<string, string> = {
+  // List columns
+  attention:
+    'The one thing worth doing about this agent right now — a held command, context filling up, an error. A dash means nothing needs you, which is what most rows should say.',
+
   // Session statuses
   active:
     'The agent is currently working — emitting tool calls or generating output.',

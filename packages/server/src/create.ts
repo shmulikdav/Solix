@@ -204,11 +204,26 @@ export async function createSolixServer(
     fireSchedule: fireScheduleNow,
   });
 
-  const server = serve({
-    fetch: app.fetch,
-    port,
-    hostname,
-  });
+  /**
+   * Wait for the bind, and surface a failure instead of crashing.
+   *
+   * `serve()` returns synchronously and attaches no error handler, so
+   * createSolixServer resolved whether or not the port was free. `start`
+   * then printed "server listening on http://127.0.0.1:4242", opened a
+   * browser at whatever was already there, and only then did EADDRINUSE
+   * fire — as an unhandled 'error' event on the emitter, not a promise
+   * rejection, so the top-level .catch in index.ts never saw it. The user
+   * got a success message, someone else's server, and a raw Node stack
+   * trace. `solix demo` has handled this since it shipped.
+   */
+  const server = await new Promise<ReturnType<typeof serve>>(
+    (resolveServer, rejectServer) => {
+      const s = serve({ fetch: app.fetch, port, hostname }, () => {
+        resolveServer(s);
+      });
+      s.on('error', rejectServer);
+    },
+  );
 
   attachWs(server as unknown as import('node:http').Server, {
     db,

@@ -49,14 +49,12 @@ solix demo          # see the full galaxy in ~10s — fully synthetic, no setup
 - 🪐 **See everything at once** — each agent is a planet; the star brightens with activity and flares red when a session needs you, before you click.
 - ⚡ **One decision queue** — approve or deny risky actions (`git push`, `rm -rf`) with a keystroke.
 - ☀️ **Mission Control** — click the sun for total spend, cost per completed mission, and what needs your attention now.
-- 👥 **A crew of 14 advisors** — code review, security, debugging, cost, and more — invoke or pin them to any session.
+- 👥 **A crew of 15 advisors** — code review, security, debugging, cost, and more — invoke or pin them to any session.
 - 🔒 **100% local, zero telemetry** — a local server, a local SQLite file, no account, no sign-in. Nothing ever leaves your machine.
 
 > MIT-licensed and free forever. Solix also tails live mission logs from your
 > transcripts, ships a skills asteroid belt, an in-app session launcher, and
-> shareable galaxies (local file or opt-in cloud registry). *(A local Pro
-> edition — agent orchestration + deeper cost/efficiency analytics — is on the
-> roadmap; the core stays free.)*
+> shareable galaxies (local file or opt-in cloud registry).
 
 ## Maestro — describe a goal, your fleet builds it (preview)
 
@@ -88,8 +86,8 @@ settings alone. `solix install` is still there for scripted setups and
 > **native Windows is not supported yet** — run Solix inside WSL, where it
 > works today. `solix demo` and the UI work anywhere Node does.
 
-Open **http://127.0.0.1:4242** — you'll get a Welcome modal walking
-you through five things you can do.
+Open **http://127.0.0.1:4242** — you'll get a Welcome modal offering
+three ways to start, each labelled with what it costs.
 
 **See it without running Claude Code yet?** In another terminal:
 
@@ -97,7 +95,7 @@ you through five things you can do.
 solix demo
 ```
 
-Seeds a fully populated galaxy — ~30 sessions across 8 projects, all 14
+Seeds a fully populated galaxy — ~30 sessions across 8 projects, all 15
 advisors, active missions with comet streaks, subagent moons, red
 permission flares, and a live ticker — so the galaxy is alive immediately,
 without touching your real data (it runs against a sandboxed demo DB).
@@ -107,6 +105,21 @@ a second.
 
 To verify the install: `solix doctor`. To remove cleanly: `solix
 uninstall`.
+
+### Typing to an agent from Solix, not just from its terminal
+
+A `claude` session you started yourself is visible in Solix and costed by
+it, but the composer in the side panel is read-only — Solix has no way to
+reach into a terminal it does not own. Start the session through Solix
+instead and you can send prompts from the UI:
+
+```sh
+solix run                 # same as `claude`, wrapped so Solix can talk to it
+solix install-shim        # or alias `claude` to it permanently, in your shell rc
+```
+
+`solix install-shim` writes a fenced block to your `.zshrc`/`.bashrc` and
+`solix uninstall` takes it out again.
 
 > **Native dep note:** Solix uses `better-sqlite3`. Most platforms get a
 > prebuilt binary on `npm install`. If yours doesn't, npm will compile
@@ -209,7 +222,7 @@ Hook scripts have three load-bearing properties:
 
 ## Advisors — the built-in crew
 
-Solix ships 14 advisor agents installed into `~/.claude/agents/`:
+Solix ships 15 advisor agents installed into `~/.claude/agents/`:
 
 | # | Codename | Role | Default |
 |---|---|---|---|
@@ -227,6 +240,7 @@ Solix ships 14 advisor agents installed into `~/.claude/agents/`:
 | 12 | Delta | Data / DB Engineer | opt-in |
 | 13 | Spire | Architect | opt-in |
 | 14 | Ledger | FinOps / Cost | opt-in |
+| 15 | Maestro | The Conductor — decomposes a goal into a plan | opt-in |
 
 ```sh
 solix advisors list
@@ -414,7 +428,7 @@ solix/
 │   ├── server/   # Hono + WebSocket + SQLite + event router + launcher + cloud
 │   ├── web/      # React + react-three-fiber solar system + advisor ring + asteroid belt
 │   ├── cli/      # commander entrypoint + hook scripts
-│   ├── agents/   # canonical .md files for 14 advisor agents (+ manifest.json)
+│   ├── agents/   # canonical .md files for 15 advisor agents (+ manifest.json)
 │   └── skills/   # the bundled Solix skill pack (4 SKILL.md manifests)
 ├── pnpm-workspace.yaml
 └── tsconfig.base.json

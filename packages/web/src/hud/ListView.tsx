@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { Advisor, Mission, Project, Session } from '@solix/shared';
 import {
   selectAdvisorPlanets,
@@ -6,8 +6,10 @@ import {
   useSolixStore,
 } from '../store/index.js';
 import { modelColor, statusLabel } from '../scene/colors.js';
-import { computeHealth, healthColor } from '../health.js';
+import { severityRank, suggestForSession, type Suggestion } from '../suggestions.js';
 import { GLOSSARY } from '../glossary.js';
+
+const COLLAPSED_KEY = 'solix.list.collapsed.v1';
 
 type SortKey =
   | 'name'
@@ -16,7 +18,7 @@ type SortKey =
   | 'context'
   | 'lastActivity'
   | 'needs'
-  | 'health'
+  | 'attention'
   | 'cost';
 
 interface Row {
@@ -24,8 +26,8 @@ interface Row {
   project?: Project;
   mission?: Mission;
   needsAttention: boolean;
-  health: number;
-  healthReasons: string[];
+  /** The one thing worth saying about this agent, or null when nothing is. */
+  attention: Suggestion | null;
 }
 
 const STATUS_PRIORITY: Record<string, number> = {
@@ -80,7 +82,7 @@ export function ListView(): JSX.Element {
       const pendingForSession = Object.values(pendingPermissions).filter(
         (p) => p.sessionId === s.id,
       ).length;
-      const { score, reasons } = computeHealth(s, mission, pendingForSession);
+      const attention = suggestForSession(s, mission, pendingForSession);
       return {
         session: s,
         project: projects[s.projectId],
@@ -90,11 +92,41 @@ export function ListView(): JSX.Element {
           s.status === 'awaiting_permission' ||
           s.status === 'awaiting_input' ||
           s.status === 'plan_review',
-        health: score,
-        healthReasons: reasons,
+        attention,
       };
     });
   }, [planets, advisorPlanets, projects, missions, pendingPermissions]);
+
+  /**
+   * Which project groups are collapsed.
+   *
+   * Persisted, because the reason to collapse a group is that it is noise to
+   * *you* — 456 idle sessions imported from months of history — and that is
+   * still true after a reload. Storing the collapsed set rather than the
+   * expanded one means a newly-discovered project shows up open.
+   */
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    try {
+      const raw = localStorage.getItem(COLLAPSED_KEY);
+      return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+    } catch {
+      return new Set();
+    }
+  });
+
+  const toggleCollapsed = useCallback((id: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      try {
+        localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...next]));
+      } catch {
+        // A blocked localStorage costs the preference, not the feature.
+      }
+      return next;
+    });
+  }, []);
 
   const groups = useMemo(() => {
     const map = new Map<string, { project?: Project; rows: Row[] }>();
@@ -138,8 +170,13 @@ export function ListView(): JSX.Element {
         // True first when ascending — that's "needs attention at top".
         if (a.needsAttention === b.needsAttention) return 0;
         return a.needsAttention ? -1 * dir : 1 * dir;
-      case 'health':
-        return (a.health - b.health) * dir;
+      case 'attention': {
+        // Severity first, then context, so rows with the same label keep a
+        // stable, meaningful order instead of shuffling.
+        const bySeverity = severityRank(a.attention) - severityRank(b.attention);
+        if (bySeverity !== 0) return bySeverity * dir;
+        return (a.session.contextUsagePct - b.session.contextUsagePct) * dir;
+      }
       case 'cost':
         return (a.session.costUsd - b.session.costUsd) * dir;
     }
@@ -156,6 +193,10 @@ export function ListView(): JSX.Element {
 
   const sortIndicator = (key: SortKey): string =>
     sortKey !== key ? '' : sortDir === 'asc' ? ' ▲' : ' ▼';
+
+  /** The same fact as the glyph, in a form assistive tech can read. */
+  const sortState = (key: SortKey): 'ascending' | 'descending' | undefined =>
+    sortKey !== key ? undefined : sortDir === 'asc' ? 'ascending' : 'descending';
 
   const selectedCount = selectedSessionIds.size;
 
@@ -199,26 +240,51 @@ export function ListView(): JSX.Element {
           groups.map(({ project, rows }) => {
             const sorted = [...rows].sort(cmp);
             const projectName = project?.name ?? '(unassigned)';
+            const groupId = project?.id ?? '_';
+            const isCollapsed = collapsed.has(groupId);
+            // Worth seeing without expanding: a collapsed group must not hide
+            // an agent that is waiting on you.
+            const needsYou = rows.filter((r) => r.needsAttention).length;
             return (
               <section
-                key={project?.id ?? '_'}
+                key={groupId}
                 className="mb-8 rounded border border-solix-border overflow-hidden"
               >
-                <header className="bg-solix-panel/60 px-4 py-2 flex items-center justify-between">
-                  <div>
+                <header className="bg-solix-panel/60 flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => toggleCollapsed(groupId)}
+                    aria-expanded={!isCollapsed}
+                    aria-label={`${isCollapsed ? 'Expand' : 'Collapse'} ${projectName}`}
+                    className="flex items-center gap-2 px-4 py-2 flex-1 text-left hover:bg-white/[0.03] transition-colors"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className={`text-slate-500 text-[10px] transition-transform ${
+                        isCollapsed ? '' : 'rotate-90'
+                      }`}
+                    >
+                      ▶
+                    </span>
                     <span className="text-sm font-semibold text-slate-100">
                       {projectName}
                     </span>
-                    <span className="ml-2 text-[10px] uppercase tracking-wide text-slate-500">
+                    <span className="text-[10px] uppercase tracking-wide text-slate-500">
                       {rows.length} agent{rows.length === 1 ? '' : 's'}
                     </span>
-                  </div>
+                    {isCollapsed && needsYou > 0 && (
+                      <span className="text-[10px] uppercase tracking-wide text-solix-warn">
+                        · {needsYou} need{needsYou === 1 ? 's' : ''} you
+                      </span>
+                    )}
+                  </button>
                   {project?.cwd && (
-                    <span className="text-[10px] font-mono text-slate-500 truncate max-w-[55%]">
+                    <span className="px-4 text-[10px] font-mono text-slate-500 truncate max-w-[45%]">
                       {project.cwd}
                     </span>
                   )}
                 </header>
+                {!isCollapsed && (
 
                 <table className="w-full text-sm">
                   <thead className="bg-black/30 text-[10px] uppercase tracking-wide text-slate-500">
@@ -250,29 +316,33 @@ export function ListView(): JSX.Element {
                           className="cursor-pointer"
                         />
                       </Th>
-                      <Th onClick={() => onSort('needs')}>
-                        ● {sortIndicator('needs')}
+                      <Th onClick={() => onSort('needs')} sort={sortState('needs')}>
+                        {/* The glyph is the whole header, so the name has
+                            to come from somewhere a reader can find. */}
+                        <span aria-hidden="true">●</span>
+                        <span className="sr-only">Needs attention</span>
+                        {sortIndicator('needs')}
                       </Th>
-                      <Th onClick={() => onSort('name')}>
+                      <Th onClick={() => onSort('name')} sort={sortState('name')}>
                         Agent{sortIndicator('name')}
                       </Th>
                       <Th>Advisor</Th>
-                      <Th onClick={() => onSort('status')}>
+                      <Th onClick={() => onSort('status')} sort={sortState('status')}>
                         Status{sortIndicator('status')}
                       </Th>
-                      <Th onClick={() => onSort('health')} numeric>
-                        Health{sortIndicator('health')}
+                      <Th onClick={() => onSort('attention')} sort={sortState('attention')}>
+                        Attention{sortIndicator('attention')}
                       </Th>
-                      <Th onClick={() => onSort('progress')}>
+                      <Th onClick={() => onSort('progress')} sort={sortState('progress')}>
                         Mission · tools{sortIndicator('progress')}
                       </Th>
-                      <Th onClick={() => onSort('context')} numeric>
+                      <Th onClick={() => onSort('context')} sort={sortState('context')} numeric>
                         Context{sortIndicator('context')}
                       </Th>
-                      <Th onClick={() => onSort('cost')} numeric>
+                      <Th onClick={() => onSort('cost')} sort={sortState('cost')} numeric>
                         Cost{sortIndicator('cost')}
                       </Th>
-                      <Th onClick={() => onSort('lastActivity')} numeric>
+                      <Th onClick={() => onSort('lastActivity')} sort={sortState('lastActivity')} numeric>
                         Last activity{sortIndicator('lastActivity')}
                       </Th>
                       <Th numeric>Actions</Th>
@@ -283,6 +353,21 @@ export function ListView(): JSX.Element {
                       <tr
                         key={row.session.id}
                         onClick={() => selectSession(row.session.id)}
+                        // Opening an agent was mouse-only: a bare onClick on
+                        // a <tr>, with no role, tabIndex or key handler. The
+                        // only focusable things in a row were the checkbox
+                        // and a Terminate button that is invisible until
+                        // hover, so tabbing through 473 rows could not open
+                        // any of them.
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Open ${row.session.name || row.session.id}`}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            selectSession(row.session.id);
+                          }
+                        }}
                         className={`group border-t border-solix-border hover:bg-solix-border/20 cursor-pointer ${
                           row.needsAttention ? 'bg-solix-danger/5' : ''
                         } ${
@@ -378,11 +463,8 @@ export function ListView(): JSX.Element {
                         >
                           {statusLabel(row.session.status)}
                         </td>
-                        <td className="px-3 py-2 text-right">
-                          <HealthBar
-                            score={row.health}
-                            reasons={row.healthReasons}
-                          />
+                        <td className="px-3 py-2">
+                          <AttentionCell suggestion={row.attention} />
                         </td>
                         <td
                           className="px-3 py-2 text-xs text-slate-300 truncate max-w-xs"
@@ -445,6 +527,7 @@ export function ListView(): JSX.Element {
                     ))}
                   </tbody>
                 </table>
+                )}
               </section>
             );
           })
@@ -516,77 +599,77 @@ function AdvisorCell({
   );
 }
 
+/**
+ * A column header, sortable or not.
+ *
+ * A sortable one was a bare `<th onClick>`: no role, no tabIndex, no key
+ * handler, and no `aria-sort` — direction was carried only by a ' ▲' / ' ▼'
+ * glyph appended to the label. Eight of eleven columns could neither be
+ * reached nor read without a mouse.
+ */
 function Th({
   children,
   onClick,
   numeric,
+  sort,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   numeric?: boolean;
+  /** Which way this column is currently sorted, when it is the active one. */
+  sort?: 'ascending' | 'descending';
 }): JSX.Element {
   return (
     <th
       onClick={onClick}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      aria-sort={onClick ? (sort ?? 'none') : undefined}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
       className={`px-3 py-2 select-none ${
         numeric ? 'text-right' : 'text-left'
-      } ${onClick ? 'cursor-pointer hover:text-slate-300' : ''}`}
+      } ${onClick ? 'cursor-pointer hover:text-slate-300 focus-visible:outline focus-visible:outline-1 focus-visible:outline-solix-accent' : ''}`}
     >
       {children}
     </th>
   );
 }
 
-function HealthBar({
-  score,
-  reasons,
-}: {
-  score: number;
-  reasons: string[];
-}): JSX.Element {
-  const color = healthColor(score);
+/**
+ * The one thing worth saying about an agent, or a dash.
+ *
+ * This replaced a 0–100 score with a bar. The score was a weighting of three
+ * things already on the same row — Status, Context % and the needs-attention
+ * dot — so it added no fact, only arithmetic nobody could act on. Its bar
+ * also sat one cell from the context bar and moved with it, because context
+ * was 40 of its 100 points.
+ *
+ * A dash for a healthy agent is the point: with hundreds of idle sessions,
+ * a column that says something on every row says nothing.
+ */
+function AttentionCell({ suggestion }: { suggestion: Suggestion | null }): JSX.Element {
+  if (!suggestion) {
+    return <span className="text-slate-600 select-none">—</span>;
+  }
+  const tone =
+    suggestion.severity === 'danger'
+      ? 'text-solix-danger'
+      : suggestion.severity === 'warn'
+        ? 'text-solix-warn'
+        : 'text-slate-400';
   return (
-    <div className="relative inline-flex items-center gap-2 group">
-      <span
-        className="text-[11px] font-mono font-bold"
-        style={{ color }}
-      >
-        {score}
-      </span>
-      <div className="w-16 h-1.5 rounded-full bg-slate-800 overflow-hidden">
-        <div
-          className="h-full"
-          style={{
-            width: `${Math.max(2, score)}%`,
-            background: color,
-          }}
-        />
-      </div>
-      <div className="pointer-events-none absolute right-0 top-full mt-1 z-50 hidden group-hover:block w-64 rounded border border-solix-border bg-solix-panel/95 backdrop-blur p-2 text-left shadow-xl">
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-[10px] uppercase tracking-wide text-slate-400">
-            Health
-          </span>
-          <span className="text-xs font-bold" style={{ color }}>
-            {score}/100
-          </span>
-        </div>
-        {reasons.length === 0 ? (
-          <div className="text-[11px] text-slate-400 italic">
-            All four bands healthy: stable status, no pending decisions,
-            context budget, mission progress.
-          </div>
-        ) : (
-          <ul className="space-y-0.5">
-            {reasons.map((r) => (
-              <li key={r} className="text-[11px] text-slate-200 leading-snug">
-                · {r}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
+    <span className={`text-[11px] ${tone}`} title={suggestion.text}>
+      {suggestion.text}
+    </span>
   );
 }
 

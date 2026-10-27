@@ -5,6 +5,223 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.0] — 2026-10-27
+
+**A design-partner audit, and the four classes of defect it found.**
+
+Solix was read the way a team evaluating it would read it: every tab opened,
+every claim checked against the code. It scored 4/10 — the gate mechanism at
+the centre is sound and was verified end-to-end against a live agent, but
+the layer around it kept reporting things that were not true. This release
+is that layer.
+
+### Fixed — it could lose data that is not Solix's
+
+- **A malformed `~/.claude/settings.json` was replaced with Solix's hooks
+  alone.** `readSettings` returned `{}` on a parse failure and that `{}`
+  went straight into `{ ...existing, hooks: merged }` and back to disk — so
+  one trailing comma or `//` comment in your settings discarded your
+  `permissions`, `env`, `model`, `apiKeyHelper`, `statusLine` and MCP
+  servers, and then printed *"merged hooks into …"* as though it had merged.
+  The only warning was a `console.warn` third in a wall of sixteen identical
+  `[solix]` lines.
+
+  `uninstall.ts` had already argued the general case and got it right:
+  *"uninstalling a tool is not consent to roll back a config file the tool
+  does not own"*. Neither is installing one. Install now refuses to write a
+  file it could not read, and says what it did not do.
+
+- **The backup covered exactly one write, and `--force` destroyed it.** It is
+  taken once and never refreshed, and `--force` — which means "re-install
+  the hooks" — overwrote it with a file Solix had already written, losing
+  the only copy of your pre-Solix settings, which is the copy `uninstall`
+  restores. `--force` no longer touches it, and every write is now preceded
+  by a rolling `settings.solix.prev.json`.
+
+- **Your own agents in `~/.claude/agents` were overwritten without a
+  backup.** Fifteen advisor files were copied in with an unconditional
+  `copyFileSync` — no existence check, no backup, no mention beyond
+  *"installed 15 advisor agents"* — so an agent you wrote called `forge.md`
+  was simply gone. Colliding files are kept as `<name>.md.pre-solix.bak`
+  and the collision is named in the output.
+
+- **`solix uninstall` left them all behind**, which made first run's *"undo
+  any time with `solix uninstall`"* untrue: unregistering the hooks left
+  fifteen agent definitions in every future Claude Code session. It now
+  removes what it installed — by name, from a manifest, so an agent of
+  yours with a colliding name is not collateral — and restores one it
+  displaced. Your database stays: it holds your session and cost history,
+  and deleting that to uninstall a wrapper would be its own data-loss bug.
+
+### Fixed — the core loop could not confirm itself
+
+- **An approval could vanish and leave the agent blocked forever.** The
+  websocket `send` was `if (socket && readyState === OPEN) { … }` — no else,
+  no queue, no return value — so every caller assumed success. The socket
+  drops on any server restart, which is every upgrade. `resolvePermission`
+  then deleted its own card immediately, so a dropped approval cleared the
+  card and the "needs you" badge and left the agent waiting on a decision
+  you watched disappear. New Task cleared your prompt and closed; a chat
+  prompt was appended to the transcript and never answered.
+
+- **There was no acknowledgement to wait for.** `permission_resolved` did
+  not exist anywhere in the codebase. The server never announced a
+  resolution, so a second tab kept a live card whose buttons did nothing,
+  and the 300-second gate timeout denied in **total silence** — no audit
+  row, no toast, the card still on screen and still counted. `timedOut` was
+  computed and shown to nobody.
+
+  `send` now reports whether the message left. Nothing is treated as done
+  until the server says so, the card stays up showing why, and the timeout
+  says the agent was refused rather than left waiting.
+
+- **Terminate did nothing.** `terminate_session` was a bare `break;` under a
+  comment claiming it marked the row terminated — it did not do even that.
+  The danger-red button, on a list with select-all, cleared the selection
+  and left every process running. It signals the process now, and for a
+  session Solix did not start it says so plainly instead of clearing the
+  planet and implying a kill.
+
+- **You were never told an agent was waiting.** OS notification permission
+  was requested lazily inside `notify()`, and all three callers pass
+  `whenHidden: true` — so the only moment it asked was while the tab was
+  hidden, which is the one moment browsers refuse to prompt. The file's own
+  header admitted it: *"it's a no-op if the user never has the tab in the
+  background"*. There was no gesture-driven path anywhere. The top bar now
+  has one, and says when the browser is blocking them.
+
+### Fixed — first run
+
+- **`solix demo` seeded nothing, and said it had.** It read the server token
+  at module load — before the server it spawns creates it — so on a machine
+  where Solix had never run, every event POST came back 401, and the seeder
+  never checked. It printed *"seed complete: 30 sessions across 8 projects"*
+  over an empty database, on exactly the clean machine where someone tries
+  it first. The demo is what the README, the welcome modal and every empty
+  state point at.
+
+- **A port already in use crashed after claiming success.** `serve()`
+  returns synchronously and attaches no error handler, so Solix printed
+  *"server listening on http://127.0.0.1:4242"*, opened a browser at
+  whatever was already there, and died with an unhandled `EADDRINUSE` stack
+  trace. It now reports the conflict and the port to try next. `solix demo`
+  had handled this correctly since it shipped.
+
+- **`?` then `Escape` destroyed the onboarding permanently.** The keymap had
+  no modal guard, so `?` — which the welcome modal's own footer tells you to
+  press — opened Help on top of it, and the single Escape that closed Help
+  also burned the first-run flag. No reset existed anywhere; DevTools was
+  the only recovery. The keymap is now inert while the modal is up, and Help
+  has **"Show the welcome again"**.
+
+- **`solix doctor` was red on a healthy machine.** It failed *"Backup of
+  settings.json"* on a clean install, where no backup exists because there
+  was nothing to back up, set exit 1, and told you to run `solix install`,
+  which could never produce one. A check permanently red on a healthy
+  machine teaches people to ignore checks. A second check was
+  `ok: skillCount >= 0` on a `.length` — it could not fail, so it reported
+  health it had never established.
+
+- **The galaxy did not move.** Orbital motion defaulted to off, so the
+  flagship orbiting scene was a still image on first load — and the key that
+  starts it, Space, was the one the keymap hijacked. It defaults on now,
+  unless your OS asks for reduced motion, and Space no longer fires while a
+  button has focus.
+
+- **`SOLIX_PORT` was dead.** A commander default of 4242 always beat it.
+
+### Fixed — figures nobody had measured
+
+- **A cadence typo billed 168× what the UI promised.** Nothing validated the
+  string, and anything unparseable was parked one hour out. `1w` — plausible
+  given the `30m / 2h / 1d` placeholder — produced a routine whose warning
+  said *"every 1w"*, whose card said *"every 1w"*, and which fired hourly
+  forever. With no `PATCH` for a routine it could not be corrected, only
+  deleted, losing its run history and rotating its webhook token. Both the
+  route and the form now refuse it and name the valid forms, 7d included.
+
+- **Mission Control reported three figures it did not have**, in a panel
+  whose docstring claims *"All figures are real"*. `Cost / mission` read
+  `$0.00` whenever nothing had completed — beside a Total spend tile showing
+  real money, so the panel contradicted itself in adjacent tiles. Context
+  pressure read `avg 0% · max 0%` on a fresh install, which is a measurement
+  claim about data that does not exist. Interventions summed three unlimited
+  audit fetches by `.length` against a 200-row cap, so it counted three
+  pages and stopped at 600 forever.
+
+- **The advisor roster said four different things at once** — 15 in the
+  manifest and the install log, "Fourteen" in the welcome modal, 14 in the
+  README, "5 active · 10 available" in Crew. The modal derives it now.
+
+- **Three helpers were applied only where someone happened to be looking.**
+  `expandHome` guarded seven HTTP routes but not the websocket launch path,
+  which is the one the New Task modal uses — so typing `~/project` still
+  failed after the tilde fix shipped. The preflight check hardcoded
+  `spawnSync('claude')`, ignoring `SOLIX_CLAUDE_BIN`, the documented nvm
+  escape hatch — and then disabled the Launch button on its own result.
+  `explainSpawnError` existed while the synchronous `catch` beside it
+  hardcoded *"claude binary not found"* for any throw, including a
+  non-executable shim.
+
+### Added
+
+- **`solix start --no-wire`**, and first run now says what it is about to
+  write **before** writing it — including that two hooks run in the blocking
+  path of every tool call of every Claude Code session on the machine. The
+  two actionable lines of sixteen now print before the browser steals focus,
+  instead of scrolling past behind it.
+- **A `DEMO DATA` badge.** `solix demo` was pixel-identical to real data,
+  with list-price dollar figures and a `rm -rf node_modules` prompt every 75
+  seconds, in a product that sells cost governance.
+- **Errors are announced.** Toasts had no `aria-live`, no role and no icon,
+  and distinguished error from warning by hue alone — invisible to a screen
+  reader, ambiguous to a colour-blind user, gone in five seconds.
+- **The List works without a mouse.** Opening an agent was a bare `onClick`
+  on a `<tr>`; eight of eleven sortable headers had no `aria-sort`, and the
+  `●` column had no accessible name. Pinch-zoom works again
+  (`maximum-scale=1.0` was a WCAG 1.4.4 failure in a UI with 9px text).
+- **Collapse a project group in the List view.** With hundreds of agents
+  across a dozen projects, the List had the same scaling problem the galaxy
+  does. The choice is remembered, and it stores the *collapsed* set rather
+  than the expanded one, so a project discovered later shows up open instead
+  of hidden behind a click nobody knows to make. A collapsed header still
+  shows the project, its agent count, and **"N needs you"** when any of its
+  agents is holding a command — putting noise away must not put the signal
+  away with it.
+
+### Changed
+
+- **The List's Health score is a word now.** It read 85 for every idle agent,
+  which was the formula's honest answer — the `progress` band was only
+  awarded for an active mission, so an idle agent could never earn it and 85
+  was the ceiling. Rescaling it so a healthy agent read 100 fixed the
+  arithmetic and not the problem: a number blending *"will start forgetting
+  soon"* with *"is blocked waiting on you"* cannot be acted on, and nobody
+  could say why an agent was 70 rather than 65. A terminated agent scored 80
+  and showed green, which made it plain — a finished agent is not healthy, it
+  is not anything.
+
+  The column is now **Attention**, and says the one thing worth doing:
+  `3 commands waiting on you`, `Context at 92% — compact…`, `Done`, or a
+  dash. **A dash is the common case and the point** — with hundreds of idle
+  sessions, a column that says something on every row says nothing.
+
+### Removed
+
+- **`health.ts`, a second scoring system.** It consumed the same three
+  signals as `suggestForSession` — status, context pressure, held commands —
+  and the List rendered one while the SidePanel rendered the other, so the
+  two could disagree about the same agent. The score also recombined three
+  columns already on the row: Status, Context % (same thresholds, its own
+  bar, one cell away and moving in step), and the needs-attention dot. It
+  added no fact, only arithmetic.
+
+  `suggestForSession` gained the held-command case and is now the single
+  source for the List column, the 3D planet label, and the SidePanel banner.
+  The planet's atmosphere glow, the only continuous consumer, is driven by
+  context headroom — the term that dominated the score anyway — so it still
+  dims as an agent fills up, from one honest input.
+
 ## [1.17.0] — 2026-10-27
 
 **Every way Solix launches an agent is now governed.**

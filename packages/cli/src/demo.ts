@@ -22,7 +22,7 @@ const TOKEN_PATH = join(SOLIX_HOME, 'token');
 
 // How long to wait for the freshly-spawned sandbox server to answer
 // /api/health. A cold first run (right after `npm i -g`) loads the native
-// better-sqlite3 addon, seeds 14 advisors from disk, and scans skills — all
+// better-sqlite3 addon, seeds 15 advisors from disk, and scans skills — all
 // synchronously before the HTTP port binds — so 8s was too tight and killed
 // servers that were about to be fine. 30s absorbs a cold boot comfortably;
 // a healthy server answers on the first poll (~150ms) regardless.
@@ -30,14 +30,27 @@ const SERVER_BOOT_TIMEOUT_MS = 30_000;
 
 // The sandbox server enforces the same x-solix-token gate on /events that a
 // real install does (it reads ~/.solix/token via SOLIX_HOME, which the demo
-// does NOT override). Read that token here so our seed POSTs authenticate.
-// Empty when no install has run (dev) — the server then has no token
-// configured either, so the header is simply omitted and nothing enforces.
+// does NOT override), so the seed POSTs have to carry it.
+//
+// This was read once at module load, with a comment reasoning that an empty
+// token was safe because "the server then has no token configured either".
+// That is not true on the path that matters: `solix demo` SPAWNS `solix
+// start`, which runs install() and creates the token. On a machine where
+// Solix had never run, the file did not exist when this module loaded, the
+// server created it moments later, and every POST /events came back 401 —
+// which postEvent discarded, because it never looked at the response.
+//
+// The result was a demo that printed "seed complete: 30 sessions across 8
+// projects" and seeded nothing, on exactly the clean machine where someone
+// tries it first. Reload after the server is up.
 let demoToken = '';
-try {
-  demoToken = readFileSync(TOKEN_PATH, 'utf8').trim();
-} catch {
-  /* no token configured */
+
+function loadDemoToken(): void {
+  try {
+    demoToken = readFileSync(TOKEN_PATH, 'utf8').trim();
+  } catch {
+    demoToken = '';
+  }
 }
 
 // Ticker cadences — tuned to look alive without spamming the broadcaster on
@@ -92,9 +105,10 @@ async function waitForServer(port: number, timeoutMs = 8000): Promise<boolean> {
   return false;
 }
 
-async function postEvent(base: string, payload: object): Promise<void> {
+/** False when the event did not land. The ticker ignores it; the seeder does not. */
+async function postEvent(base: string, payload: object): Promise<boolean> {
   try {
-    await fetch(`${base}/events`, {
+    const res = await fetch(`${base}/events`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -102,8 +116,10 @@ async function postEvent(base: string, payload: object): Promise<void> {
       },
       body: JSON.stringify(payload),
     });
+    return res.ok;
   } catch {
     /* server may have gone away; ticker tolerates this silently */
+    return false;
   }
 }
 
@@ -278,6 +294,11 @@ async function bootSandbox(preferredPort: number): Promise<BootResult | null> {
         // user's real Agent View sessions into it, and scanning a heavy
         // ~/.claude/jobs at boot would stall the sandbox before it's ready.
         SOLIX_DISABLE_AGENTVIEW: '1',
+        // So the UI can say the data is fake. The seeder routes synthetic
+        // tokens through the real cost function on purpose, so Mission
+        // Control shows a credible dollar figure — in a product that sells
+        // cost governance, with nothing on screen marking it as invented.
+        SOLIX_DEMO: '1',
       },
       stdio: ['ignore', 'inherit', 'inherit'],
       detached: false,
@@ -835,6 +856,31 @@ export async function demoCmd(opts: DemoOptions = {}): Promise<void> {
     console.log(
       `[solix demo] server up at ${boot.base} (sandbox DB at ${DEMO_DB_PATH})`,
     );
+  }
+
+  // After the server is up, because it is the thing that creates the token.
+  loadDemoToken();
+
+  // One real event before the other ninety. If this cannot land, the whole
+  // seed will fail the same way and printing a success summary over it is
+  // how `solix demo` came to report "30 sessions across 8 projects" while
+  // seeding nothing at all.
+  const reachable = await postEvent(boot.base, {
+    event: 'session_start',
+    pid: 1,
+    cwd: demoRootCwd,
+    ts: Date.now(),
+    payload: { session_id: 'demo-preflight', model: 'sonnet' },
+  });
+  if (!reachable) {
+    console.error(
+      `[solix demo] the sandbox server rejected the first event, so nothing\n` +
+        '            was seeded. This is usually the token: the server reads\n' +
+        `            ${TOKEN_PATH} and the demo must send the same one.\n` +
+        '            Run `solix doctor` and try again.',
+    );
+    process.exitCode = 1;
+    return;
   }
 
   const seed = await richSeed(boot.base, demoRootCwd);

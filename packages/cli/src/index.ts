@@ -32,7 +32,11 @@ import {
   installFromRegistryCmd,
   publishGalaxyCmd,
 } from './galaxy.js';
-import { hooksSupported, install } from './install.js';
+import {
+  SettingsUnreadableError,
+  hooksSupported,
+  install,
+} from './install.js';
 import { installShim } from './install-shim.js';
 import { runWrapped } from './run.js';
 import { installSkillCmd, listSkillsCmd } from './skills.js';
@@ -62,10 +66,13 @@ program
 program
   .command('start', { isDefault: true })
   .description('Start the Solix server and open the browser')
-  .option('-p, --port <port>', 'port to listen on', (v) => parseInt(v, 10), 4242)
+  // No commander default: it would always beat SOLIX_PORT, which is
+  // documented and was therefore dead. start() applies the fallback.
+  .option('-p, --port <port>', 'port to listen on', (v) => parseInt(v, 10))
   .option('--no-open', 'do not open browser automatically')
-  .action(async (opts: { port: number; open: boolean }) => {
-    await start({ port: opts.port, noOpen: !opts.open });
+  .option('--no-wire', 'do not touch ~/.claude — real sessions will not appear')
+  .action(async (opts: { port?: number; open: boolean; wire: boolean }) => {
+    await start({ port: opts.port, noOpen: !opts.open, noWire: !opts.wire });
   });
 
 program
@@ -512,6 +519,12 @@ program
   );
 
 program.parseAsync(process.argv).catch((err) => {
-  console.error(err);
+  // A stack trace is the right output for a bug and the wrong output for a
+  // message written to be read. SettingsUnreadableError is the latter.
+  if (err instanceof SettingsUnreadableError) {
+    console.error(`[solix] ${err.message}`);
+  } else {
+    console.error(err);
+  }
   process.exit(1);
 });

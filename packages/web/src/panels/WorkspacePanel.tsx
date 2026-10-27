@@ -78,23 +78,25 @@ export function WorkspacePanel({
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
+    // Counted by the server. These used to be three unlimited /api/audit
+    // fetches summed by `.length`, against a 200-row-per-call cap — so the
+    // tile was a count of three pages and stopped growing at 600 forever.
+    //
+    // Containment refusals used to be filed as permission_denied and so
+    // were counted here. They have their own kind now, and dropping them
+    // would quietly shrink this number for the users with the most to show.
+    const count = (kind: string): Promise<number> =>
+      fetch(`/api/audit/count?kind=${kind}`)
+        .then((r) => (r.ok ? r.json() : { count: 0 }))
+        .then((d: { count?: number }) => d.count ?? 0);
+
     Promise.all([
-      fetch('/api/audit?kind=permission_approved').then(
-        (r): Promise<AuditEvent[]> => (r.ok ? r.json() : Promise.resolve([])),
-      ),
-      fetch('/api/audit?kind=permission_denied').then(
-        (r): Promise<AuditEvent[]> => (r.ok ? r.json() : Promise.resolve([])),
-      ),
-      // Containment refusals used to be filed as permission_denied and so were
-      // counted here. They have their own kind now, and dropping them would
-      // quietly shrink this number for the users with the most to show.
-      fetch('/api/audit?kind=command_blocked').then(
-        (r): Promise<AuditEvent[]> => (r.ok ? r.json() : Promise.resolve([])),
-      ),
+      count('permission_approved'),
+      count('permission_denied'),
+      count('command_blocked'),
     ])
       .then(([approved, denied, blocked]) => {
-        if (!cancelled)
-          setInterventions(approved.length + denied.length + blocked.length);
+        if (!cancelled) setInterventions(approved + denied + blocked);
       })
       .catch(() => {
         if (!cancelled) setInterventions(null);
@@ -143,8 +145,16 @@ export function WorkspacePanel({
           <Tile label="Total tokens" value={compact(summary.totalTokens)} />
           <Tile
             label="Cost / mission"
-            value={usd(summary.costPerCompletedMission)}
-            hint={`${summary.completedMissions} completed`}
+            value={
+              summary.costPerCompletedMission === null
+                ? '—'
+                : usd(summary.costPerCompletedMission)
+            }
+            hint={
+              summary.completedMissions === 0
+                ? 'no missions completed yet'
+                : `${summary.completedMissions} completed`
+            }
           />
           <Tile
             label="Interventions"
@@ -194,6 +204,15 @@ export function WorkspacePanel({
           <div className="text-[10px] uppercase tracking-widest text-slate-500 mb-2">
             Context pressure
           </div>
+          {/*
+            "avg 0% · max 0%" on a fresh install is a measurement claim, and
+            the truth is that nothing has been measured. Say that instead.
+          */}
+          {summary.contextAvgPct === null || summary.contextMaxPct === null ? (
+            <div className="text-sm text-slate-500">
+              no agent has reported context usage yet
+            </div>
+          ) : (
           <div className="text-sm text-slate-300 tabular-nums">
             avg {Math.round(summary.contextAvgPct)}% · max{' '}
             <span
@@ -212,6 +231,7 @@ export function WorkspacePanel({
               </span>
             ) : null}
           </div>
+          )}
         </div>
 
         {/* Needs you */}

@@ -33,6 +33,22 @@ export function writeDismissed(): void {
   }
 }
 
+/**
+ * Show the welcome again.
+ *
+ * The header above complains that the old design left "no other path back
+ * to it" — and the fix changed *when* the flag is burned without adding
+ * one. So a single Escape, or a misread click, still ended onboarding
+ * permanently with DevTools as the only recovery. This is the path back.
+ */
+export function clearDismissed(): void {
+  try {
+    localStorage.removeItem(DISMISSED_KEY);
+  } catch {
+    /* nothing to do */
+  }
+}
+
 /** Whether the one-time "the sun is clickable" hint has already been shown. */
 export function readSunHintSeen(): boolean {
   try {

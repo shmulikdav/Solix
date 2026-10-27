@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { ListView } from './hud/ListView.js';
 import { MissionView } from './hud/MissionView.js';
 import { TopBar } from './hud/TopBar.js';
@@ -80,6 +80,10 @@ export default function App(): JSX.Element {
   const [reportOpen, setReportOpen] = useState(false);
   // Mirrors Welcome's own gate so the sun hint can wait its turn.
   const [welcomeOpen, setWelcomeOpen] = useState(() => !readDismissed());
+  // Welcome reads the dismissed flag once into its own state, so re-showing
+  // it means remounting. Bumping this key is how "Show the welcome again"
+  // works after clearDismissed() has removed the flag.
+  const [welcomeNonce, setWelcomeNonce] = useState(0);
 
   const activePanel = useSolixStore((s) => s.activePanel);
   const openPanel = useSolixStore((s) => s.openPanel);
@@ -101,14 +105,47 @@ export default function App(): JSX.Element {
     void useSolixStore.getState().loadOrgs();
   }, []);
 
+  /**
+   * The keymap is registered once, so it cannot read `welcomeOpen` directly
+   * without capturing the first value forever.
+   */
+  const welcomeOpenRef = useRef(welcomeOpen);
+  welcomeOpenRef.current = welcomeOpen;
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
+      // Nothing here fires while the welcome modal is up.
+      //
+      // It covers the whole window including the rail, and every one of
+      // these shortcuts ran behind it: `l` opened New Task under the
+      // backdrop, `v` changed a view nobody could see, `t` dropped a
+      // first-time user into Timeline playback. Worst was the pair the
+      // modal itself advertises — pressing `?` (its own footer says "Press
+      // ? any time") opened Help on top, and the single Escape that closed
+      // Help also fired Welcome's listener and burned the first-run flag,
+      // with no way back. Welcome.tsx's header claims that regression was
+      // fixed by splitting the components; the split closed the button path
+      // and left the key path open, and onboarding.test.tsx never mounts
+      // the two together with this handler, which is why CI was green.
+      if (welcomeOpenRef.current) return;
+
       const state = useSolixStore.getState();
       const target = e.target as HTMLElement | null;
       const isTextField =
         target?.tagName === 'INPUT' ||
         target?.tagName === 'TEXTAREA' ||
+        target?.tagName === 'SELECT' ||
         target?.isContentEditable === true;
+      // A focused control owns its own keys. Space activates a button and
+      // arrows move through a <select>; the galaxy shortcuts used to take
+      // both, so tabbing to Approve and pressing Space toggled orbit motion
+      // on a scene behind a modal and did not press the button. SELECT is
+      // in isTextField above for the same reason — typing a letter to jump
+      // to an option was opening Maestro.
+      const onControl =
+        target?.tagName === 'BUTTON' ||
+        target?.tagName === 'A' ||
+        target?.getAttribute?.('role') === 'button';
       const inGalaxy = state.viewMode === 'galaxy';
       // Must match what the Decision Queue shows: `Y`/`N` act on the card the
       // user is actually looking at. Both read one selector so they cannot
@@ -173,7 +210,7 @@ export default function App(): JSX.Element {
         panUp();
       } else if (!isTextField && inGalaxy && e.key === 'ArrowDown') {
         panDown();
-      } else if (!isTextField && inGalaxy && e.key === ' ') {
+      } else if (!isTextField && !onControl && inGalaxy && e.key === ' ') {
         e.preventDefault();
         state.toggleMotion();
       } else if (!isTextField && (e.key === 'v' || e.key === 'V')) {
@@ -254,11 +291,19 @@ export default function App(): JSX.Element {
           forceOpen flag, and closing it wrote the first-run dismissed flag —
           so pressing ? once consumed a new user's onboarding. */}
       <Welcome
+        key={welcomeNonce}
         onPlanBuild={() => openSurface({ kind: 'plan' })}
         onOpenCrew={() => openFleet('crew')}
         onDismissed={() => setWelcomeOpen(false)}
       />
-      <HelpPanel open={helpOpen} onClose={() => setHelpOpen(false)} />
+      <HelpPanel
+        open={helpOpen}
+        onClose={() => setHelpOpen(false)}
+        onShowWelcome={() => {
+          setWelcomeOpen(true);
+          setWelcomeNonce((n) => n + 1);
+        }}
+      />
       <ReportProblem open={reportOpen} onClose={() => setReportOpen(false)} />
       <CommandPalette
         open={paletteOpen}

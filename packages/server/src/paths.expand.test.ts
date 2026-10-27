@@ -70,15 +70,46 @@ describe('explainSpawnError', () => {
     const dir = mkdtempSync(join(tmpdir(), 'solix-spawn-'));
     try {
       const msg = explainSpawnError(enoent, dir, 'claude');
-      expect(msg).toContain('is Claude Code installed');
+      expect(msg).toContain('claude');
       expect(msg).not.toContain('project directory does not exist');
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
+  /**
+   * "Install Claude Code" is the wrong advice for the case people actually
+   * hit: nvm. The binary is installed, on a PATH the server does not have,
+   * and SOLIX_CLAUDE_BIN is the documented fix — so the message has to name
+   * it rather than sending someone to reinstall what they already have.
+   */
+  it('names SOLIX_CLAUDE_BIN instead of telling you to reinstall', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'solix-spawn-'));
+    try {
+      const msg = explainSpawnError(enoent, dir, 'claude');
+      expect(msg).toContain('SOLIX_CLAUDE_BIN');
+      expect(msg).toMatch(/which claude/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  /** A non-executable shim is its own failure, with its own fix. */
+  it('explains EACCES rather than printing the raw error', () => {
+    const eacces = Object.assign(new Error('spawn claude EACCES'), {
+      code: 'EACCES',
+    });
+    const msg = explainSpawnError(eacces, '/nope', 'claude');
+    expect(msg).toContain('not executable');
+    expect(msg).toContain('SOLIX_CLAUDE_BIN');
+  });
+
   it('passes through any other error untouched', () => {
-    const eacces = Object.assign(new Error('spawn claude EACCES'), { code: 'EACCES' });
-    expect(explainSpawnError(eacces, '/nope', 'claude')).toBe('spawn claude EACCES');
+    const eperm = Object.assign(new Error('spawn claude EPERM'), {
+      code: 'EPERM',
+    });
+    expect(explainSpawnError(eperm, '/nope', 'claude')).toBe(
+      'spawn claude EPERM',
+    );
   });
 });

@@ -594,7 +594,8 @@ create a duplicate.
 | I10 | `⌘K`, type "routines" | Jumps to Fleet › Routines | ☐ PASS ☐ FAIL |
 | I11 | Click every rail row | Each opens its surface; the active row is marked | ☐ PASS ☐ FAIL |
 | I12 | Narrow the window to ~1280px | Top bar stays **one row**, nothing clipped | ☐ PASS ☐ FAIL |
-| I13 | List view: click each column header | Sorts by status, cost, context, health | ☐ PASS ☐ FAIL |
+| I13 | List view: click each column header | Sorts by status, cost, context, attention | ☐ PASS ☐ FAIL |
+| I13b | List view: click a project header | The group folds away; the header keeps the name, the count, and "N needs you" if any of its agents is holding a command | ☐ PASS ☐ FAIL |
 
 **Notes:** `________________________________________________`
 
