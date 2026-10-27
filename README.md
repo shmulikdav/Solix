@@ -26,7 +26,7 @@ Worth being exact, because the difference matters:
 |---|---|
 | A **Maestro** plan's workers and verifiers | **Yes** — at the default level, and at `strict` |
 | A **routine** firing on a schedule | At `strict`. Otherwise the denylist governs it, because nobody is at the keyboard to ask |
-| A **New task** you launch from the UI | No — it keeps Claude Code's own permission prompt |
+| A **New task** you launch from the UI | **Yes** — at `standard` and `strict`. Agent View is skipped for these, because a `claude --bg` session is hosted by a supervisor Solix cannot reach |
 | A `claude` session you started yourself | No — same, and Solix observes and costs it |
 
 **The command denylist is not on that dial.** `rm -rf /`, a fork bomb, piping

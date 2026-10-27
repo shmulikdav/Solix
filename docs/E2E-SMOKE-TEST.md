@@ -26,16 +26,19 @@ than it looks:
 |---|---|---|
 | You ran `claude` in your own terminal | Yes — planet, tool calls, cost | **No.** Claude Code's own prompt handles approvals. |
 | You ran `claude` under `solix run` / the shim | Yes, plus two-way terminal | **No.** |
-| **New task** from the UI | Yes | **No.** It gets no gate env — it keeps Claude Code's own prompt. |
+| **New task** from the UI | Yes | **Yes**, since 1.17.0 — at `standard` and `strict`. Agent View is skipped for a gated launch. |
 | **A Maestro plan's worker or verifier** | Yes | **Yes** — held until you answer, fail-closed |
 | **A routine firing on a schedule** | Yes | Only at `solix level strict`. Otherwise the denylist governs it: nobody is at the keyboard to ask. |
 
-> **This table was wrong until 1.15.0, and it cost a release.** It listed New
-> task as gated, so Suite E was run against a session that has no gate at all,
-> found nothing waiting, and looked like a UI fault. Worse, the level default
-> then auto-allowed Maestro workers too — so a worker ran
+> **This table was wrong until 1.15.0, and it cost a release.** It claimed New
+> task was gated when nothing gated it, so Suite E was run against the one
+> path with no gate, found nothing waiting, and looked like a UI fault. Worse,
+> the level default then auto-allowed Maestro workers too — so a worker ran
 > `rm -rf /Users/…/solix-qa/canary`, the verifier certified it, and nobody was
-> ever asked. **Test the Maestro path, not New task.**
+> ever asked.
+>
+> From 1.17.0 the claim is finally true: a New task **is** gated. Read the
+> rows rather than assuming, because they have changed twice.
 
 The gate is switched on by `SOLIX_GATE_ENABLED=1`, injected only when a launch
 is `contain`ed (`launcher.ts:750` — true for Maestro workers and routines,
@@ -321,8 +324,9 @@ Timeline (`T`).
    the word hello."* Leave the worktree branch **empty**.
 3. Launch.
 
-*(This case checks a task runs at all. It is **not** a gate test — a New task
-is never gated. E2 onwards use Maestro.)*
+*(This case checks a task runs at all. From 1.17.0 a New task is gated, so
+expect to approve its commands; E2 onwards use Maestro, which also verifies
+the outcome.)*
 
 **Expected:** a new planet appears, runs, and `~/solix-qa/hello.txt` exists
 afterwards.
@@ -333,8 +337,10 @@ afterwards.
 
 ### E2 · A sensitive command is **held**, not logged — **P0 BLOCKER**
 
-> Use **Maestro**, not New task. A New task is not gated — running this
-> through New task is what produced a false pass on 1.14.0.
+> Use **Maestro**. A New task is gated too from 1.17.0, but Maestro is the
+> path with a verifier that reports whether the deletion actually happened,
+> which is what makes a false pass visible. Running this through New task on
+> 1.14.0, when nothing gated it, is what produced one.
 
 1. Rail → **Maestro**. Project: the **absolute** path to `solix-qa`
    (e.g. `/Users/you/solix-qa`). Goal: *"Delete the ./canary directory"*.
@@ -399,13 +405,31 @@ nothing was approved while the panel was closed.
 
 The guarantee is that an unreachable gate denies rather than waving through.
 
-1. Trigger a held command (as E2).
-2. **Kill the Solix server** (Ctrl+C in its terminal) while the agent waits.
-3. Watch the agent.
+1. Trigger a held command (as E2) and **leave the card unanswered**.
+2. **Kill the Solix server**: Ctrl+C in the terminal that printed
+   `[solix] server listening on http://127.0.0.1:4242`. It prints
+   `[solix] SIGINT — shutting down`. Confirm from another terminal:
 
-**Expected:** after the gate timeout the agent is told
-**`Solix gate unavailable (fail-closed)`** and the command is **denied**.
-`keep.txt` survives.
+   ```bash
+   curl -s localhost:4242/api/band; echo "exit=$?"
+   ```
+
+   Empty output and a non-zero exit means it is gone.
+3. **Do not go looking for the agent.** It is a background process with no
+   window — there is nothing to watch. Check what it did instead:
+
+   ```bash
+   ls -la ~/solix-qa/canary/
+   ```
+
+**Expected:** `keep.txt` **survives**. Killing the server drops the hook's
+open connection, so its `curl` fails at once and the fail-closed policy
+denies — seconds, not the 305s `--max-time` ceiling.
+
+**Corroboration, after restarting Solix:** open the plan in Maestro and
+expand the task. The worker's report persists, and should say the command was
+blocked or the gate was unavailable. The plan should read **FAILED**, not
+COMPLETED.
 
 **Result:** ☐ PASS ☐ FAIL  **Saw:** `________________`
 

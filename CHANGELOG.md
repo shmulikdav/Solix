@@ -5,6 +5,41 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.17.0] — 2026-10-27
+
+**Every way Solix launches an agent is now governed.**
+
+### Changed
+
+- **A New task is gated now.** It was the most prominent button in the UI and
+  the only launch path Solix never governed — it carried no
+  `SOLIX_GATE_ENABLED` at any level, so its hook never blocked and no decision
+  was ever raised. At `standard` and `strict` its risky commands are held like
+  anything else Solix launches; `observe` still holds nothing, which is what
+  `observe` means.
+
+  It is **gated without being contained**. Containment bundles two things —
+  strip the env to an allowlist, and inject the gate. That bundle is right for
+  an autonomous worker nobody is watching. It is wrong for a task you launched
+  and are sitting in front of: scrubbing would take away the keys and tooling
+  your own shell has, to protect you from yourself. Your environment, held
+  commands.
+
+  **Agent View is skipped for a gated launch**, and says so. `claude --bg`
+  hands the session to a supervisor that does not inherit our env when it is
+  already running, so the gate would apply or not depending on whether
+  something else happened to start the daemon first. A guarantee that holds
+  nondeterministically is worse than one that is plainly absent.
+
+### Added
+
+- **A test that reads the env off the spawn itself.** With the env builder
+  tested and the Agent View decision tested, the fix could still be deleted
+  and every test passed — confirmed by reverting it. That is the shape of
+  every gate bug in this project: the layer below is right, the layer above is
+  right, and nothing checks the wire between them. `launcher.spawnenv.test.ts`
+  intercepts `spawn` and asserts the child really carries the gate.
+
 ## [1.16.0] — 2026-10-27
 
 **Three things found by watching someone use the gate for the first time.**

@@ -8,6 +8,7 @@ import { costForUsage, type Model } from '@solix/shared';
 import type { DB } from './db.js';
 import type { Broadcaster } from './broadcaster.js';
 import { ensureProject } from './state/projects.js';
+import { getGovernanceLevel, shouldGateAtAll } from './state/governance.js';
 import {
   getSession,
   setSessionBudget,
@@ -137,12 +138,47 @@ export function containmentGateEnv(env: NodeJS.ProcessEnv = process.env): {
  * the global `SOLIX_ENV_SCRUB`/sandbox flags ask for a scrub. Auth + gate vars
  * are always preserved so `claude` and its hooks still work.
  */
-function buildSpawnEnv(contain = false): NodeJS.ProcessEnv | undefined {
+function buildSpawnEnv(
+  contain = false,
+  /**
+   * Switch the gate on WITHOUT scrubbing the environment.
+   *
+   * Containment bundles two separate things: strip the env to an allowlist,
+   * and inject the fail-closed gate. That bundle is right for an autonomous
+   * worker — least privilege for something nobody is watching. It is wrong
+   * for a task *you* launched and are sitting in front of: scrubbing would
+   * take away the API keys and tooling your own shell has, to protect you
+   * from yourself.
+   *
+   * A New task wants the second half only. Your environment, held commands.
+   */
+  gateOnly = false,
+): NodeJS.ProcessEnv | undefined {
+  return buildSpawnEnvImpl(contain, gateOnly);
+}
+
+/** Exported for tests: the env a child is actually handed. */
+export const buildSpawnEnvForTest = (
+  contain: boolean,
+  gateOnly: boolean,
+): NodeJS.ProcessEnv | undefined => buildSpawnEnvImpl(contain, gateOnly);
+
+function buildSpawnEnvImpl(
+  contain: boolean,
+  gateOnly: boolean,
+): NodeJS.ProcessEnv | undefined {
   const scrub =
     contain ||
     process.env.SOLIX_ENV_SCRUB === '1' ||
     (process.env.SOLIX_SANDBOX_CMD ?? '').trim() !== '';
-  if (!scrub) return undefined;
+
+  if (!scrub) {
+    if (!gateOnly) return undefined;
+    const gate = containmentGateEnv();
+    // Opted out of containment entirely → nothing to inject, inherit as before.
+    if (Object.keys(gate).length === 0) return undefined;
+    return { ...process.env, ...gate };
+  }
 
   const allow = [
     'PATH',
@@ -679,12 +715,31 @@ export class Launcher {
   }): { ok: boolean; sessionId?: string } {
     if (!opts.initialPrompt.trim()) return { ok: false };
 
+    // A New task is gated like anything else Solix launches — unless the
+    // level is `observe`, which is the setting that means "watch, hold
+    // nothing".
+    const gate = shouldGateAtAll(getGovernanceLevel(this.db));
+
     if (opts.useAgentView) {
-      return this.dispatchAgentView({
-        cwd: opts.cwd,
-        model: opts.model,
-        initialPrompt: opts.initialPrompt,
-        agentName: opts.agentName,
+      // `claude --bg` hands the session to the Agent View supervisor. If that
+      // daemon is already running it does NOT inherit the env we set here, so
+      // the gate would apply or not depending on whether something else
+      // happened to start the daemon first. A safety guarantee that holds
+      // nondeterministically is worse than one that is plainly absent, so
+      // when the gate is meant to be on we take the path we control.
+      if (!gate) {
+        return this.dispatchAgentView({
+          cwd: opts.cwd,
+          model: opts.model,
+          initialPrompt: opts.initialPrompt,
+          agentName: opts.agentName,
+        });
+      }
+      this.broadcaster.broadcast({
+        type: 'toast',
+        level: 'info',
+        message:
+          'Launched without Agent View so its commands can be held for you. `solix level observe` restores it.',
       });
     }
 
@@ -767,6 +822,9 @@ export class Launcher {
       budgetUsd: opts.budgetUsd,
       goalId: opts.goalId,
       contain: Boolean(opts.sessionRole),
+      // Not contained — this is your task, so it keeps your environment — but
+      // gated, so its risky commands stop and wait for you.
+      gate,
     });
   }
 
@@ -967,8 +1025,10 @@ export class Launcher {
     worktreePath?: string;
     budgetUsd?: number;
     goalId?: string;
-    /** Inject the fail-closed containment gate (autonomous launches only). */
+    /** Scrub the env to an allowlist AND gate (autonomous launches). */
     contain?: boolean;
+    /** Gate without scrubbing — a task you launched, keeping your env. */
+    gate?: boolean;
   }): { ok: boolean; sessionId?: string } {
     let child: ChildProcess;
     try {
@@ -977,7 +1037,7 @@ export class Launcher {
         cwd: opts.cwd,
         stdio: ['ignore', 'pipe', 'pipe'],
         detached: false,
-        env: buildSpawnEnv(opts.contain),
+        env: buildSpawnEnv(opts.contain, opts.gate),
       });
     } catch (err) {
       this.broadcaster.broadcast({
