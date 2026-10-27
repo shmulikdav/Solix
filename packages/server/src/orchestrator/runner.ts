@@ -14,7 +14,7 @@ export interface RunOnceOpts {
   role: SessionRole;
   /** Which agent runtime to run ('claude' default, 'codex'). */
   runtime?: AgentRuntime;
-  /** Pre-allocated session id (Phase 2 dispatch pre-creates the planet row so
+  /** Pre-allocated session id (dispatch pre-creates the planet row so
    *  the worker↔task correlation is deterministic, not cwd-keyed). Optional for
    *  the Phase-1 planner, which is a transient one-shot. */
   sessionId?: string;

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { readDismissed, writeDismissed } from './onboarding.js';
+import { selectAllAdvisors, useSolixStore } from '../store/index.js';
 
 interface WelcomeProps {
   /** Opens Maestro, so step 2's first option can actually do the thing. */
@@ -40,6 +41,20 @@ export function Welcome({
   // frame of the modal on every load.
   const [dismissed, setDismissed] = useState(readDismissed);
   const [copied, setCopied] = useState(false);
+
+  /**
+   * Derived, not written down. This read "Fourteen advisors" while the
+   * manifest shipped fifteen, the install log said fifteen, the README said
+   * fourteen and the Crew tab said "5 active · 10 available" — four numbers
+   * for one roster, in a product that sells exact figures. A count the code
+   * computes cannot drift from the thing it counts.
+   *
+   * Falls back to the plain word before the first snapshot arrives, which is
+   * the only moment the store is empty.
+   */
+  const advisorCount = useSolixStore((s) => selectAllAdvisors(s).length);
+  const crewLead =
+    advisorCount > 0 ? `${advisorCount} advisors` : 'A crew of advisors';
 
   // Escape, from here rather than App's keymap: App cannot see this local
   // flag, and its Escape branch only cleared `helpOpen`, which is already
@@ -125,7 +140,7 @@ export function Welcome({
             />
             <Choice
               title="Look at the crew first"
-              body="Fourteen advisors with different jobs. Enabling one is free — it only costs tokens when you pin or invoke it."
+              body={`${crewLead} with different jobs. Enabling one is free — it only costs tokens when you pin or invoke it.`}
               cost="free"
               onClick={() => {
                 close();

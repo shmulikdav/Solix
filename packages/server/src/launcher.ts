@@ -274,9 +274,28 @@ export function explainSpawnError(
   cwd: string,
   bin: string,
 ): string {
-  if (err.code !== 'ENOENT') return err.message;
-  if (cwd && !existsSync(cwd)) return `project directory does not exist: ${cwd}`;
-  return `could not run "${bin}" — is Claude Code installed and on PATH? (${err.message})`;
+  if (err.code === 'ENOENT') {
+    if (cwd && !existsSync(cwd)) {
+      return `project directory does not exist: ${cwd}`;
+    }
+    // "Install Claude Code" is the wrong advice for the most common case:
+    // nvm. The binary is installed, on a PATH this server does not have —
+    // which is what SOLIX_CLAUDE_BIN is for, so name it rather than sending
+    // someone to reinstall software they already have.
+    return (
+      `could not run "${bin}" — not found on this server's PATH. ` +
+      'If Claude Code is installed and on a different PATH (nvm, a custom ' +
+      'prefix), set SOLIX_CLAUDE_BIN to its full path — `which claude` in ' +
+      'the shell where it works — and restart Solix.'
+    );
+  }
+  if (err.code === 'EACCES') {
+    return (
+      `"${bin}" is not executable (${err.message}). Check its permissions, ` +
+      'or point SOLIX_CLAUDE_BIN at the real binary.'
+    );
+  }
+  return err.message;
 }
 
 export function resolveAgentBin(runtime: 'claude' | 'codex' = 'claude'): string {
@@ -635,12 +654,18 @@ export class Launcher {
       return true;
     } catch (err) {
       console.warn(`[launcher] spawn failed for ${advisorId}:`, err);
-      // Fall back to a synthetic session so the visuals still light up;
-      // user gets a clear toast about what happened.
+      // Say what actually went wrong, and say plainly that what appears is
+      // not a real agent. This claimed "claude binary not found" for any
+      // spawn throw and called the result "synthetic" — a word that does not
+      // tell anyone the planet they are looking at is fabricated, with a
+      // random PID, counting toward their fleet.
       this.broadcaster.broadcast({
         type: 'toast',
         level: 'warn',
-        message: `claude binary not found — pinned ${advisor.codename} as synthetic`,
+        message:
+          `Could not start ${advisor.codename}: ` +
+          `${explainSpawnError(err as NodeJS.ErrnoException, cwd, resolveAgentBin('claude'))} ` +
+          '— showing a placeholder planet, which is not a running agent.',
       });
       return this.pinSynthetic(advisor.id, advisor.codename, cwd);
     }
@@ -1085,10 +1110,21 @@ export class Launcher {
         env: buildSpawnEnv(opts.contain, opts.gate),
       });
     } catch (err) {
+      // explainSpawnError lives 800 lines up for exactly this, and the async
+      // child.on('error') handler below already uses it. This hardcoded one
+      // cause — note the template literal with nothing to interpolate — for
+      // any synchronous spawn throw: EACCES on a non-executable shim, a
+      // SOLIX_SANDBOX_CMD that is not installed, a bad argv. It sent people
+      // to reinstall software they already had, while the real error went
+      // only to a console they were not reading.
       this.broadcaster.broadcast({
         type: 'toast',
         level: 'error',
-        message: `claude binary not found — is Claude Code installed?`,
+        message: explainSpawnError(
+          err as NodeJS.ErrnoException,
+          opts.cwd,
+          resolveAgentBin('claude'),
+        ),
       });
       console.warn('[launcher] spawn failed', err);
       return { ok: false };

@@ -1,4 +1,5 @@
 import type { IncomingMessage, Server as HttpServer } from 'node:http';
+import { expandHome } from './paths.js';
 import type { Socket } from 'node:net';
 import { WebSocketServer, type WebSocket } from 'ws';
 import type { ClientMessage, ServerMessage } from '@solix/shared';
@@ -103,7 +104,12 @@ export function attachWs(server: HttpServer, ctx: WsContext): WebSocketServer {
   return wss;
 }
 
-function handleClientMessage(
+/**
+ * Exported for tests. The launch path the UI uses runs through here and not
+ * through HTTP, which is how `expandHome` came to guard seven HTTP routes
+ * and not the one that mattered.
+ */
+export function handleClientMessage(
   ctx: WsContext,
   _ws: WebSocket,
   msg: ClientMessage,
@@ -120,7 +126,10 @@ function handleClientMessage(
       break;
     case 'launch_session':
       ctx.router.launchInternalSession({
-        cwd: msg.cwd,
+        // expandHome guards seven HTTP routes and was missing here — and
+        // this is the path the New Task modal actually uses, so typing
+        // ~/project still failed after the tilde fix shipped.
+        cwd: expandHome(msg.cwd),
         model: msg.model,
         initialPrompt: msg.initialPrompt,
         worktreeBranch: msg.worktreeBranch,

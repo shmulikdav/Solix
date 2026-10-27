@@ -49,7 +49,7 @@ solix demo          # see the full galaxy in ~10s — fully synthetic, no setup
 - 🪐 **See everything at once** — each agent is a planet; the star brightens with activity and flares red when a session needs you, before you click.
 - ⚡ **One decision queue** — approve or deny risky actions (`git push`, `rm -rf`) with a keystroke.
 - ☀️ **Mission Control** — click the sun for total spend, cost per completed mission, and what needs your attention now.
-- 👥 **A crew of 14 advisors** — code review, security, debugging, cost, and more — invoke or pin them to any session.
+- 👥 **A crew of 15 advisors** — code review, security, debugging, cost, and more — invoke or pin them to any session.
 - 🔒 **100% local, zero telemetry** — a local server, a local SQLite file, no account, no sign-in. Nothing ever leaves your machine.
 
 > MIT-licensed and free forever. Solix also tails live mission logs from your

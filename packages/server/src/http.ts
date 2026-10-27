@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
 import { expandHome } from './paths.js';
+import { resolveAgentBin } from './launcher.js';
 
 /**
  * Agent View shipped in Claude Code v2.1.139. Parse the version string
@@ -474,8 +475,10 @@ export function createHttpApp(opts: {
     const name = body.name?.trim();
     if (!name) return c.json({ ok: false, error: 'name is required' }, 400);
 
+    // Without expandHome, a path of "~/thing" resolves against the server's
+    // cwd and scaffoldProject creates a directory literally named `~`.
     const cwd = body.path?.trim()
-      ? resolve(body.path.trim())
+      ? resolve(expandHome(body.path.trim()))
       : join(defaultProjectsDir(), slugifyProjectName(name));
 
     const scaffold = scaffoldProject({ cwd, name, template: body.template });
@@ -1361,7 +1364,7 @@ export function createHttpApp(opts: {
   // v2 Maestro — Phase 1 planner endpoints. `from-goal` runs a planner session
   // (via the orchestrator's SessionRunner), parses + validates its JSON into a
   // draft plan, and parks it at awaiting_approval; `approve` advances it to
-  // running. (Dispatch is Phase 2.) Origin-gated like the other /api/* mutating
+  // running. Origin-gated like the other /api/* mutating
   // routes; token-gating the trigger lands with Phase-2 execution.
   app.post('/api/plans/from-goal', async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as {
@@ -1429,7 +1432,7 @@ export function createHttpApp(opts: {
         title: body.title,
       });
       if (res.run) kickAdvance(id);
-      // 200 on success (incl. queued), 402 when adding it needs Pro to run,
+      // 200 on success (incl. queued),
       // 404 for an unknown plan.
       const status = res.ok ? 200 : res.error === 'plan not found' ? 404 : 400;
       return c.json(res, status);
@@ -1512,7 +1515,14 @@ export function createHttpApp(opts: {
   app.get('/api/system/preflight', (c) => {
     if (preflightCache) return c.json(preflightCache);
     try {
-      const res = spawnSync('claude', ['--version'], {
+      // resolveAgentBin honours SOLIX_CLAUDE_BIN, which docs/multi-runtime.md
+      // documents as the fix for a non-standard install (nvm shim, custom
+      // prefix) "without PATH surgery". This hardcoded 'claude', so the
+      // documented escape hatch was ignored here — and NewTaskModal disables
+      // Launch on claudeAvailable === false, so the check that ignored the
+      // workaround also blocked it.
+      const bin = resolveAgentBin('claude');
+      const res = spawnSync(bin, ['--version'], {
         timeout: 2000,
         encoding: 'utf8',
       });

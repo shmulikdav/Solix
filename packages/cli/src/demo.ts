@@ -22,7 +22,7 @@ const TOKEN_PATH = join(SOLIX_HOME, 'token');
 
 // How long to wait for the freshly-spawned sandbox server to answer
 // /api/health. A cold first run (right after `npm i -g`) loads the native
-// better-sqlite3 addon, seeds 14 advisors from disk, and scans skills — all
+// better-sqlite3 addon, seeds 15 advisors from disk, and scans skills — all
 // synchronously before the HTTP port binds — so 8s was too tight and killed
 // servers that were about to be fine. 30s absorbs a cold boot comfortably;
 // a healthy server answers on the first poll (~150ms) regardless.
