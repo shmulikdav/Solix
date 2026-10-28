@@ -1,4 +1,4 @@
-# Solix 1.18.0 — what to try, and what is young
+# Solix 1.18.1 — what to try, and what is young
 
 A note to go with the build, written to be read before you open it.
 
@@ -130,7 +130,17 @@ it tells you what kind of bugs this codebase produces:
   them: writes report, Test says whether it was delivered, and a failed load
   says so and offers a retry.
 
-718 tests, and each of those fixes was proven by reinstating the bug and
+- **Stopping Solix left the agent hanging** — found in 1.18.0 by walking
+  this note's own step 2, and fixed in **1.18.1**. Killing the server
+  mid-hold did fail closed: nothing destructive ran, the canary file
+  survived every run. But `Ctrl+C` did not quit while anything was held,
+  and the agent waited five minutes before being refused, because a held
+  decision is an open connection the shutdown was waiting on — and so was
+  your open browser tab. It now refuses what it is holding, says so, and
+  exits in about 200ms. If you are on 1.18.0, this is the one thing in here
+  you will see misbehave.
+
+799 tests, and each of those fixes was proven by reinstating the bug and
 watching the tests fail.
 
 ---

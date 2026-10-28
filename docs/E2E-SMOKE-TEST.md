@@ -7,6 +7,47 @@
 
 ## Last run
 
+**2026-10-28, against the published npm tarball** — `npm i -g
+@shmulikdav/solix` into a sandbox prefix with its own `HOME`, which is what
+a design partner installs. Everything before this had been run against a
+local build, and `publish.yml` runs no tests, so nothing had ever walked
+what is actually on the registry. The route taken was
+`docs/PARTNER-BRIEF.md` read literally, in its own order.
+
+| | Result |
+|---|---|
+| **A3/A4** · discloses before writing, backs the file up | **PASS** — 9 hooks across 7 events, matching the count it printed. Re-run against a pre-existing `settings.json`: model, `env`, `permissions` and the user's own `PreToolUse` hook all survived, and the backup was byte-identical to the original |
+| **E2** · a sensitive command is held, not logged | **PASS** — held in 5s, card carried `rm canary/keep.txt` exactly, canary intact while deciding |
+| **E3** · deny actually prevents the command | **PASS** — canary survived; `permission_resolved` with `outcome: "denied"` observed on the wire, and the audit row says who decided |
+| **E6** · fail-closed when Solix dies mid-decision | **PASS on safety, FAILED on everything around it** — see below |
+| **E8** · walking away mid-hold reaches you | **PASS**, and it had no coverage at all until this run — confirmed live in Chromium with notifications granted and the tab hidden: `notify-w needs you` / `Bash: git push --force origin main` |
+| the SPA in a headless, software-GL browser | **PASS** — title, canvas and nav all render, zero console errors. Someone evaluating this on a VM is fine |
+
+**It found a P0 that a passing test was hiding.** E6 had been checked by
+looking at one thing — whether the canary file survived. It did, every
+time, so E6 passed for three releases. Nobody looked at the terminal.
+
+`solix` did not exit on `Ctrl+C` while anything was held: it printed
+`SIGINT — shutting down` and sat there, because `http.Server.close()` waits
+for every open connection and a held permission is an open HTTP request
+whose only possible answer is a human in the UI that is going down with it.
+The agent was then refused not by the shutdown but by the gate's own 300s
+backstop, firing inside a process that could no longer exit — the audit log
+has the hold at 17:01:41 and `Timed out after 300s and was denied` at
+17:06:41. An open browser tab caused the same hang by itself, since an
+upgraded socket is one the server waits for and `closeAllConnections()`
+cannot reach it.
+
+Fixed in 1.18.1 and re-measured against a real agent with a websocket held
+open for five minutes: **222ms**. `createSolixServer` had no test of any
+kind, which is why it shipped; it has three now.
+
+> **Read the terminal, not only the canary.** A safety property that holds
+> while the product around it wedges for five minutes still costs you the
+> evaluation.
+
+---
+
 **2026-10-28, against 1.18.0 + the post-audit rewrite**, by an agent inside a
 cloud container with a real `claude` 2.1.312 — the first time the E-suite has
 been run without a human pasting terminal output back.
@@ -485,9 +526,26 @@ The guarantee is that an unreachable gate denies rather than waving through.
    ls -la ~/solix-qa/canary/
    ```
 
-**Expected:** `keep.txt` **survives**. Killing the server drops the hook's
-open connection, so its `curl` fails at once and the fail-closed policy
-denies — seconds, not the 305s `--max-time` ceiling.
+**Expected:** `keep.txt` **survives**, and two things that were wrong in
+1.18.0 and fixed in 1.18.1:
+
+- **Solix actually exits.** It should print `SIGINT — shutting down`,
+  `N held request(s) refused on the way out`, and be gone. In 1.18.0 it
+  printed the first line and then sat there for five minutes: a held
+  permission is an open HTTP request, `server.close()` waits for every open
+  request, and nothing could answer that one any more. An open browser tab
+  did it too, on its own, because an upgraded socket is also one the server
+  waits for.
+- **The agent is refused in about a second**, not at the ceiling. Shutdown
+  drops the held connection, so the hook's `curl` fails and the fail-closed
+  policy denies. In 1.18.0 the audit log showed the hold opening at 17:01:41
+  and `Timed out after 300s and was denied` at 17:06:41 — the gate's own
+  backstop, not the shutdown.
+
+> Check the **terminal**, not just the canary. Killing the server was
+> already tested, and it passed, because the only thing anyone looked at was
+> whether the file survived. It did. The five-minute hang sat behind a
+> passing test for three releases.
 
 **Corroboration, after restarting Solix:** open the plan in Maestro and
 expand the task. The worker's report persists, and should say the command was
@@ -504,6 +562,37 @@ COMPLETED.
 
 **Expected:** the card shows the command/diff, which session asked, and the
 spend so far. Enough to decide without switching to the terminal.
+
+**Result:** ☐ PASS ☐ FAIL  **Saw:** `________________`
+
+---
+
+### E8 · Walking away mid-hold reaches you — **P1**
+
+`docs/PARTNER-BRIEF.md` makes this step 3 of the twenty minutes that
+matter, and until 1.18.1 this suite had no case for it at all — `grep -i
+notify` over this file returned nothing. The notifier and the `notify me`
+button were both well covered in isolation; the one line connecting a
+`permission_request` to them was not, so deleting it broke no test.
+
+1. Click **◔ notify me** in the top bar and allow it. The button
+   disappears once answered — that is deliberate, not a bug.
+2. Switch to another tab or another window, so the Solix tab is hidden.
+   Notifications only fire while it is: the Decision Queue and the red
+   flare already cover the case where you are looking at the page.
+3. Trigger a held command (as E2).
+
+**Expected:** a desktop notification titled `<agent> needs you`, with the
+tool and the command in the body, tagged per session so a chatty agent
+replaces its own notification rather than stacking them.
+
+**If nothing arrives**, check in this order — there are four independent
+ways for it to stay silent: the opt-out (`notificationsPref`), a browser
+with no Notification API, the tab not actually being hidden, and permission
+not being `granted`.
+
+**Expected also:** nothing fires while the tab is *visible*. Flipping that
+is the easy way to turn this into noise.
 
 **Result:** ☐ PASS ☐ FAIL  **Saw:** `________________`
 
