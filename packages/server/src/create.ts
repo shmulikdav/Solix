@@ -225,7 +225,11 @@ export async function createSolixServer(
     },
   );
 
-  attachWs(server as unknown as import('node:http').Server, {
+  // Keep the handle: an open websocket is a socket the HTTP server will wait
+  // for on close, and `closeAllConnections()` cannot help because Node stops
+  // tracking a socket once it has been upgraded. Shutdown has to end these
+  // itself — see `close()` below.
+  const wss = attachWs(server as unknown as import('node:http').Server, {
     db,
     router,
     broadcaster,
@@ -281,7 +285,42 @@ export async function createSolixServer(
         stopAgentViewBridge();
         transcripts.shutdownAll();
         launcher.shutdownAll();
+        // Held permissions are open HTTP requests, and `server.close()` waits
+        // for every one of them. Nothing can answer them now, so this used to
+        // hang until the gate's own 300s timer fired: Ctrl+C did not quit, and
+        // the agent sat blocked for five minutes. Record them, then drop the
+        // sockets so each hook fails closed at once. See `abandonAllPending`.
+        const abandoned = router.abandonAllPending(
+          'Solix shut down while this was held',
+        );
+        if (abandoned > 0) {
+          console.log(
+            `[solix] ${abandoned} held request(s) refused on the way out`,
+          );
+        }
+        // An open browser tab holds a websocket, and the HTTP server waits for
+        // that socket too — so with the UI open (the state the brief puts you
+        // in) Ctrl+C hung until you closed the tab. Measured: a client with a
+        // 20s lifetime kept a signalled server alive 16.2s. `terminate()`
+        // rather than `close()`, because a graceful handshake needs a peer
+        // that is still listening, and we are going away now.
+        for (const client of wss.clients) {
+          try {
+            client.terminate();
+          } catch {
+            /* already gone */
+          }
+        }
+        wss.close();
         server.close(() => resolve());
+        // Idle keep-alives are still tracked by the HTTP server, so these are
+        // the ones `closeAllConnections` is for. Upgraded sockets are not —
+        // Node drops them from its tracking — hence the loop above.
+        (
+          server as unknown as {
+            closeAllConnections?: () => void;
+          }
+        ).closeAllConnections?.();
       }),
   };
 }

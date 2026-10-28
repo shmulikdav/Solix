@@ -981,6 +981,46 @@ export class EventRouter {
     return [...this.permissions.values()];
   }
 
+  /**
+   * Give up on every held request, because Solix is going away.
+   *
+   * A held permission is an *open HTTP request*, and `server.close()` does
+   * not call back until every open request has ended. The only thing that
+   * could end this one is a human answering in a UI that is shutting down
+   * with us — so `close()` used to wait for the gate's own 300s timer to
+   * fire inside the dying process. Two symptoms, both on the path the
+   * partner brief tells people to walk: `solix` ignored Ctrl+C while
+   * anything was held, and the agent stayed blocked for five minutes
+   * before being refused. Verified against the published 1.18.0: the hold
+   * opened at 17:01:41 and released at 17:06:41, to the second.
+   *
+   * This does not answer the hook — it clears the timer and records what
+   * happened, and the caller then drops the sockets. The hook sees its
+   * connection fail and takes its fail-closed branch, so the agent is
+   * refused within a second, and told the gate was unavailable rather than
+   * that a person reviewed the command. Nobody reviewed it. Any hold at all
+   * means the session was launched while the dial was above `observe`, which
+   * is exactly when the launcher injects `SOLIX_GATE_POLICY=deny`, so
+   * fail-closed is what that hook will do.
+   *
+   * It must not expire in silence either — the same mistake the 300s
+   * timeout used to make — so each abandoned hold leaves an audit row.
+   */
+  abandonAllPending(reason: string): number {
+    const held = [...this.permissions.values()];
+    for (const pending of held) {
+      this.permissions.delete(pending.requestId);
+      if (pending.timer) clearTimeout(pending.timer);
+      recordAudit(this.db, {
+        kind: 'permission_denied',
+        sessionId: pending.sessionId,
+        summary: `${reason}: ${pending.tool} was refused`,
+        payload: { tool: pending.tool, args: pending.args, abandoned: true },
+      });
+    }
+    return held.length;
+  }
+
   /** Public re-broadcast helper for cases where state mutates outside
    * the hook flow (e.g. wrapper unregister clearing the socket path). */
   /** Announce something everyone looking at this Solix should see. */
