@@ -35,9 +35,13 @@ the internet into a shell — refused at every level, including `observe`, for
 
 A `claude` session you started yourself is the exception, and it has to be.
 Solix governs an agent by setting its environment before it starts, and it
-never started that one — so it watches and costs it, and nothing more. Wrap
-it with `solix run` and it becomes a session Solix launched, denylist
-included.
+never started that one — so it watches and costs it, and nothing more.
+
+**`solix run` does not change that.** It wraps the session in a PTY so you
+can type to it from the Solix UI, which is a different thing from governing
+it: the wrapper passes your environment through untouched, so the hooks stay
+in observability mode and the denylist is not consulted. Two-way control,
+not a floor.
 
 Set how much is held with `solix level observe|standard|strict`.
 
