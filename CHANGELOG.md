@@ -5,15 +5,105 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.18.0] — 2026-10-27
+## [1.18.0] — 2026-10-28
 
-**A design-partner audit, and the four classes of defect it found.**
+**An audit, and then two days of finding out the gate was off.**
 
-Solix was read the way a team evaluating it would read it: every tab opened,
-every claim checked against the code. It scored 4/10 — the gate mechanism at
-the centre is sound and was verified end-to-end against a live agent, but
-the layer around it kept reporting things that were not true. This release
-is that layer.
+Solix was first read the way a team evaluating it would read it: every tab
+opened, every claim checked against the code. It scored 4/10 — the mechanism
+at the centre looked sound, and the layer around it kept reporting things
+that were not true.
+
+Then the mechanism itself was run rather than read, against a real `claude`
+and with configurations nobody had varied, and it turned out to be off in
+three different ways — on a non-default port, for anything that was not a
+Maestro worker, and whenever a session row could not be found. Every one of
+them was unit-tested and passing throughout.
+
+Both halves are in here, worst first.
+
+### Fixed — three ways the gate was off without saying so
+
+Found by running Suite E against a real `claude` rather than against tests,
+and by varying configurations nothing had varied. All three were
+unit-tested and passing the whole time.
+
+- **`solix start --port N` disabled the gate entirely.** The hooks are shell
+  scripts that locate the server through `SOLIX_PORT`, defaulting to 4242,
+  and `buildSpawnEnv` forwards that variable to the agents Solix spawns. The
+  flag moved the listener and never set the variable, so every spawned
+  agent's hook called 4242, found nothing, and fail-closed on every tool
+  call.
+
+  Safe, and useless: the agent was *blocked* rather than held, no decision
+  card ever appeared, and the only trace was "Solix gate unavailable
+  (fail-closed)" inside a worker's report. Worse, the port-conflict message
+  added in this same release tells you to `--port` your way out of a
+  collision — straight into it.
+
+- **The floor was evaluated behind a database lookup.** `requestPermission`
+  called containment only inside `if (session)`, so a tool call whose
+  session row could not be found skipped the denylist and fell through to
+  the dial: at `observe` a denylisted command under an unknown session id
+  returned `{"decision":"allow"}`, and at `standard` and `strict` it was
+  merely *held for a human*. A session row is absent for ordinary reasons —
+  a tool hook arriving before `session-start` is processed, a pre-created
+  planet row that failed to write, a correlation miss.
+
+- **Suite E now passes against a real agent**, including the fail-closed
+  case, and `docs/E2E-SMOKE-TEST.md` gains **F8**: run the denylist probe at
+  all three levels every release. It had no live coverage at all before
+  this. Worktrees were checked at the same time and are correct; Codex has
+  no gate and the multi-runtime doc now says so.
+
+### Fixed — a second team install doubled the bill
+
+- **Installing a team twice created its routines twice.** A team's routines
+  are recurring spend: each starts a real agent session on a cadence and
+  bills on every run. `installTeamTemplate` called `createSchedule`
+  unconditionally with no idempotency check, and the success toast was
+  identical both times — so a second click, which nothing discouraged
+  because nothing said the first had worked, left two enabled routines
+  running the same prompt forever. They are recognised by project +
+  template + name now, and reported rather than duplicated.
+
+- **The install failure reason was discarded.** The server returns it in
+  `warnings`; the store kept only `ok` and `warnings` and never set `error`,
+  so every cause rendered the same bare "Install failed." On success,
+  warnings collapsed to "(1 skipped)".
+
+- **One checkbox answered for every team.** `includeRoutines` was a single
+  tab-level boolean rendered inside the template list, so declining routines
+  on one card declined them on all — on the control that decides whether
+  recurring spend starts.
+
+### Fixed — surfaces that failed in silence
+
+- **Connections could not tell you when a write failed.** Six
+  `fetch(...).catch(() => {})` with no status check, in a credential store
+  whose secret values are write-only — so a failed write was both invisible
+  and unrecoverable. The `Test` button rendered no result either way,
+  despite the server computing one, which hid the dangerous case: a webhook
+  that rejected the message, so the credential is wrong and you believe it
+  works.
+
+- **A list that failed to load rendered as "you have none."** In
+  Connections, Teams and Crew alike. "You have none" and "I could not ask"
+  are different facts, and guessing wrong sends people to create something
+  they already have.
+
+- **Maestro could not retry a task or delete a plan**, while the endpoints
+  for both shipped uncalled. A failed plan was terminal, so the only route
+  back was a follow-up *goal* — a new plan with new planner spend that
+  abandons the task state.
+
+- **"Review changes" could show your own uncommitted work as the fleet's.**
+  With no captured base commit the diff fell back to `HEAD`, silently. It
+  says so now, and names the base when it has one.
+
+- **"Open preview" was offered where it could not work**, including for Node
+  and Python projects, in a chromeless popup landing on an HTTP 200 dead
+  end.
 
 ### Fixed — the floor moved with the dial
 
