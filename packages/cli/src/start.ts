@@ -139,8 +139,35 @@ function ensureWired(noWire = false): void {
   }
 }
 
-export async function start(opts: StartOptions = {}): Promise<void> {
+/**
+ * Decide which port to serve on, and publish it to the environment.
+ *
+ * The publishing half is the point. Hooks locate the server through
+ * `SOLIX_PORT` (defaulting to 4242), and `buildSpawnEnv` forwards that
+ * variable from this process to the agents Solix spawns. `--port N` moved
+ * the server without ever setting it, so every spawned agent's hook called
+ * 4242 — where nothing was listening — and the gate fail-closed on every
+ * tool call.
+ *
+ * Safe, and useless: the agent was *blocked* rather than held, no decision
+ * card ever appeared, and the only clue was "Solix gate unavailable
+ * (fail-closed)" buried in a worker's report. Running Suite E on a
+ * non-default port is what surfaced it. Worse, the EADDRINUSE message added
+ * days earlier tells people to `--port` their way out of a conflict,
+ * steering them straight into it.
+ *
+ * The environment is the transport here — the hook is a shell script that
+ * reads env — so publishing to `process.env` is the mechanism, not a
+ * workaround.
+ */
+export function resolveAndPublishPort(opts: StartOptions = {}): number {
   const port = opts.port ?? Number(process.env.SOLIX_PORT ?? 4242);
+  process.env.SOLIX_PORT = String(port);
+  return port;
+}
+
+export async function start(opts: StartOptions = {}): Promise<void> {
+  const port = resolveAndPublishPort(opts);
   console.log(BANNER);
   ensureWired(opts.noWire);
   let handle: Awaited<ReturnType<typeof createSolixServer>>;

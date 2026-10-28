@@ -5,6 +5,36 @@
 
 ---
 
+## Last run
+
+**2026-10-28, against 1.18.0 + the post-audit rewrite**, by an agent inside a
+cloud container with a real `claude` 2.1.312 — the first time the E-suite has
+been run without a human pasting terminal output back.
+
+| | Result |
+|---|---|
+| **E2** · a sensitive command is held, not logged | **PASS** — plan stalled, card carried the exact command, `keep.txt` intact while deciding |
+| **E3** · deny actually prevents the command | **PASS** — `keep.txt` survived the denial |
+| **E6** · fail-closed when Solix dies mid-decision | **PASS** — hold left unanswered, server killed, `keep.txt` survived |
+| `permission_resolved` reaches a connected client | **PASS** — observed over the websocket with `outcome: "denied"` |
+
+**It also found a P0 that no test covered: `solix start --port N` broke the
+gate entirely.** The hooks locate the server through `SOLIX_PORT`
+(defaulting to 4242) and `buildSpawnEnv` forwards it from the server
+process — but `--port` set only the listener, never the variable. So every
+spawned agent's hook called 4242, found nothing, and fail-closed on every
+tool call. Safe, and useless: the agent was *blocked* rather than held, no
+decision card ever appeared, and the only trace was "Solix gate unavailable
+(fail-closed)" inside a worker's report.
+
+Fixed in `resolveAndPublishPort` and re-verified end to end: the same plan
+on `--port 4370` now holds for a human. Covered by `startPort.test.ts`.
+
+> Run E on a **non-default port** at least once per release. The default-port
+> path had been exercised for three releases and hid this completely.
+
+---
+
 ## How to use this
 
 Every case is independently runnable and states its own preconditions. Mark
