@@ -51,6 +51,21 @@ be governed by setting an environment it never had.
 > Run **F8** at all three levels every release. The denylist had no live
 > coverage whatsoever before this.
 
+**A third, found the same way the day after.** `evaluateContainment` was
+called only inside `if (session)`, so a tool call whose session row could
+not be found skipped the floor: at `observe` a denylisted command under an
+unknown session id returned `{"decision":"allow"}`, and at `standard` and
+`strict` it was merely *held for a human*, with no `command_blocked` row at
+any level. A session row is absent for ordinary reasons — a tool hook
+arriving before `session-start` is processed, a pre-created planet row that
+failed to write, a correlation miss. The denylist is now evaluated before
+the lookup, which is all it ever needed: the tool and the command.
+
+**Worktrees were checked at the same time and are fine.** A task launched
+with `worktreeBranch` records the worktree as its `cwd`, so confinement is
+relative to the worktree rather than the original checkout, and the denylist
+fires inside it. They had no test coverage at all; they have some now.
+
 ---
 
 ## How to use this

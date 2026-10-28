@@ -13,6 +13,24 @@ pipeline.
 | **Claude Code** | Supported | Supported | Spawn path, env/gate injection, argv, result parsing, cost, abort are covered by an end-to-end test against a stand-in binary (`launcher.integration.test.ts`). The envelope shape is pinned to the documented `SDKResultMessage` arms. A live smoke test against your installed `claude` is still the final check. |
 | **Codex** | **Experimental** | **Experimental** | **No.** Written against Codex's documented event stream and never executed against the real binary. |
 
+## The gate does not cover Codex
+
+Worth stating plainly, because the rest of this page is about observation
+and dispatch and a reader could reasonably assume governance came along for
+the ride.
+
+Every hook in `packages/cli/hooks/` is a Claude Code hook, registered in
+`~/.claude/settings.json`. There is no Codex equivalent, and `PreToolUse` is
+where the gate lives — so a Codex worker dispatched by Maestro receives
+`SOLIX_GATE_ENABLED=1` in its environment, nothing reads it, and **neither
+the human gate nor the command denylist applies to it**. Solix will observe
+what it reports and price its tokens; it will not stop it.
+
+This is reasoning from the code, not a live result — `codex` was not
+installed on the machine where it was checked — so treat it as the expected
+behaviour rather than a verified one, and the conservative assumption either
+way.
+
 ## What "experimental" means for Codex
 
 - The event normalizer (`server/src/codex.ts`), the `codex exec` argv builder and

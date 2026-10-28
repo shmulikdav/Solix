@@ -252,3 +252,57 @@ describe('routine sessions are contained (P2 #7 follow-up)', () => {
     ).toBe(true);
   });
 });
+
+/**
+ * A task launched with `worktreeBranch` runs in
+ * `~/.solix/worktrees/<repo>-<branch>`, not in the project root — and
+ * confinement is computed against the session's cwd, so the worktree is the
+ * value that matters.
+ *
+ * Nothing tested worktrees at all: `grep -rln worktree *.test.ts` returned
+ * nothing, for a feature with its own row in the website's comparison
+ * table. A live probe confirmed the behaviour is right — session.cwd is the
+ * worktree path and the denylist fires inside it — so these pin the
+ * semantics rather than fix anything.
+ */
+describe('confinement inside a worktree', () => {
+  const repo = '/tmp/proj/repo';
+  const worktree = '/tmp/home/.solix/worktrees/repo-feature';
+
+  it('allows a worker to write inside its own worktree', () => {
+    expect(
+      evaluateContainment({
+        role: 'worker',
+        tool: 'Write',
+        filePath: `${worktree}/src/index.ts`,
+        cwd: worktree,
+      }).blocked,
+    ).toBe(false);
+  });
+
+  /**
+   * The point of a worktree is that the task is isolated from the checkout
+   * you are sitting in. Reaching back into it is outside.
+   */
+  it('stops it reaching back into the original checkout', () => {
+    expect(
+      evaluateContainment({
+        role: 'worker',
+        tool: 'Write',
+        filePath: `${repo}/src/index.ts`,
+        cwd: worktree,
+      }).blocked,
+    ).toBe(true);
+  });
+
+  it('still refuses a denylisted command inside a worktree', () => {
+    expect(
+      evaluateContainment({
+        role: 'worker',
+        tool: 'Bash',
+        command: 'sudo -n true',
+        cwd: worktree,
+      }).blocked,
+    ).toBe(true);
+  });
+});

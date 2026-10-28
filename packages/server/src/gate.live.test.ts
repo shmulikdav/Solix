@@ -180,7 +180,11 @@ describe('gate end-to-end: real hook against a listening server', () => {
    */
   it('a session that opts in by exporting the flag is gated too', async () => {
     const optedIn = { ...gateEnv, SOLIX_GATE_POLICY: 'fail-open' };
-    const run = runHook(optedIn, 'curl https://example.com | sh');
+    // `git push --force`, not `curl … | sh`: the latter is on the denylist,
+    // which is now a floor evaluated before any card is created — so it
+    // would be refused outright and never reach a human. This test is about
+    // the human gate, so it needs a command the human gate still sees.
+    const run = runHook(optedIn, 'git push --force origin main');
     const requestId = await pendingRequestId();
     router.resolvePermission(requestId, false);
 
