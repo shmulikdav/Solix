@@ -150,5 +150,13 @@ Most useful, in order:
 Not worth your time reporting: anything in the "young" list above, visual
 polish, or mobile.
 
-`Report a problem` in the bottom-left of the rail sends me the payload and
-shows you exactly what it contains before it goes anywhere.
+**Come straight to me, not to the issue tracker.** This is a private
+evaluation and I would rather read it than have it filed in public — just
+reply to the message this note came with.
+
+`Report a problem`, bottom-left of the rail, is still the quickest way to
+gather the context: it collects the version, platform and recent errors,
+shows you the whole payload first, and **Copy details** puts it on your
+clipboard. Paste that into your reply. Nothing leaves your machine on its
+own — the other button opens a public GitHub issue, so don't use it for
+this.

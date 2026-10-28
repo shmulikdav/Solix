@@ -50,10 +50,18 @@ export function level(requested?: string): void {
   const next = setGovernanceLevel(db, requested);
   console.log(`[solix] governance: ${describeGovernanceLevel(next)}`);
   if (next === 'observe') {
-    // Lowering supervision should never be a quiet success message.
+    // Lowering supervision should never be a quiet success message — and
+    // the reassurance has to be accurate, or it is worse than silence.
+    // "The denylist still blocks destructive commands" said nothing about
+    // *whose* commands, one line below a description that had just been
+    // corrected to say "what Solix launched". A session you started
+    // yourself is not governed and cannot be: Solix governs an agent by
+    // setting its environment before the process starts.
     console.log(
       `${WARN}[solix] nothing will be held for your approval. The denylist still\n` +
-        `        blocks destructive commands; everything else runs.${RESET}`,
+        `        refuses destructive commands from agents Solix launched;\n` +
+        `        everything else runs, and a \`claude\` session you started\n` +
+        `        yourself is not governed at all.${RESET}`,
     );
   }
 }
