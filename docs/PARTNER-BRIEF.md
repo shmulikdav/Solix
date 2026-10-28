@@ -150,5 +150,7 @@ Most useful, in order:
 Not worth your time reporting: anything in the "young" list above, visual
 polish, or mobile.
 
-`Report a problem` in the bottom-left of the rail sends me the payload and
-shows you exactly what it contains before it goes anywhere.
+`Report a problem` in the bottom-left of the rail collects the version,
+platform and recent errors, shows you the whole payload, and then opens a
+**prefilled GitHub issue** — or copies it, if you would rather paste it
+somewhere else. Nothing leaves your machine until you submit it yourself.

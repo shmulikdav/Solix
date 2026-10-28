@@ -145,19 +145,37 @@ describe('ReportProblem', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  /**
+   * Reads the anchor's href rather than spying on window.open.
+   *
+   * This used to be `window.open(href, '_blank', 'noopener,noreferrer')`,
+   * where the third argument is the only way that API grants noopener — and
+   * also the thing that makes the browser open a chromeless popup, with no
+   * address bar and no back button. On a page whose destination is
+   * github.com, and which the user is about to type a bug report into,
+   * hiding the address is the wrong thing to take away. An anchor gets a
+   * real tab and noopener both.
+   */
   it('prefills the issue form fields it has', async () => {
-    const open = vi.fn();
-    vi.stubGlobal('open', open);
     render(<ReportProblem open onClose={() => {}} />);
     await diagnostics();
-    screen.getByText('Open a GitHub issue').click();
 
-    const url = String(open.mock.calls[0]?.[0] ?? '');
+    const link = screen.getByText('Open a GitHub issue') as HTMLAnchorElement;
+    const url = link.href;
     expect(url).toContain('template=bug_report.yml');
     expect(url).toContain('solix-version=1.12.0');
     expect(url).toContain(encodeURIComponent('v22.1.0'));
     // darwin maps onto the dropdown's wording, not the raw platform string.
     expect(url).toContain(encodeURIComponent('macOS'));
-    vi.unstubAllGlobals();
+  });
+
+  it('opens a real tab, not a chromeless popup', async () => {
+    render(<ReportProblem open onClose={() => {}} />);
+    await diagnostics();
+
+    const link = screen.getByText('Open a GitHub issue') as HTMLAnchorElement;
+    expect(link.tagName).toBe('A');
+    expect(link.target).toBe('_blank');
+    expect(link.rel).toContain('noopener');
   });
 });

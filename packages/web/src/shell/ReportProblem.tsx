@@ -193,15 +193,29 @@ export function ReportProblem({
         </div>
 
         <div className="flex items-center gap-2 border-t border-solix-border px-5 py-3">
-          <Button
-            variant="primary"
-            onClick={() => {
-              window.open(href, '_blank', 'noopener,noreferrer');
-              onClose();
-            }}
+          {/*
+            An anchor, not window.open with a features string.
+
+            `window.open(href, '_blank', 'noopener,noreferrer')` puts
+            noopener where it belongs for that API — but any non-empty
+            third argument makes the browser open a chromeless popup, with
+            no address bar and no back button. The same defect was fixed in
+            PlanPanel's preview link and not carried here.
+
+            It matters more on this one: the destination is github.com and
+            the user is about to type a bug report into it, so hiding the
+            address is exactly the wrong thing to take away. An anchor gets
+            a real tab and noopener both, which window.open cannot.
+          */}
+          <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={onClose}
+            className="rounded px-3 py-1.5 text-xs bg-solix-accent/20 border border-solix-accent text-solix-accent hover:bg-solix-accent/30"
           >
             Open a GitHub issue
-          </Button>
+          </a>
           <Button
             variant="ghost"
             onClick={() => {
