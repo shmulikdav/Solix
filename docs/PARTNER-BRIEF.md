@@ -117,6 +117,11 @@ it tells you what kind of bugs this codebase produces:
   and Python projects, and landed on an HTTP 200 dead end in a popup with no
   back button. Fixed — the button appears only when there is something to
   serve, opens a real tab, and the fallback is a 404 with a way back.
+- **The command denylist only guarded Maestro's agents.** `rm -rf /`, a fork
+  bomb and `curl | sh` were refused for workers and verifiers, and not for a
+  New task you launched — which at `observe` meant not at all. Both the
+  README and the UI said otherwise. Fixed: the floor applies to everything
+  Solix launches, at every level.
 - **The Fleet panel could not tell you when something went wrong.** Every
   write in Connections — a credential store, where secret values are
   write-only and so a failed write is unrecoverable — was fire-and-forget

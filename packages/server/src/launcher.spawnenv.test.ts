@@ -77,12 +77,34 @@ describe('the spawned process really gets the gate', () => {
     }
   });
 
-  it('at `observe` it is spawned ungated, because that is what observe means', () => {
+  /**
+   * This asserted the gate was absent at `observe`, which is what let a New
+   * task run `sudo -n true` there with nothing in its way — confirmed
+   * against a real agent.
+   *
+   * `observe` means nothing is *held for a human*. It never meant the
+   * command denylist stops applying; README.md and the level description
+   * both said the opposite. The gate env is the only way the hook reaches
+   * the server, and the server is the only place the denylist runs, so it
+   * has to be injected at every level. The policy carries the difference.
+   */
+  it('at `observe` it is still gated, so the denylist can run', () => {
     setGovernanceLevel(db, 'observe');
     launchNewTask();
 
     const env = spawnCalls[0]!.opts.env;
-    // undefined = inherit unchanged; or present but without the gate flag.
-    expect(env?.SOLIX_GATE_ENABLED).toBeUndefined();
+    expect(env?.SOLIX_GATE_ENABLED).toBe('1');
+  });
+
+  it('but fails OPEN at `observe`, so a dead Solix never blocks you', () => {
+    setGovernanceLevel(db, 'observe');
+    launchNewTask();
+    expect(spawnCalls[0]!.opts.env?.SOLIX_GATE_POLICY).toBe('fail-open');
+  });
+
+  it('fails closed above `observe`, where a human is meant to decide', () => {
+    setGovernanceLevel(db, 'standard');
+    launchNewTask();
+    expect(spawnCalls[0]!.opts.env?.SOLIX_GATE_POLICY).toBe('deny');
   });
 });

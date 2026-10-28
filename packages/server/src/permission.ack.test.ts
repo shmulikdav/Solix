@@ -82,8 +82,14 @@ describe('a resolved permission is announced', () => {
     ]);
   });
 
+  /**
+   * `git push`, not `rm -rf /`: a denylisted command is now refused by
+   * containment before it ever reaches a human, so it would never produce
+   * a card to deny. That is the point of the floor — but it means this
+   * test has to use something the human gate actually still sees.
+   */
   it('announces a denial', async () => {
-    const pending = router.requestPermission(bashEvent('s1', 'rm -rf /'));
+    const pending = router.requestPermission(bashEvent('s1', 'git push --force'));
     const id = requestId();
 
     router.resolvePermission(id, false);

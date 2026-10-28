@@ -15,6 +15,41 @@ the centre is sound and was verified end-to-end against a live agent, but
 the layer around it kept reporting things that were not true. This release
 is that layer.
 
+### Fixed — the floor moved with the dial
+
+- **The command denylist only ever guarded Maestro's agents.**
+  `evaluateContainment` opened with
+  `if (!isContainedRole(role)) return { blocked: false }`, so `rm -rf /`, a
+  fork bomb and `curl | sh` were refused for workers, verifiers and routines
+  — and nothing else. A **New task** you launch from the UI carries no role,
+  so at `observe` it ran unimpeded, and at `standard` it was *held for a
+  human*: a different mechanism, with a different promise.
+
+  Meanwhile the README said the denylist is "not on that dial — refused at
+  every level, including `observe`, in every one of those rows", and the
+  text shown when you select a level said "the command denylist still
+  blocks". Confirmed against a real agent: a New task ran `sudo -n true` at
+  `observe` with nothing in its way.
+
+  The denylist now runs for anything that reaches the gate. Confinement to
+  the project directory stays role-scoped, deliberately — that exists so an
+  unwatched worker cannot wander out of its project, while a New task is you
+  in your own environment.
+
+- **The gate was not injected at `observe` at all**, which is why there was
+  nothing to run the denylist. `SOLIX_GATE_ENABLED` is the only way the hook
+  reaches the server, and the server is the only place containment runs.
+  It is now injected at every level, with the policy carrying the
+  difference: `fail-open` at `observe`, so the floor holds while Solix is up
+  and a dead Solix never blocks a task on the setting that means "stay out
+  of my way"; `deny` above it, where a human is meant to be deciding.
+
+- **The claim is narrower and now true.** A `claude` session you started
+  yourself is governed by nothing, and cannot be — Solix governs an agent by
+  setting its environment before it starts. The README, the level
+  description and the website say that instead of implying otherwise;
+  `solix run` is the way in.
+
 ### Fixed — it could lose data that is not Solix's
 
 - **A malformed `~/.claude/settings.json` was replaced with Solix's hooks

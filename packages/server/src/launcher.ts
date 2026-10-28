@@ -127,14 +127,27 @@ export function containmentOptedOut(env: NodeJS.ProcessEnv = process.env): boole
 
 /** The gate env to inject into a contained worker: the fail-closed tool-call
  *  gate, unless the user opted out. Pure (env injected) so it's unit-testable. */
-export function containmentGateEnv(env: NodeJS.ProcessEnv = process.env): {
+/**
+ * What an unreachable or slow gate should do.
+ *
+ * `deny` is right wherever a human is meant to be deciding. `fail-open` is
+ * for `observe`, which means "watch, hold nothing": the denylist still runs
+ * whenever Solix is up, and a dead Solix never blocks a task on the one
+ * setting whose whole point is to stay out of the way.
+ */
+export type GatePolicy = 'deny' | 'fail-open';
+
+export function containmentGateEnv(
+  env: NodeJS.ProcessEnv = process.env,
+  policy: GatePolicy = 'deny',
+): {
   SOLIX_GATE_ENABLED?: string;
   SOLIX_GATE_POLICY?: string;
 } {
   if (containmentOptedOut(env)) return {};
   return {
     SOLIX_GATE_ENABLED: '1',
-    SOLIX_GATE_POLICY: env.SOLIX_GATE_POLICY ?? 'deny',
+    SOLIX_GATE_POLICY: env.SOLIX_GATE_POLICY ?? policy,
   };
 }
 
@@ -162,8 +175,9 @@ function buildSpawnEnv(
    * A New task wants the second half only. Your environment, held commands.
    */
   gateOnly = false,
+  policy: GatePolicy = 'deny',
 ): NodeJS.ProcessEnv | undefined {
-  return buildSpawnEnvImpl(contain, gateOnly);
+  return buildSpawnEnvImpl(contain, gateOnly, policy);
 }
 
 /** Exported for tests: the env a child is actually handed. */
@@ -175,6 +189,7 @@ export const buildSpawnEnvForTest = (
 function buildSpawnEnvImpl(
   contain: boolean,
   gateOnly: boolean,
+  policy: GatePolicy = 'deny',
 ): NodeJS.ProcessEnv | undefined {
   const scrub =
     contain ||
@@ -183,7 +198,7 @@ function buildSpawnEnvImpl(
 
   if (!scrub) {
     if (!gateOnly) return undefined;
-    const gate = containmentGateEnv();
+    const gate = containmentGateEnv(process.env, policy);
     // Opted out of containment entirely → nothing to inject, inherit as before.
     if (Object.keys(gate).length === 0) return undefined;
     return { ...process.env, ...gate };
@@ -232,7 +247,7 @@ function buildSpawnEnvImpl(
   // Safe-by-default: a Solix-launched worker/verifier gets the gate + a
   // fail-closed policy so the denylist governs it with zero config, unless the
   // user deliberately opted out.
-  if (contain) Object.assign(env, containmentGateEnv());
+  if (contain) Object.assign(env, containmentGateEnv(process.env, policy));
   return env;
 }
 
@@ -785,10 +800,27 @@ export class Launcher {
   }): { ok: boolean; sessionId?: string } {
     if (!opts.initialPrompt.trim()) return { ok: false };
 
-    // A New task is gated like anything else Solix launches — unless the
-    // level is `observe`, which is the setting that means "watch, hold
-    // nothing".
-    const gate = shouldGateAtAll(getGovernanceLevel(this.db));
+    /**
+     * Two different questions, and they used to be one.
+     *
+     * `holdForHuman` is the dial: does a sensitive call stop and wait for
+     * you? That is off at `observe`, by definition.
+     *
+     * Whether the gate is *injected at all* is separate, because the
+     * command denylist is a floor that does not move with the dial — and
+     * the gate env is the only way the hook ever calls the server, which
+     * is the only place the denylist runs. Keying injection off the dial
+     * meant a New task at `observe` ran `sudo` with nothing in its way,
+     * while README.md and the level description both promised otherwise.
+     * Verified against a real agent before changing it.
+     *
+     * So: always inject, and let the policy carry the difference.
+     * `observe` fails open — the floor holds while Solix is up, and a dead
+     * Solix never blocks a task on the setting that means "stay out of my
+     * way".
+     */
+    const holdForHuman = shouldGateAtAll(getGovernanceLevel(this.db));
+    const gatePolicy: GatePolicy = holdForHuman ? 'deny' : 'fail-open';
 
     if (opts.useAgentView) {
       // `claude --bg` hands the session to the Agent View supervisor. If that
@@ -797,7 +829,11 @@ export class Launcher {
       // happened to start the daemon first. A safety guarantee that holds
       // nondeterministically is worse than one that is plainly absent, so
       // when the gate is meant to be on we take the path we control.
-      if (!gate) {
+      if (!holdForHuman) {
+        // NOTE: a supervisor-hosted session does not inherit the env we set,
+        // so the denylist cannot reach it either. At `observe` with Agent
+        // View explicitly ticked, that is the trade the user asked for; at
+        // any other level we take the path we control, below.
         return this.dispatchAgentView({
           cwd: opts.cwd,
           model: opts.model,
@@ -893,8 +929,10 @@ export class Launcher {
       goalId: opts.goalId,
       contain: Boolean(opts.sessionRole),
       // Not contained — this is your task, so it keeps your environment — but
-      // gated, so its risky commands stop and wait for you.
-      gate,
+      // always gated, so the denylist applies and, above `observe`, risky
+      // commands stop and wait for you.
+      gate: true,
+      gatePolicy,
     });
   }
 
@@ -1099,6 +1137,8 @@ export class Launcher {
     contain?: boolean;
     /** Gate without scrubbing — a task you launched, keeping your env. */
     gate?: boolean;
+    /** What an unreachable gate does. `fail-open` at `observe`. */
+    gatePolicy?: GatePolicy;
   }): { ok: boolean; sessionId?: string } {
     let child: ChildProcess;
     try {
@@ -1107,7 +1147,7 @@ export class Launcher {
         cwd: opts.cwd,
         stdio: ['ignore', 'pipe', 'pipe'],
         detached: false,
-        env: buildSpawnEnv(opts.contain, opts.gate),
+        env: buildSpawnEnv(opts.contain, opts.gate, opts.gatePolicy),
       });
     } catch (err) {
       // explainSpawnError lives 800 lines up for exactly this, and the async

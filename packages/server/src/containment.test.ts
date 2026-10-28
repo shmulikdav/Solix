@@ -100,14 +100,72 @@ describe('evaluateContainment', () => {
     expect(d.blocked).toBe(true);
   });
 
-  it('does NOT contain a normal user session (keeps the human gate)', () => {
+  /**
+   * This asserted the opposite until a live probe showed what it cost.
+   *
+   * The old rule was `if (!isContainedRole(role)) return { blocked: false }`,
+   * so the denylist covered Maestro's workers and verifiers and nothing
+   * else. A New task from the UI carries no role: at `observe` it ran
+   * `sudo -n true` with nothing stopping it, and at `standard` it was
+   * *held* for a human — a different mechanism with a different promise —
+   * while README.md and the level description both said the denylist
+   * applies at every level, in every row.
+   *
+   * "Containment governs what Solix launches, not what you run yourself"
+   * is still the rule. It is just enforced where it actually lives: an
+   * external session never reaches this function, because the hook only
+   * calls /events/permission when SOLIX_GATE_ENABLED is injected, and
+   * Solix only injects it into what it launches. The role check here was a
+   * proxy for that, and a leaky one.
+   */
+  it('blocks a denylisted command whatever the role', () => {
     const d = evaluateContainment({
       role: undefined,
       tool: 'Bash',
       command: 'rm -rf /',
       cwd,
     });
-    expect(d.blocked).toBe(false);
+    expect(d.blocked).toBe(true);
+  });
+
+  /** The probe that found it: a New task, no role, at any level. */
+  it('blocks sudo from a New task', () => {
+    expect(
+      evaluateContainment({
+        role: undefined,
+        tool: 'Bash',
+        command: 'sudo -n true',
+        cwd,
+      }).blocked,
+    ).toBe(true);
+  });
+
+  /**
+   * Confinement is the half that stays role-scoped. It exists so an
+   * autonomous worker cannot wander out of its project; a New task is you,
+   * in your own environment, and writing outside the project may well be
+   * what you meant.
+   */
+  it('does not confine an unrolled session to the project directory', () => {
+    expect(
+      evaluateContainment({
+        role: undefined,
+        tool: 'Write',
+        filePath: '/etc/somewhere-else',
+        cwd,
+      }).blocked,
+    ).toBe(false);
+  });
+
+  it('still confines a worker to the project directory', () => {
+    expect(
+      evaluateContainment({
+        role: 'worker',
+        tool: 'Write',
+        filePath: '/etc/somewhere-else',
+        cwd,
+      }).blocked,
+    ).toBe(true);
   });
 
   it('allows a worker doing ordinary work', () => {
@@ -181,11 +239,16 @@ describe('routine sessions are contained (P2 #7 follow-up)', () => {
     ).toBe(false);
   });
 
-  it('still leaves a human-started session ungoverned', () => {
-    // Containment governs what Solix launches, not what you run yourself.
+  /**
+   * Still true, and still the rule — but enforced by never injecting
+   * SOLIX_GATE_ENABLED into a session Solix did not launch, so the hook
+   * stays in fire-and-forget mode and this function is never consulted.
+   * At this layer, a denylisted command is refused regardless.
+   */
+  it('refuses a denylisted command at this layer, role or not', () => {
     expect(
       evaluateContainment({ tool: 'Bash', command: 'rm -rf /', cwd: '/tmp/p' })
         .blocked,
-    ).toBe(false);
+    ).toBe(true);
   });
 });
