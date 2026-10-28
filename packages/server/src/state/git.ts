@@ -10,6 +10,17 @@ import type { PlanReview, PlanReviewFile } from '@solix/shared';
 
 const MAX_DIFF_BYTES = 200_000;
 
+/**
+ * How many untracked files to synthesize a diff for.
+ *
+ * Each one costs a `spawnSync` on the server's main thread, behind a GET —
+ * so a tree with hundreds of them stalled the whole local server while
+ * someone clicked "Review changes". `--exclude-standard` keeps ignored
+ * paths out, which bounds this in practice, but a fresh scaffold or a
+ * missing .gitignore does not.
+ */
+const MAX_UNTRACKED_SCANNED = 100;
+
 function git(cwd: string, args: string[]): { ok: boolean; out: string } {
   const r = spawnSync('git', args, {
     cwd,
@@ -42,7 +53,8 @@ export function buildPlanReview(cwd: string, baseRef?: string): PlanReview {
   if (!isRepo(cwd)) {
     return { ok: true, notARepo: true, files: [], diff: '' };
   }
-  const base = baseRef && gitRefExists(cwd, baseRef) ? baseRef : 'HEAD';
+  const baseUsable = Boolean(baseRef) && gitRefExists(cwd, baseRef!);
+  const base = baseUsable ? baseRef! : 'HEAD';
 
   // Tracked changes since base (numstat → per-file add/delete counts).
   const files: PlanReviewFile[] = [];
@@ -59,8 +71,15 @@ export function buildPlanReview(cwd: string, baseRef?: string): PlanReview {
 
   // New untracked files — each as a synthesized new-file diff.
   const untracked = git(cwd, ['ls-files', '--others', '--exclude-standard']);
-  for (const path of untracked.out.split('\n').map((s) => s.trim())) {
-    if (!path) continue;
+  const untrackedPaths = untracked.out
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const untrackedOmitted = Math.max(
+    0,
+    untrackedPaths.length - MAX_UNTRACKED_SCANNED,
+  );
+  for (const path of untrackedPaths.slice(0, MAX_UNTRACKED_SCANNED)) {
     // --no-index exits non-zero when files differ; we want its stdout anyway.
     const nd = spawnSync('git', ['diff', '--no-index', '--', '/dev/null', path], {
       cwd,
@@ -69,7 +88,11 @@ export function buildPlanReview(cwd: string, baseRef?: string): PlanReview {
     });
     const text = nd.stdout ?? '';
     if (text) diff += (diff ? '\n' : '') + text;
-    const additions = text.split('\n').filter((l) => l.startsWith('+')).length;
+    // `+++ b/path` is a header, not an added line. Counting it made every
+    // untracked file's addition count exactly one too high.
+    const additions = text
+      .split('\n')
+      .filter((l) => l.startsWith('+') && !l.startsWith('+++')).length;
     files.push({ path, status: 'added', additions, deletions: 0 });
   }
 
@@ -98,6 +121,10 @@ export function buildPlanReview(cwd: string, baseRef?: string): PlanReview {
   return {
     ok: true,
     baseRef: base === 'HEAD' ? undefined : base,
+    // Only when a base was asked for and could not be used — so the client
+    // can tell "never had one" from "its base is gone".
+    requestedBaseRef: !baseUsable && baseRef ? baseRef : undefined,
+    untrackedOmitted: untrackedOmitted > 0 ? untrackedOmitted : undefined,
     files: files.sort((a, b) => a.path.localeCompare(b.path)),
     diff,
     truncated,

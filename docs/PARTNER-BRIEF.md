@@ -68,20 +68,11 @@ dial and refuses at every level, including `observe`.
 Named deliberately. These are real, they are known, and none of them is a
 surprise to me.
 
-**Plan editing doesn't exist in the UI.** Maestro turns a goal into a task
-list and you get one button: *Approve & run*. You cannot reorder, retitle,
+**Plan editing is half there.** Maestro turns a goal into a task list and
+you get one button: *Approve & run*. You can now retry a failed or escalated
+task, and delete a plan you are done with — but you cannot reorder, retitle,
 retarget a model, drop a task or add one. The server endpoints for all of
-that ship; the frontend does not call them. There is also no per-task retry
-and no way to delete a failed plan, so failed plans accumulate.
-
-**"Review changes" can mislead on a plan that failed early.** If the plan
-never captured a base commit, the diff falls back to `HEAD` — which means it
-can show you *your own uncommitted work* under a heading that says "what did
-the fleet change?". Check `git status` before trusting it.
-
-**"Open preview" is a dead end for anything that isn't a static site.** It
-opens a chromeless popup, and for a Node or Python project there is nothing
-to serve.
+that ship; the frontend calls two of them.
 
 **Share doesn't share.** It does file import/export of a galaxy manifest. The
 publish-and-browse half exists on the server and has no UI.
@@ -122,6 +113,13 @@ it tells you what kind of bugs this codebase produces:
 - **Several figures were invented.** `$0.00` cost-per-mission beside real
   spend, `0%` context with no data, an intervention count capped at 600.
   Fixed — it shows an em dash where it has no data.
+- **"Review changes" could show you your own work as the fleet's.** When a
+  plan had no captured base commit the diff fell back to `HEAD`, silently.
+  Fixed — it now says so, loudly, and names the base when it has one.
+- **"Open preview" was offered where it could not work**, including for Node
+  and Python projects, and landed on an HTTP 200 dead end in a popup with no
+  back button. Fixed — the button appears only when there is something to
+  serve, opens a real tab, and the fallback is a 404 with a way back.
 
 718 tests, and each of those fixes was proven by reinstating the bug and
 watching the tests fail.

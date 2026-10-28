@@ -350,6 +350,7 @@ function PlanCard({ plan }: { plan: Plan }): JSX.Element {
   const approvePlan = useSolixStore((s) => s.approvePlan);
   const abortPlan = useSolixStore((s) => s.abortPlan);
   const resumePlan = useSolixStore((s) => s.resumePlan);
+  const deletePlan = useSolixStore((s) => s.deletePlan);
   const createPlanFromGoal = useSolixStore((s) => s.createPlanFromGoal);
   const [busy, setBusy] = useState(false);
   const [refine, setRefine] = useState('');
@@ -379,7 +380,19 @@ function PlanCard({ plan }: { plan: Plan }): JSX.Element {
 
   const onAbort = async (): Promise<void> => {
     setBusy(true);
-    await abortPlan(plan.id);
+    setRunError(null);
+    // The two handlers above already did this. The kill switch — the one
+    // control whose failure costs money — was the one that did not.
+    const res = await abortPlan(plan.id);
+    if (!res.ok) setRunError(res.error ?? 'Could not stop the agents.');
+    setBusy(false);
+  };
+
+  const onDelete = async (): Promise<void> => {
+    setBusy(true);
+    setRunError(null);
+    const res = await deletePlan(plan.id);
+    if (!res.ok) setRunError(res.error ?? 'Could not delete the plan.');
     setBusy(false);
   };
 
@@ -487,18 +500,8 @@ function PlanCard({ plan }: { plan: Plan }): JSX.Element {
 
       {finished && (
         <div className="mt-2 space-y-2">
-          <button
-            onClick={() =>
-              window.open(
-                `/api/plans/${encodeURIComponent(plan.id)}/preview/`,
-                '_blank',
-                'noopener',
-              )
-            }
-            className="w-full py-1.5 rounded bg-solix-accent/15 border border-solix-accent/50 text-solix-accent text-xs hover:bg-solix-accent/25"
-          >
-            Open preview ↗
-          </button>
+          <PreviewButton planId={plan.id} />
+          <DeletePlanButton onDelete={() => void onDelete()} busy={busy} />
 
           {/* Iterate: describe a follow-up and Maestro plans the next build. */}
           <div className="flex gap-2">
@@ -525,8 +528,20 @@ function PlanCard({ plan }: { plan: Plan }): JSX.Element {
   );
 }
 
-/** On-demand "what did the fleet change?" — fetches the git diff of the plan's
- *  working tree against the baseline captured when it started running. */
+/**
+ * On-demand "what did the fleet change?" — the git diff of the plan's working
+ * tree against the baseline captured when it started running.
+ *
+ * Except when there is no such baseline. `buildPlanReview` falls back to
+ * `HEAD` whenever a plan has no usable base — which is every plan that failed
+ * before approval, since the base is captured at approve time — and that diff
+ * is the working tree, including everything the user has been editing
+ * themselves. It was then rendered under a heading asking what the fleet
+ * changed.
+ *
+ * The server has always said so, in `baseRef`: undefined means it fell back.
+ * Nothing read it. That is the whole bug, and the banner below is the fix.
+ */
 function PlanReviewSection({ planId }: { planId: string }): JSX.Element {
   const [review, setReview] = useState<PlanReview | null>(null);
   const [loading, setLoading] = useState(false);
@@ -568,10 +583,13 @@ function PlanReviewSection({ planId }: { planId: string }): JSX.Element {
             <div className="text-[11px] text-solix-danger">{review.error}</div>
           ) : review.files.length === 0 ? (
             <div className="text-[11px] text-slate-500 italic">
-              No file changes since the plan started.
+              {review.baseRef
+                ? 'No file changes since the plan started.'
+                : 'No uncommitted changes in this project.'}
             </div>
           ) : (
             <>
+              <BaseRefNote review={review} />
               <ul className="space-y-0.5">
                 {review.files.map((f) => (
                   <FileReviewRow
@@ -587,6 +605,147 @@ function PlanReviewSection({ planId }: { planId: string }): JSX.Element {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Remove a plan and its tasks.
+ *
+ * `DELETE /api/plans/:id` has always shipped and nothing called it, so a
+ * planner failure left a permanent zero-task `failed` card — and three
+ * attempts at one goal left three dead cards that could never be cleared.
+ *
+ * Two-step rather than a `window.confirm`, matching Routines' "Run now":
+ * NewTaskModal already rejected browser dialogs for looking like the browser
+ * talking rather than the app.
+ */
+export function DeletePlanButton({
+  onDelete,
+  busy,
+}: {
+  onDelete: () => void;
+  busy: boolean;
+}): JSX.Element {
+  const [confirming, setConfirming] = useState(false);
+
+  if (!confirming) {
+    return (
+      <button
+        onClick={() => setConfirming(true)}
+        disabled={busy}
+        className="w-full py-1.5 rounded border border-solix-border text-slate-500 text-xs hover:text-slate-300 hover:border-slate-600 disabled:opacity-40"
+      >
+        Delete this plan
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex gap-1.5">
+      <button
+        onClick={onDelete}
+        disabled={busy}
+        className="flex-1 py-1.5 rounded bg-solix-danger/20 border border-solix-danger text-solix-danger text-xs hover:bg-solix-danger/30 disabled:opacity-40"
+      >
+        Delete — this cannot be undone
+      </button>
+      <button
+        onClick={() => setConfirming(false)}
+        className="px-2.5 py-1.5 rounded border border-solix-border text-slate-400 text-xs hover:text-white"
+      >
+        Cancel
+      </button>
+    </div>
+  );
+}
+
+/**
+ * `Open preview ↗`, but only when there is something to open.
+ *
+ * It used to render for every finished plan — including the Node and Python
+ * templates offered in the same panel, which can never have an `index.html`
+ * — so the button was guaranteed to land on a dead end for them. And it
+ * passed a non-empty third argument to `window.open`, which makes a
+ * chromeless popup with no address bar and no back button; `'noopener'`
+ * belongs in `rel`, not in `windowFeatures`.
+ */
+function PreviewButton({ planId }: { planId: string }): JSX.Element | null {
+  const [previewable, setPreviewable] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(
+          `/api/plans/${encodeURIComponent(planId)}/previewable`,
+        );
+        const data = (await res.json()) as { previewable?: boolean };
+        if (!cancelled) setPreviewable(data.previewable === true);
+      } catch {
+        // Can't tell — don't offer it. A button that might not work is worse
+        // than no button.
+        if (!cancelled) setPreviewable(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [planId]);
+
+  if (previewable !== true) return null;
+
+  return (
+    <a
+      href={`/api/plans/${encodeURIComponent(planId)}/preview/`}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="block w-full py-1.5 rounded bg-solix-accent/15 border border-solix-accent/50 text-solix-accent text-xs text-center hover:bg-solix-accent/25"
+    >
+      Open preview ↗
+    </a>
+  );
+}
+
+/**
+ * Says what is actually being compared, when it is not what the button
+ * implies.
+ *
+ * Three states worth distinguishing, because they are three different kinds
+ * of wrong:
+ *   - a usable base  → name it, so the honest case is legible too
+ *   - a base that is gone (branch deleted, history rewritten)
+ *   - no base at all (the plan failed before approval ever captured one)
+ */
+export function BaseRefNote({ review }: { review: PlanReview }): JSX.Element | null {
+  if (review.baseRef) {
+    return (
+      <div className="text-[10px] text-slate-500">
+        Compared against{' '}
+        <code className="text-slate-400">{review.baseRef.slice(0, 12)}</code>,
+        the commit this plan started from.
+      </div>
+    );
+  }
+
+  return (
+    <div
+      role="status"
+      className="rounded border border-solix-warn/40 bg-solix-warn/10 px-2 py-1.5 text-[11px] text-solix-warn"
+    >
+      <span className="font-semibold">These may not be the fleet's changes. </span>
+      {review.requestedBaseRef ? (
+        <>
+          This plan started from{' '}
+          <code>{review.requestedBaseRef.slice(0, 12)}</code>, which is no
+          longer in this repo, so
+        </>
+      ) : (
+        <>This plan never recorded a starting commit, so</>
+      )}{' '}
+      the diff below is your whole working tree against <code>HEAD</code> —
+      including anything you edited yourself. Check <code>git status</code>{' '}
+      before trusting it.
     </div>
   );
 }
@@ -753,7 +912,25 @@ function TaskRow({ task }: { task: PlanTask }): JSX.Element {
   const showError =
     task.lastError && (task.status === 'escalated' || task.status === 'failed');
   const thread = useSolixStore((s) => selectTaskThread(s, task.id));
+  const retryPlanTask = useSolixStore((s) => s.retryPlanTask);
   const [open, setOpen] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
+
+  // A stopped task was a dead end: `resumePlan` refuses a failed plan, so the
+  // only route back was a follow-up *goal* — a new plan and new planner
+  // spend — or commenting on a diff, which only exists if the plan got far
+  // enough to produce one.
+  const retryable = task.status === 'escalated' || task.status === 'failed';
+
+  const onRetry = async (): Promise<void> => {
+    setRetrying(true);
+    setRetryError(null);
+    const res = await retryPlanTask(task.planId, task.id);
+    if (!res.ok) setRetryError(res.error ?? 'Could not retry that task.');
+    setRetrying(false);
+  };
+
   return (
     <li className="text-xs">
       <div className="flex items-center gap-2">
@@ -810,6 +987,21 @@ function TaskRow({ task }: { task: PlanTask }): JSX.Element {
       {showError && !open && (
         <div className="mt-0.5 ml-5 text-[10px] text-solix-danger/80 line-clamp-2">
           {task.lastError}
+        </div>
+      )}
+      {retryable && (
+        <div className="mt-1 ml-5 flex items-center gap-2">
+          <button
+            onClick={() => void onRetry()}
+            disabled={retrying}
+            className="rounded border border-solix-border px-2 py-0.5 text-[10px] text-slate-400 hover:border-solix-accent hover:text-solix-accent disabled:opacity-40"
+            title="Reset this task to pending and run the plan again. Its attempt count is cleared, or the scheduler would escalate it straight away."
+          >
+            {retrying ? 'Retrying…' : 'Retry this task'}
+          </button>
+          {retryError && (
+            <span className="text-[10px] text-solix-danger">{retryError}</span>
+          )}
         </div>
       )}
       {open && <TaskThread task={task} />}
