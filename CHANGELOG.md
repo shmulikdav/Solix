@@ -5,6 +5,56 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.1] — 2026-10-28
+
+**Stopping Solix no longer leaves the agent hanging.**
+
+1.18.0 was walked end to end from the published npm tarball, following
+`docs/PARTNER-BRIEF.md` literally, in the order a design partner would read
+it. The brief's step 2 is *kill the Solix server mid-hold*, and calls
+fail-closed "the property I would not ship without".
+
+Fail-closed held. The canary file survived every run; nothing destructive
+ran at any point. Everything around it did not:
+
+- **`Ctrl+C` did not quit while anything was held.** `solix` printed
+  `SIGINT — shutting down` and sat there. `http.Server.close()` does not
+  call back until every open connection has ended, and a held permission is
+  an open HTTP request whose only possible answer is a human in the UI that
+  is shutting down with it. So the `await` never returned and the
+  `process.exit(0)` after it never ran.
+- **The agent waited five minutes to be refused.** The audit log recorded
+  the hold opening at 17:01:41 and `Timed out after 300s and was denied` at
+  17:06:41 — the gate's own backstop, firing inside a process that could no
+  longer exit. `docs/E2E-SMOKE-TEST.md` promised "seconds, not the 305s
+  `--max-time` ceiling". It was the ceiling, to the second.
+- **An open browser tab did the same thing on its own.** A websocket is a
+  socket the HTTP server waits for too, and `closeAllConnections()` cannot
+  reach it because Node stops tracking a socket once it has been upgraded.
+  Measured: a client with a 20s lifetime held a signalled server up for
+  16.2s. With the UI open — the state the brief puts you in — Ctrl+C waited
+  on the tab even with nothing held.
+
+Shutdown now records each abandoned hold and drops the sockets. It does not
+answer the hook: the hook sees its connection fail and takes its fail-closed
+branch, so the agent is refused and told the gate was unavailable rather
+than that a person reviewed the command. Nobody reviewed it.
+
+Re-measured against a real agent, with a websocket held open for five
+minutes and a permission held: **222ms**, down from 300,000ms.
+
+`createSolixServer` had no test of any kind, which is why this shipped. It
+has three now, and each half of the fix was proven by reinstating its own
+bug.
+
+Also closed a coverage hole the same walk exposed: nothing asserted that a
+`permission_request` arriving over the websocket actually produces a
+notification — the brief's step 3, "walk away mid-hold". The notifier and
+the opt-in button were both well covered in isolation; the line connecting
+them was not, so deleting it broke nothing. Four tests now cover it, and it
+was additionally confirmed live in a real browser with notifications
+granted and the tab hidden.
+
 ## [1.18.0] — 2026-10-28
 
 **An audit, and then two days of finding out the gate was off.**
