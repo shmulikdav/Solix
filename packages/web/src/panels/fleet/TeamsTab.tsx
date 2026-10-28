@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { TeamTemplate } from '@solix/shared';
 import { useSolixStore } from '../../store/index.js';
 import { ProjectPicker } from '../ProjectPicker.js';
 import { describeRoutineCost } from './routineCost.js';
+import { ListPlaceholder, type LoadState } from '../../ui/LoadState.js';
 import { Button } from '../../ui/Button.js';
 
 /** P2 #7 — ready-made team templates: pick a project, install an advisor+skill+
@@ -23,19 +24,35 @@ export function TeamsTab({ open }: { open: boolean }): JSX.Element {
   );
   const effectiveCwd = cwd || projectList[0]?.cwd || '';
 
-  useEffect(() => {
-    if (!open) return;
+  const [state, setState] = useState<LoadState>('loading');
+
+  // Swallowed, so an unreachable server rendered "No team templates." — an
+  // error shown as an empty state, which reads as "this product has none".
+  const load = useCallback((): (() => void) => {
     let live = true;
+    setState('loading');
     void fetch('/api/teams/templates')
-      .then((r) => r.json())
-      .then((list: TeamTemplate[]) => {
-        if (live) setTemplates(list);
+      .then((r) => {
+        if (!r.ok) throw new Error(String(r.status));
+        return r.json();
       })
-      .catch(() => {});
+      .then((list: TeamTemplate[]) => {
+        if (!live) return;
+        setTemplates(list);
+        setState('ready');
+      })
+      .catch(() => {
+        if (live) setState('error');
+      });
     return () => {
       live = false;
     };
-  }, [open]);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    return load();
+  }, [open, load]);
 
   const onInstall = async (id: string): Promise<void> => {
     if (!effectiveCwd.trim()) {
@@ -120,7 +137,12 @@ export function TeamsTab({ open }: { open: boolean }): JSX.Element {
           </div>
         ))}
         {templates.length === 0 && (
-          <div className="text-xs text-slate-500 italic">No team templates.</div>
+          <ListPlaceholder
+            state={state}
+            label="team templates"
+            onRetry={() => void load()}
+            empty="No team templates."
+          />
         )}
       </div>
     </div>

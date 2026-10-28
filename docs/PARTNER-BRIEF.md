@@ -77,9 +77,6 @@ that ship; the frontend calls two of them.
 **Share doesn't share.** It does file import/export of a galaxy manifest. The
 publish-and-browse half exists on the server and has no UI.
 
-**Connections swallows its errors.** It is a credential store, and the
-`Test` button renders no result either way. Treat it as unfinished.
-
 **Routines cannot be edited.** A typo in a cadence means delete and recreate,
 which loses the run history and rotates the webhook token. (Bad cadences are
 at least now refused rather than silently firing hourly.)
@@ -120,6 +117,13 @@ it tells you what kind of bugs this codebase produces:
   and Python projects, and landed on an HTTP 200 dead end in a popup with no
   back button. Fixed — the button appears only when there is something to
   serve, opens a real tab, and the fallback is a 404 with a way back.
+- **The Fleet panel could not tell you when something went wrong.** Every
+  write in Connections — a credential store, where secret values are
+  write-only and so a failed write is unrecoverable — was fire-and-forget
+  with no status check, and the `Test` button rendered no result either way.
+  A list that failed to load rendered as "you have none". Fixed, in all of
+  them: writes report, Test says whether it was delivered, and a failed load
+  says so and offers a retry.
 
 718 tests, and each of those fixes was proven by reinstating the bug and
 watching the tests fail.

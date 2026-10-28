@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import type { Advisor, Session } from '@solix/shared';
 import { selectAllAdvisors, useSolixStore } from '../../store/index.js';
 import { Button } from '../../ui/Button.js';
@@ -23,6 +23,8 @@ export function CrewTab({ open }: { open: boolean }): JSX.Element {
   const advisors = useSolixStore(selectAllAdvisors);
   const sessions = useSolixStore((s) => s.sessions);
 
+  const [fetchFailed, setFetchFailed] = useState(false);
+
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -36,7 +38,10 @@ export function CrewTab({ open }: { open: boolean }): JSX.Element {
         }
       })
       .catch(() => {
-        /* offline; render whatever the store already has */
+        // Render whatever the store already has — but say that this is a
+        // failed fetch, not an empty roster. "No advisors found" read as
+        // "this product ships none".
+        if (!cancelled) setFetchFailed(true);
       });
     return () => {
       cancelled = true;
@@ -66,8 +71,10 @@ export function CrewTab({ open }: { open: boolean }): JSX.Element {
         />
       )}
       {advisors.length === 0 && (
-        <div className="text-xs text-slate-500">
-          No advisors found. The server may still be starting up.
+        <div className="text-xs text-slate-500" role="status">
+          {fetchFailed
+            ? 'Could not reach the Solix server, so the crew could not be loaded. This is not the same as having none.'
+            : 'Loading the crew…'}
         </div>
       )}
     </div>
