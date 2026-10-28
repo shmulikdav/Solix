@@ -523,6 +523,15 @@ export interface TeamInstallResult {
   advisorsEnabled: string[];
   skillsInstalled: string[];
   routinesCreated: string[];
+  /**
+   * Routines this template already had in this project, left alone.
+   *
+   * Installing a team used to create its routines unconditionally, so a
+   * second click — easy, since nothing said the first had happened — gave
+   * you two enabled interval routines firing the same prompt forever, at
+   * twice the cost. These are the ones that were recognised and skipped.
+   */
+  routinesAlreadyPresent: string[];
   warnings: string[];
 }
 

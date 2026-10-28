@@ -1123,7 +1123,19 @@ export const useSolixStore = create<SolixState>((set, get) => ({
         ok?: boolean;
         warnings?: string[];
       };
-      return { ok: Boolean(data.ok), warnings: data.warnings };
+      // The server puts the reason in `warnings` on the failure path too —
+      // "unknown team template", "a working directory (cwd) is required".
+      // This kept only ok+warnings and never set `error`, so TeamsTab's
+      // `res.error ?? 'Install failed.'` rendered the bare fallback for
+      // every cause while the actual reason sat one field away.
+      if (!data.ok) {
+        return {
+          ok: false,
+          warnings: data.warnings,
+          error: data.warnings?.join('; ') || 'Install failed.',
+        };
+      }
+      return { ok: true, warnings: data.warnings };
     } catch {
       return { ok: false, error: 'Could not reach the server.' };
     }

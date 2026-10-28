@@ -3,7 +3,7 @@ import type { DB } from '../db.js';
 import { getAdvisor, setAdvisorEnabled } from './advisors.js';
 import { ensureProject } from './projects.js';
 import { listSkills, recordSkillInstall } from './skills.js';
-import { createSchedule } from './schedules.js';
+import { createSchedule, listSchedules } from './schedules.js';
 
 // ── Team templates (P2 #7) ─────────────────────────────────────────────
 // Curated, installable bundles of advisors + skills + routines. Built-in and
@@ -107,6 +107,7 @@ export function installTeamTemplate(
   const advisorsEnabled: string[] = [];
   const skillsInstalled: string[] = [];
   const routinesCreated: string[] = [];
+  const routinesAlreadyPresent: string[] = [];
   if (!template) {
     return {
       ok: false,
@@ -114,6 +115,7 @@ export function installTeamTemplate(
       advisorsEnabled,
       skillsInstalled,
       routinesCreated,
+      routinesAlreadyPresent,
       warnings: [`unknown team template "${templateId}"`],
     };
   }
@@ -125,6 +127,7 @@ export function installTeamTemplate(
       advisorsEnabled,
       skillsInstalled,
       routinesCreated,
+      routinesAlreadyPresent,
       warnings: ['a working directory (cwd) is required'],
     };
   }
@@ -153,9 +156,30 @@ export function installTeamTemplate(
     skillsInstalled.push(skill.id);
   }
 
-  // Routines — create each in the target project, unless declined.
+  /**
+   * Routines — created in the target project, unless declined, and **never
+   * twice**.
+   *
+   * This loop called createSchedule unconditionally. Installing a team
+   * twice therefore produced two enabled interval routines running the same
+   * prompt on the same cadence, each starting a real agent session and
+   * billing on every run — and the success toast was identical both times,
+   * so nothing said the first install had already happened.
+   *
+   * createSchedule already stamps `owner: template.id`, so recognising our
+   * own work needs no new state: same project, same template, same routine
+   * name is the same routine.
+   */
   const includeRoutines = input.includeRoutines !== false;
+  const existing = listSchedules(db).filter(
+    (s) => s.cwd === cwd && s.owner === template.id,
+  );
   for (const routine of includeRoutines ? template.routines : []) {
+    const already = existing.find((s) => s.name === routine.name);
+    if (already) {
+      routinesAlreadyPresent.push(already.id);
+      continue;
+    }
     const sched = createSchedule(db, {
       cwd,
       prompt: routine.prompt,
@@ -165,6 +189,13 @@ export function installTeamTemplate(
       owner: template.id,
     });
     routinesCreated.push(sched.id);
+  }
+
+  if (routinesAlreadyPresent.length > 0) {
+    warnings.push(
+      `${routinesAlreadyPresent.length} routine(s) were already installed in ` +
+        'this project — left as they are rather than duplicated',
+    );
   }
 
   if (!includeRoutines && template.routines.length > 0) {
@@ -179,6 +210,7 @@ export function installTeamTemplate(
     advisorsEnabled,
     skillsInstalled,
     routinesCreated,
+    routinesAlreadyPresent,
     warnings,
   };
 }
