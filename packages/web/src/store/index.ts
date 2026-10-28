@@ -273,8 +273,16 @@ interface SolixState {
     warnings?: string[];
   }>;
   approvePlan: (planId: string) => Promise<{ ok: boolean; error?: string }>;
-  abortPlan: (planId: string) => Promise<void>;
+  /** The fleet's kill switch. Reports failure — it used to swallow it. */
+  abortPlan: (planId: string) => Promise<{ ok: boolean; error?: string }>;
   resumePlan: (planId: string) => Promise<{ ok: boolean; error?: string }>;
+  /** Put a failed or escalated task back in the queue, reopening a settled plan. */
+  retryPlanTask: (
+    planId: string,
+    taskId: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  /** Remove a plan and its tasks. A failed planner run leaves a dead card forever. */
+  deletePlan: (planId: string) => Promise<{ ok: boolean; error?: string }>;
   /** Load a task's thread (GET) into the store — call when a task is expanded. */
   fetchTaskThread: (planId: string, taskId: string) => Promise<void>;
   /** Append a human comment to a task's thread (POST). */
@@ -1115,7 +1123,19 @@ export const useSolixStore = create<SolixState>((set, get) => ({
         ok?: boolean;
         warnings?: string[];
       };
-      return { ok: Boolean(data.ok), warnings: data.warnings };
+      // The server puts the reason in `warnings` on the failure path too —
+      // "unknown team template", "a working directory (cwd) is required".
+      // This kept only ok+warnings and never set `error`, so TeamsTab's
+      // `res.error ?? 'Install failed.'` rendered the bare fallback for
+      // every cause while the actual reason sat one field away.
+      if (!data.ok) {
+        return {
+          ok: false,
+          warnings: data.warnings,
+          error: data.warnings?.join('; ') || 'Install failed.',
+        };
+      }
+      return { ok: true, warnings: data.warnings };
     } catch {
       return { ok: false, error: 'Could not reach the server.' };
     }
@@ -1178,12 +1198,62 @@ export const useSolixStore = create<SolixState>((set, get) => ({
   },
 
   abortPlan: async (planId) => {
+    // This swallowed everything — no res.ok check, and a comment betting on a
+    // broadcast that "will reconcile if it lands". It is the control that
+    // stops agents which are spending money; it has to say when it failed.
     try {
-      await fetch(`/api/plans/${encodeURIComponent(planId)}/abort`, {
-        method: 'POST',
-      });
+      const res = await fetch(
+        `/api/plans/${encodeURIComponent(planId)}/abort`,
+        { method: 'POST' },
+      );
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        return { ok: false, error: data.error ?? 'Could not stop the agents.' };
+      }
+      return { ok: true };
     } catch {
-      /* offline; the plan_upsert broadcast will reconcile if it lands */
+      return {
+        ok: false,
+        error: 'Not connected — the agents were not stopped. Still running.',
+      };
+    }
+  },
+
+  retryPlanTask: async (planId, taskId) => {
+    try {
+      const res = await fetch(
+        `/api/plans/${encodeURIComponent(planId)}/tasks/${encodeURIComponent(taskId)}/retry`,
+        { method: 'POST' },
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+      };
+      if (!res.ok || data.ok !== true) {
+        return { ok: false, error: data.error ?? 'Could not retry that task.' };
+      }
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Not connected — the task was not retried.' };
+    }
+  },
+
+  deletePlan: async (planId) => {
+    try {
+      const res = await fetch(`/api/plans/${encodeURIComponent(planId)}`, {
+        method: 'DELETE',
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+      };
+      if (!res.ok || data.ok !== true) {
+        return { ok: false, error: data.error ?? 'Could not delete the plan.' };
+      }
+      // plan_remove reconciles the store; nothing to do locally.
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Not connected — the plan was not deleted.' };
     }
   },
 

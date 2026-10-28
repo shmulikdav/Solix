@@ -50,7 +50,7 @@ export function setGovernanceLevel(db: DB, level: GovernanceLevel): GovernanceLe
 export function describeGovernanceLevel(level: GovernanceLevel): string {
   switch (level) {
     case 'observe':
-      return 'observe — watching only; nothing is held for approval (the command denylist still blocks)';
+      return 'observe — watching only; nothing is held for approval (the command denylist still blocks what Solix launched)';
     case 'strict':
       return 'strict — sensitive calls are held for you, including from routines that fire unattended';
     case 'standard':

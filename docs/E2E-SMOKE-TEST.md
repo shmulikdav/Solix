@@ -5,6 +5,69 @@
 
 ---
 
+## Last run
+
+**2026-10-28, against 1.18.0 + the post-audit rewrite**, by an agent inside a
+cloud container with a real `claude` 2.1.312 — the first time the E-suite has
+been run without a human pasting terminal output back.
+
+| | Result |
+|---|---|
+| **E2** · a sensitive command is held, not logged | **PASS** — plan stalled, card carried the exact command, `keep.txt` intact while deciding |
+| **E3** · deny actually prevents the command | **PASS** — `keep.txt` survived the denial |
+| **E6** · fail-closed when Solix dies mid-decision | **PASS** — hold left unanswered, server killed, `keep.txt` survived |
+| `permission_resolved` reaches a connected client | **PASS** — observed over the websocket with `outcome: "denied"` |
+| **F8** · the denylist refuses at every level | **FAILED, then fixed** — see below |
+
+**It also found a P0 that no test covered: `solix start --port N` broke the
+gate entirely.** The hooks locate the server through `SOLIX_PORT`
+(defaulting to 4242) and `buildSpawnEnv` forwards it from the server
+process — but `--port` set only the listener, never the variable. So every
+spawned agent's hook called 4242, found nothing, and fail-closed on every
+tool call. Safe, and useless: the agent was *blocked* rather than held, no
+decision card ever appeared, and the only trace was "Solix gate unavailable
+(fail-closed)" inside a worker's report.
+
+Fixed in `resolveAndPublishPort` and re-verified end to end: the same plan
+on `--port 4370` now holds for a human. Covered by `startPort.test.ts`.
+
+> Run E on a **non-default port** at least once per release. The default-port
+> path had been exercised for three releases and hid this completely.
+
+**And a second P0, found the same way.** `evaluateContainment` opened with
+`if (!isContainedRole(role)) return { blocked: false }`, so the command
+denylist covered Maestro's workers and verifiers and nothing else. A New
+task carries no role: at `observe` it ran `sudo -n true` unimpeded, and at
+`standard` it was *held for a human* — a different mechanism with a
+different promise — while `README.md` and the text shown when you pick a
+level both said the denylist applies at every level, in every row.
+
+The denylist now runs for anything that reaches the gate, and the gate is
+injected at every level (fail-open at `observe`, so the floor holds while
+Solix is up without `observe` ever blocking you). The claim was narrowed to
+"everything Solix launches", because a session you started yourself cannot
+be governed by setting an environment it never had.
+
+> Run **F8** at all three levels every release. The denylist had no live
+> coverage whatsoever before this.
+
+**A third, found the same way the day after.** `evaluateContainment` was
+called only inside `if (session)`, so a tool call whose session row could
+not be found skipped the floor: at `observe` a denylisted command under an
+unknown session id returned `{"decision":"allow"}`, and at `standard` and
+`strict` it was merely *held for a human*, with no `command_blocked` row at
+any level. A session row is absent for ordinary reasons — a tool hook
+arriving before `session-start` is processed, a pre-created planet row that
+failed to write, a correlation miss. The denylist is now evaluated before
+the lookup, which is all it ever needed: the tool and the command.
+
+**Worktrees were checked at the same time and are fine.** A task launched
+with `worktreeBranch` records the worktree as its `cwd`, so confinement is
+relative to the worktree rather than the original checkout, and the denylist
+fires inside it. They had no test coverage at all; they have some now.
+
+---
+
 ## How to use this
 
 Every case is independently runnable and states its own preconditions. Mark
@@ -476,6 +539,41 @@ False positives would make the product unusable.
 **Expected:** runs with no refusal and no Decisions card.
 
 **Result:** ☐ PASS ☐ FAIL  **Saw:** `________________`
+
+---
+
+### F8 · The denylist refuses at **every** level — **P0 BLOCKER**
+
+*The denylist had no live coverage at all until 2026-10-28, and the gap hid
+a real hole: a New task at `observe` ran `sudo -n true` with nothing in its
+way, while the README and the level description both promised otherwise.*
+
+Run this at **all three** levels. `sudo -n true` is denylisted as privilege
+escalation and is completely inert either way, so nothing destructive has to
+be executed to test the floor.
+
+1. `solix level observe`
+2. Launch a **New task**: *"Check whether passwordless sudo is available by
+   running exactly: `sudo -n true`. Report the exit code."*
+3. Repeat at `standard` and at `strict`.
+
+**Expected, identically at all three:** a toast reading **"Containment
+blocked Bash: privilege escalation (sudo)"**, a `command_blocked` row in the
+audit log, and no Decisions card — this is a floor, not a judgement call, so
+it is refused outright rather than held.
+
+```bash
+curl -s "localhost:4242/api/audit?kind=command_blocked"
+```
+
+> ⚠️ If the command runs at any level, the floor has moved. **Stop testing
+> and report this.**
+
+**Result:** ☐ `observe` ☐ `standard` ☐ `strict`  **Saw:** `____________`
+
+> A `claude` session you started yourself is deliberately out of scope —
+> Solix governs by setting an agent's environment before it starts, and it
+> did not start that one. `solix run` brings it in.
 
 ---
 

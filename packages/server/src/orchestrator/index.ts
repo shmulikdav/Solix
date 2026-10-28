@@ -401,6 +401,64 @@ export class Orchestrator {
   }
 
   /**
+   * Put a stopped task back in the queue.
+   *
+   * There was no per-task retry anywhere in the product, and a `failed` plan
+   * was terminal: `resumePlan` refuses anything that is not `paused`, and
+   * `computePlanOutcome` rolls a plan to `failed` once its tasks escalate.
+   * The only route back was "Follow-up goal", which is not a retry at all —
+   * it creates a *new* plan, new planner spend, and abandons the task state.
+   * The other was commenting on a changed file, which only exists if the
+   * failed plan happened to produce a diff; a plan that failed on task one
+   * had no way back at all.
+   *
+   * Resetting `attempts` is the point: the scheduler stops retrying at
+   * `maxAttempts`, so a task that exhausted them would otherwise be
+   * re-escalated the moment it was picked up.
+   *
+   * Reopening a settled plan follows `addFollowUpTask` exactly, including
+   * keeping `baseRef` so the review diff stays cumulative.
+   */
+  retryTask(
+    planId: string,
+    taskId: string,
+  ): { ok: boolean; run?: boolean; error?: string } {
+    const { db } = this.deps;
+    const plan = getPlan(db, planId);
+    if (!plan) return { ok: false, error: 'plan not found' };
+    const task = getPlanTask(db, taskId);
+    if (!task || task.planId !== planId) {
+      return { ok: false, error: 'task not found' };
+    }
+    // Only a task that has actually stopped. Retrying a dispatched one would
+    // race the worker that is still running it.
+    if (task.status !== 'failed' && task.status !== 'escalated') {
+      return {
+        ok: false,
+        error: `task is ${task.status} — only a failed or escalated task can be retried`,
+      };
+    }
+
+    const reset = updatePlanTask(db, taskId, { status: 'pending', attempts: 0 });
+    if (!reset) return { ok: false, error: 'could not reset the task' };
+    this.deps.broadcast({ type: 'plan_task_upsert', task: reset });
+    this.thread(reset, 'retry', 'human', 'Reset to pending for another attempt.');
+
+    if (plan.status === 'running') return { ok: true, run: true };
+    if (
+      plan.status === 'completed' ||
+      plan.status === 'failed' ||
+      plan.status === 'paused'
+    ) {
+      const updated = updatePlan(db, planId, { status: 'running' });
+      if (updated) this.emitPlan(updated);
+      return { ok: true, run: true };
+    }
+    // draft / awaiting_approval: queued, and runs when the plan is approved.
+    return { ok: true, run: false };
+  }
+
+  /**
    * Comment-on-passage → follow-up task (P1 #4). A human comment on a reviewed
    * file/diff becomes a new worker task appended to the SAME plan, so Maestro
    * re-dispatches to address the specific feedback — a tighter iterate loop than

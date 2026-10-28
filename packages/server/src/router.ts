@@ -523,6 +523,47 @@ export class EventRouter {
     const p = event.payload as Record<string, unknown>;
     const { tool, args } = this.describeGatedTool(event.event, p);
 
+    /**
+     * The floor, before anything that can fail to find a row.
+     *
+     * The command denylist used to live entirely inside `if (session)`
+     * below, so a lookup miss skipped it: at `observe` a denylisted command
+     * under an unknown session id came back `{"decision":"allow"}`, and at
+     * `standard`/`strict` it was merely *held* for a human. Neither is the
+     * floor. Probed directly against a running server before changing it —
+     * `sudo -n true`, a session id the server had never seen, zero
+     * `command_blocked` rows at any level.
+     *
+     * A session row can be absent for ordinary reasons: a tool hook
+     * arriving before `session-start` has been processed, a pre-created
+     * planet row that failed to write, or a correlation miss. None of those
+     * should decide whether `rm -rf /` is allowed to run.
+     *
+     * Answering "is this command on the floor" needs the tool and the
+     * command, both of which are already in hand here. Confinement needs
+     * the session's cwd and legitimately stays below.
+     */
+    const command = typeof args.command === 'string' ? args.command : undefined;
+    const floor = evaluateContainment({ tool, command, cwd: event.cwd });
+    if (floor.blocked) {
+      recordAudit(this.db, {
+        kind: 'command_blocked',
+        sessionId,
+        summary: `Containment blocked ${tool}: ${floor.reason}`,
+        payload: { tool, reason: floor.reason, command },
+      });
+      this.broadcaster.broadcast({
+        type: 'toast',
+        level: 'warn',
+        message: `Containment blocked ${tool}: ${floor.reason}`,
+      });
+      const cleared = setSessionStatus(this.db, sessionId, 'active');
+      if (cleared) {
+        this.broadcaster.broadcast({ type: 'session_upsert', session: cleared });
+      }
+      return Promise.resolve({ approved: false, timedOut: false });
+    }
+
     const session = getSession(this.db, sessionId);
     if (session) {
       const toolCall = recordToolCall(this.db, {

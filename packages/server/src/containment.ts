@@ -115,13 +115,39 @@ export function evaluateContainment(input: {
   filePath?: string;
   cwd: string;
 }): ContainmentDecision {
-  if (!isContainedRole(input.role)) return { blocked: false };
   const tool = input.tool.toLowerCase();
 
+  /**
+   * The command denylist is the hard floor, and a floor that only holds for
+   * some sessions is not a floor.
+   *
+   * This whole function used to begin `if (!isContainedRole(role)) return
+   * { blocked: false }`, so `rm -rf /`, a fork bomb and `curl | sh` were
+   * refused for Maestro's workers and verifiers and nobody else. A New task
+   * you launched from the UI has no sessionRole, so it fell straight
+   * through — at `observe` it simply ran, and at `standard` it was *held*
+   * for a human, which is a different mechanism with a different promise.
+   *
+   * Meanwhile README.md and the governance description shown when you pick
+   * a level both said the denylist applies at every level, in every row.
+   * Verified against a real agent: a New task ran `sudo -n true` at
+   * `observe` and nothing stopped it.
+   *
+   * So the denylist now runs for anything that reaches the gate, which is
+   * everything Solix launches and controls the environment of.
+   */
   if (input.command && SHELL_TOOLS.has(tool)) {
     const reason = deniedCommandReason(input.command);
     if (reason) return { blocked: true, reason };
   }
+
+  /**
+   * Confinement to the project directory stays role-scoped, deliberately.
+   * It exists so an autonomous worker nobody is watching cannot wander out
+   * of its project — a New task is you, working in your own environment,
+   * and writing outside the project is a thing you may legitimately mean.
+   */
+  if (!isContainedRole(input.role)) return { blocked: false };
 
   if (input.filePath && FILE_TOOLS.has(tool)) {
     if (isWriteOutsideRoot(input.filePath, input.cwd)) {

@@ -30,8 +30,18 @@ Worth being exact, because the difference matters:
 | A `claude` session you started yourself | No — same, and Solix observes and costs it |
 
 **The command denylist is not on that dial.** `rm -rf /`, a fork bomb, piping
-the internet into a shell — refused at every level, including `observe`, in
-every one of those rows.
+the internet into a shell — refused at every level, including `observe`, for
+**everything Solix launches**: the first three rows above.
+
+A `claude` session you started yourself is the exception, and it has to be.
+Solix governs an agent by setting its environment before it starts, and it
+never started that one — so it watches and costs it, and nothing more.
+
+**`solix run` does not change that.** It wraps the session in a PTY so you
+can type to it from the Solix UI, which is a different thing from governing
+it: the wrapper passes your environment through untouched, so the hooks stay
+in observability mode and the denylist is not consulted. Two-way control,
+not a floor.
 
 Set how much is held with `solix level observe|standard|strict`.
 

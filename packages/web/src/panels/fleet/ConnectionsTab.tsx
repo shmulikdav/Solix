@@ -1,6 +1,31 @@
 import { useEffect, useState } from 'react';
 import type { Connection, Notifier, NotifyEvent } from '@solix/shared';
 import { Button } from '../../ui/Button.js';
+import { ListPlaceholder, type LoadState } from '../../ui/LoadState.js';
+
+/**
+ * POST/DELETE and say what went wrong, or null when it worked.
+ *
+ * Every write in this file was `fetch(...).catch(() => {})` with no `res.ok`
+ * check — six of them. This is a **credential store** whose secret values are
+ * write-only by design, so a write that silently failed was both invisible
+ * and unrecoverable: the input cleared, the key never appeared, and nothing
+ * said why.
+ */
+async function write(
+  url: string,
+  init: RequestInit,
+): Promise<string | null> {
+  try {
+    const res = await fetch(url, init);
+    if (res.ok) return null;
+    const data = (await res.json().catch(() => ({}))) as { error?: string };
+    return data.error ?? `The server refused that (HTTP ${res.status}).`;
+  } catch {
+    return 'Not connected — that did not reach the Solix server.';
+  }
+}
+
 interface Props {
   open: boolean;
 }
@@ -20,12 +45,20 @@ export function ConnectionsTab({ open }: Props): JSX.Element | null {
   const [newKind, setNewKind] = useState<'env' | 'mcp'>('env');
   const [busy, setBusy] = useState(false);
 
+  const [state, setState] = useState<LoadState>('loading');
+  const [writeError, setWriteError] = useState<string | null>(null);
+
   const refresh = async (): Promise<void> => {
+    // This swallowed the failure and left `conns` at [], so an unreachable
+    // server rendered "No connections yet. Add one above." — telling you to
+    // create something you may already have.
     try {
       const r = await fetch('/api/connections');
+      if (!r.ok) throw new Error(String(r.status));
       setConns((await r.json()) as Connection[]);
+      setState('ready');
     } catch {
-      /* server not reachable */
+      setState('error');
     }
   };
 
@@ -38,12 +71,19 @@ export function ConnectionsTab({ open }: Props): JSX.Element | null {
   const addConnection = async (): Promise<void> => {
     if (!newName.trim() || busy) return;
     setBusy(true);
-    await fetch('/api/connections', {
+    setWriteError(null);
+    // Was fire-and-forget with no res.ok check, so a rejected name or an
+    // unreachable server cleared the field and looked like success.
+    const err = await write('/api/connections', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ name: newName.trim(), kind: newKind }),
-    }).catch(() => {});
+    });
     setBusy(false);
+    if (err) {
+      setWriteError(err);
+      return;
+    }
     setNewName('');
     await refresh();
   };
@@ -81,11 +121,23 @@ export function ConnectionsTab({ open }: Props): JSX.Element | null {
           </div>
         </div>
 
+        {writeError && (
+          <div className="text-[11px] text-solix-danger">{writeError}</div>
+        )}
+
         {conns.length === 0 ? (
-          <div className="text-xs text-slate-500 italic">
-            No connections yet. Add one above (or use{' '}
-            <code className="bg-black/40 px-1 rounded">solix connect</code>).
-          </div>
+          <ListPlaceholder
+            state={state}
+            label="connections"
+            onRetry={() => void refresh()}
+            empty={
+              <>
+                No connections yet. Add one above (or use{' '}
+                <code className="bg-black/40 px-1 rounded">solix connect</code>
+                ).
+              </>
+            }
+          />
         ) : (
           <div className="space-y-3">
             <div className="text-[10px] uppercase tracking-widest text-slate-500">
@@ -125,12 +177,17 @@ function NotifiersSection({ open }: { open: boolean }): JSX.Element {
   const [events, setEvents] = useState<NotifyEvent[]>(['plan_completed', 'plan_failed']);
   const [busy, setBusy] = useState(false);
 
+  const [state, setState] = useState<LoadState>('loading');
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null);
+
   const refresh = async (): Promise<void> => {
     try {
       const r = await fetch('/api/notifiers');
+      if (!r.ok) throw new Error(String(r.status));
       setList((await r.json()) as Notifier[]);
+      setState('ready');
     } catch {
-      /* offline */
+      setState('error');
     }
   };
   useEffect(() => {
@@ -142,12 +199,18 @@ function NotifiersSection({ open }: { open: boolean }): JSX.Element {
     const config =
       provider === 'slack' ? { webhookUrl: webhookUrl.trim() } : { botToken: botToken.trim(), chatId: chatId.trim() };
     setBusy(true);
-    await fetch('/api/notifiers', {
+    setNote(null);
+    const err = await write('/api/notifiers', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ provider, name: name.trim(), config, events }),
-    }).catch(() => {});
+    });
     setBusy(false);
+    if (err) {
+      // Keep what was typed — a webhook URL is not something to retype.
+      setNote({ ok: false, text: err });
+      return;
+    }
     setName('');
     setWebhookUrl('');
     setBotToken('');
@@ -156,19 +219,54 @@ function NotifiersSection({ open }: { open: boolean }): JSX.Element {
   };
 
   const toggle = async (n: Notifier): Promise<void> => {
-    await fetch(`/api/notifiers/${n.id}/toggle`, {
+    setNote(null);
+    const err = await write(`/api/notifiers/${n.id}/toggle`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ enabled: !n.enabled }),
-    }).catch(() => {});
+    });
+    if (err) setNote({ ok: false, text: err });
     await refresh();
   };
+
   const remove = async (id: string): Promise<void> => {
-    await fetch(`/api/notifiers/${id}`, { method: 'DELETE' }).catch(() => {});
+    setNote(null);
+    const err = await write(`/api/notifiers/${id}`, { method: 'DELETE' });
+    if (err) setNote({ ok: false, text: err });
     await refresh();
   };
+
+  /**
+   * Actually test it, and say what happened.
+   *
+   * This was `fetch(...).catch(() => {})` — the server computes a real
+   * answer (`deliverNotification` → `{ ok }`) and the client threw it away,
+   * so a button labelled "Test" rendered nothing either way and was
+   * indistinguishable from a dead one.
+   */
   const test = async (id: string): Promise<void> => {
-    await fetch(`/api/notifiers/${id}/test`, { method: 'POST' }).catch(() => {});
+    setNote(null);
+    try {
+      const res = await fetch(`/api/notifiers/${id}/test`, { method: 'POST' });
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+      };
+      if (!res.ok) {
+        setNote({ ok: false, text: data.error ?? 'Could not send the test.' });
+        return;
+      }
+      setNote(
+        data.ok === true
+          ? { ok: true, text: 'Test message delivered — check the channel.' }
+          : {
+              ok: false,
+              text: 'The server could not deliver it. Check the webhook URL or token.',
+            },
+      );
+    } catch {
+      setNote({ ok: false, text: 'Not connected — no test was sent.' });
+    }
   };
 
   const toggleEvent = (e: NotifyEvent): void =>
@@ -250,6 +348,24 @@ function NotifiersSection({ open }: { open: boolean }): JSX.Element {
         </Button>
       </div>
 
+      {note && (
+        <div
+          role="status"
+          className={`text-[11px] ${note.ok ? 'text-solix-ok' : 'text-solix-danger'}`}
+        >
+          {note.text}
+        </div>
+      )}
+
+      {list.length === 0 && (
+        <ListPlaceholder
+          state={state}
+          label="notifiers"
+          onRetry={() => void refresh()}
+          empty="No notifiers yet. Add one above to get fleet events in Slack or Telegram."
+        />
+      )}
+
       {list.map((n) => (
         <div
           key={n.id}
@@ -288,17 +404,41 @@ function ConnectionCard({
   const [value, setValue] = useState('');
   const [scope, setScope] = useState('');
 
-  const call = async (path: string, body?: unknown, method = 'POST'): Promise<void> => {
-    await fetch(`/api/connections/${conn.id}${path}`, {
+  const [err, setErr] = useState<string | null>(null);
+
+  /**
+   * Setting a secret, granting a scope, revoking one, deleting the whole
+   * connection — all of it went through here, and all of it was swallowed.
+   * A 500 on a secret cleared the inputs and the key simply never appeared.
+   * Secret values are write-only by design, so there is no way to notice
+   * later that it did not land.
+   */
+  const call = async (
+    path: string,
+    body?: unknown,
+    method = 'POST',
+  ): Promise<boolean> => {
+    setErr(null);
+    const failure = await write(`/api/connections/${conn.id}${path}`, {
       method,
       headers: { 'content-type': 'application/json' },
       ...(body ? { body: JSON.stringify(body) } : {}),
-    }).catch(() => {});
+    });
+    if (failure) {
+      setErr(failure);
+      return false;
+    }
     await onChanged();
+    return true;
   };
 
   return (
     <div className="rounded border border-solix-border bg-black/20 p-3 space-y-2">
+      {err && (
+        <div role="status" className="text-[11px] text-solix-danger">
+          {err}
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div className="text-sm font-semibold text-slate-100">
           {conn.name}{' '}

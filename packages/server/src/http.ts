@@ -1437,6 +1437,20 @@ export function createHttpApp(opts: {
     return c.json(res, res.ok ? 200 : 404);
   });
 
+  /**
+   * Put a stopped task back in the queue.
+   *
+   * There was no per-task retry anywhere, and a failed plan was terminal —
+   * `resumePlan` refuses anything not `paused`. The only way back was a
+   * follow-up *goal*, which is a new plan and new planner spend.
+   */
+  app.post('/api/plans/:planId/tasks/:taskId/retry', (c) => {
+    const planId = c.req.param('planId');
+    const res = opts.orchestrator.retryTask(planId, c.req.param('taskId'));
+    if (res.ok && res.run) kickAdvance(planId);
+    return c.json(res, res.ok ? 200 : 409);
+  });
+
   // Comment-on-passage → follow-up task (P1 #4). A review comment on a file/diff
   // becomes a new worker task on the same plan; a settled plan is reopened to run
   // it (re-gated in the orchestrator). Origin-gated like the other mutators.
@@ -1484,6 +1498,21 @@ export function createHttpApp(opts: {
     return c.json(buildPlanReview(plan.cwd, plan.baseRef));
   });
 
+  /**
+   * Can this plan be previewed at all?
+   *
+   * `Open preview ↗` rendered for every finished plan, including the Node
+   * and Python templates offered in the same panel — which can never have an
+   * `index.html`, so the button was guaranteed to land on a dead end. The
+   * check mirrors exactly what servePreview resolves, so the button appears
+   * if and only if it will work.
+   */
+  app.get('/api/plans/:id/previewable', (c) => {
+    const plan = getPlan(opts.db, c.req.param('id') ?? '');
+    if (!plan) return c.json({ previewable: false }, 404);
+    return c.json({ previewable: existsSync(join(plan.cwd, 'index.html')) });
+  });
+
   // Build-studio preview: serve the built result (static files) straight from
   // the plan's working tree so the user can SEE what was built. Read-only GET,
   // strictly confined to plan.cwd (path-traversal guarded). For static sites;
@@ -1505,9 +1534,23 @@ export function createHttpApp(opts: {
       /* fall through to the not-found handling below */
     }
     if (!existsSync(target)) {
+      // Was a 200 with no <title>, no way back, and an unclosed <body> — a
+      // dead end that told the browser everything had gone fine.
       return new Response(
-        `<!doctype html><meta charset="utf-8"><body style="font-family:system-ui;background:#0b0e17;color:#cbd5e1;padding:3rem"><h2>Nothing to preview yet</h2><p>This project has no <code>index.html</code>. Preview supports static sites; run other stacks from a terminal.</p></body>`,
-        { headers: { 'Content-Type': 'text/html; charset=utf-8' } },
+        `<!doctype html><html lang="en"><head><meta charset="utf-8">` +
+          `<meta name="viewport" content="width=device-width, initial-scale=1">` +
+          `<title>Nothing to preview — Solix</title></head>` +
+          `<body style="font-family:system-ui;background:#0b0e17;color:#cbd5e1;padding:3rem;line-height:1.6">` +
+          `<h2 style="margin:0 0 .5rem">Nothing to preview yet</h2>` +
+          `<p style="margin:0 0 1.5rem">This project has no <code>index.html</code>. ` +
+          `Preview serves static files straight from the project; for a Node or ` +
+          `Python app, run it from a terminal.</p>` +
+          `<p style="margin:0"><a href="/" style="color:#7c5cff">← Back to Solix</a></p>` +
+          `</body></html>`,
+        {
+          status: 404,
+          headers: { 'Content-Type': 'text/html; charset=utf-8' },
+        },
       );
     }
     // Defense in depth: the lexical guard above can be defeated by an in-tree

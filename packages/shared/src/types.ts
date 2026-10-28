@@ -224,7 +224,25 @@ export interface PlanReview {
   error?: string;
   /** True when `cwd` isn't a git repo (nothing to diff). */
   notARepo?: boolean;
+  /**
+   * The ref actually diffed against.
+   *
+   * **Undefined means it fell back to `HEAD`**, which is not a plan-scoped
+   * comparison at all — it is the working tree, including whatever the user
+   * has been editing themselves. The client must say so rather than
+   * presenting it under "what did the fleet change?". This was returned and
+   * never read.
+   */
   baseRef?: string;
+  /**
+   * The base the plan recorded, when one existed but could not be used —
+   * a deleted branch, a rewritten history. Present only in that case, so
+   * the client can distinguish "this plan never got a base" from "its base
+   * is gone", which are different kinds of wrong.
+   */
+  requestedBaseRef?: string;
+  /** Untracked files beyond the scan cap, not represented in `files`. */
+  untrackedOmitted?: number;
   files: PlanReviewFile[];
   /** Unified diff text (tracked changes + synthesized new-file diffs). */
   diff: string;
@@ -505,6 +523,15 @@ export interface TeamInstallResult {
   advisorsEnabled: string[];
   skillsInstalled: string[];
   routinesCreated: string[];
+  /**
+   * Routines this template already had in this project, left alone.
+   *
+   * Installing a team used to create its routines unconditionally, so a
+   * second click — easy, since nothing said the first had happened — gave
+   * you two enabled interval routines firing the same prompt forever, at
+   * twice the cost. These are the ones that were recognised and skipped.
+   */
+  routinesAlreadyPresent: string[];
   warnings: string[];
 }
 
