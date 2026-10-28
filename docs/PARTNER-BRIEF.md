@@ -20,9 +20,12 @@ solix
 ```
 
 First run wires hooks into `~/.claude/settings.json`. It tells you what it is
-about to write before it writes it, backs the file up, and `solix uninstall`
-removes all of it. If you would rather it touched nothing yet:
-`solix start --no-wire`.
+about to write before it writes it, and backs the file up first.
+`solix uninstall` puts your Claude config back exactly as it found it —
+checked by diffing it against the original, including hooks of your own
+alongside ours — and keeps `~/.solix`, where your session history lives, so
+you can delete that yourself or not. If you would rather it touched nothing
+yet: `solix start --no-wire`.
 
 If you use **nvm** and Solix cannot find `claude`, set `SOLIX_CLAUDE_BIN` to
 the path `which claude` prints in the shell where it works. That is the one
