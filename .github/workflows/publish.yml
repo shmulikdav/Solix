@@ -1,8 +1,19 @@
 name: Publish to npm
 
-# Triggered by pushing a tag of the form `v1.2.3`. The actual version
-# in the tarball is read from packages/cli/package.json — make sure
-# you bump it (`npm version` in packages/cli) before tagging.
+# Triggered by pushing a tag of the form `v1.2.3`. Pushing the tag IS
+# publishing, and npm only allows an unpublish within 72 hours — so every
+# check that could stop a bad release has to be here, not somewhere a person
+# might remember to run.
+#
+# `scripts/release-tag.mjs` runs the same checks before it creates the tag,
+# and it is the intended path. But a tag pushed by hand bypasses it
+# completely, and this workflow is what runs either way.
+#
+# For three releases this job typechecked, built, and published without
+# running a single test. 1.18.0 shipped a P0 that way: stopping Solix left
+# the held agent blocked for five minutes, and it was found by installing
+# the tarball afterwards and reading the terminal. There is a test for it
+# now, and it only helps if something runs it before the publish.
 on:
   push:
     tags:
@@ -16,6 +27,10 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Needed by the ancestry check below, which cannot see main at
+          # the default depth of 1.
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v3
         with:
@@ -25,6 +40,8 @@ jobs:
         with:
           node-version: '20'
           cache: 'pnpm'
+
+      # ── cheap refusals first, before spending five minutes on a build ──
 
       - name: Verify NPM_TOKEN is configured
         run: |
@@ -38,11 +55,52 @@ jobs:
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: The tag must name the version being published
+        # A tag is only a pointer. This has gone wrong twice: a tag named
+        # v1.14.0 pointing at a commit whose package.json said 1.13.0, so the
+        # workflow built 1.13.0 and npm refused it — the good outcome of a bad
+        # state. Refuse it here with a sentence that says what to do instead.
+        run: |
+          VERSION=$(node -p "require('./packages/cli/package.json').version")
+          if [ "${GITHUB_REF_NAME}" != "v${VERSION}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match packages/cli/package.json (${VERSION})."
+            echo "::error::The tag is a pointer, not the version. Either the bump never landed on"
+            echo "::error::this commit, or the tag was typed by hand. Use \`pnpm release:tag\`."
+            exit 1
+          fi
+          echo "✓ ${GITHUB_REF_NAME} matches ${VERSION}"
+
+      - name: The tag must point at a commit on main
+        # "Push or pull first, or the tag will point at a commit nobody else
+        # has." Releases are cut from main; a tag on a side branch would
+        # publish code that is not in the project's history.
+        run: |
+          git fetch --quiet origin main
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+            echo "::error::${GITHUB_SHA} is not an ancestor of origin/main."
+            echo "::error::This would publish a commit that is not on main. Merge first."
+            exit 1
+          fi
+          echo "✓ on main"
+
       - name: Install
         run: pnpm install --frozen-lockfile
 
       - name: Typecheck
         run: pnpm -r typecheck
+
+      - name: Test
+        # The step this job did not have. 855 tests, including the gate
+        # decision matrix, the claims ledger, and the shutdown case that
+        # 1.18.0 shipped broken.
+        run: pnpm test
+
+      - name: The published claims manifest matches the ledger
+        # The website vendors claims.json out of this package to check its
+        # own copy. Publishing a stale manifest would leave the site
+        # validating promises against a version of the ledger that no longer
+        # exists.
+        run: pnpm claims:check
 
       - name: Fetch web textures
         # Best-effort: package still works without textures (UI falls back
@@ -53,9 +111,42 @@ jobs:
       - name: Build (server, shared, web, cli)
         run: pnpm -r build
 
-      - name: Inspect tarball
+      - name: Install the tarball and run it
+        # `npm pack --dry-run` only lists what would go in. This installs the
+        # real artefact the way a user does and runs it, which is how every
+        # release since 1.13.0 has actually been verified — by hand, after
+        # publishing, when it was too late to change anything.
         working-directory: packages/cli
-        run: npm pack --dry-run
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./package.json').version")
+          TARBALL=$(npm pack --silent)
+          echo "packed ${TARBALL}"
+          PREFIX="${RUNNER_TEMP}/solix-smoke"
+          npm install -g --prefix "${PREFIX}" "./${TARBALL}"
+
+          GOT=$("${PREFIX}/bin/solix" --version | tail -1 | tr -d '[:space:]')
+          if [ "${GOT}" != "${VERSION}" ]; then
+            echo "::error::the installed package reports '${GOT}', expected '${VERSION}'."
+            exit 1
+          fi
+          echo "✓ installs and reports ${GOT}"
+
+          # Shipped files the site and the docs depend on being there.
+          ROOT="${PREFIX}/lib/node_modules/@shmulikdav/solix"
+          for f in claims.json dist/index.js; do
+            if [ ! -f "${ROOT}/${f}" ]; then
+              echo "::error::${f} is missing from the published package."
+              echo "::error::Check the \`files\` array in packages/cli/package.json."
+              exit 1
+            fi
+          done
+          echo "✓ claims.json and dist/index.js are in the tarball"
+
+          # `--help` exercises the commander wiring, which a build can leave
+          # importable but broken.
+          "${PREFIX}/bin/solix" --help > /dev/null
+          echo "✓ --help runs"
 
       - name: Publish
         # Write the auth token explicitly into a project-local .npmrc so
