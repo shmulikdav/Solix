@@ -183,7 +183,7 @@ describe('hooksInstalled', () => {
  * The property under test is the strong one — not "it warns" but "the file
  * on disk is byte-for-byte what it was".
  */
-describe('install() and an unreadable settings.json', () => {
+describe('CLAIM-INSTALL-NEVER-CLOBBERS · install() and an unreadable settings.json', () => {
   const REAL_CONFIG = `{
   // a comment, which JSON does not allow and Claude Code tolerates
   "permissions": { "allow": ["Bash(npm test)"] },

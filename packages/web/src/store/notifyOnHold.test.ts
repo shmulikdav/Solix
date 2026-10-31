@@ -42,7 +42,7 @@ function holdFor(sessionId: string, command: string): ServerMessage {
   } as ServerMessage;
 }
 
-describe('a hold reaches someone who walked away', () => {
+describe('CLAIM-NOTIFY-ON-HOLD · a hold reaches someone who walked away', () => {
   beforeEach(() => {
     notify.mockClear();
     chime.mockClear();

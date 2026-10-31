@@ -18,7 +18,7 @@ import { listSchedules } from './state/schedules.js';
  */
 const WITH_ROUTINES = TEAM_TEMPLATES.find((t) => t.routines.length > 0);
 
-describe('installing a team twice', () => {
+describe('CLAIM-TEAMS-IDEMPOTENT · installing a team twice', () => {
   let db: DB;
   const cwd = '/tmp/team-project';
 

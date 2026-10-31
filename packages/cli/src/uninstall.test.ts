@@ -50,7 +50,7 @@ afterEach(() => {
   rmSync(home, { recursive: true, force: true });
 });
 
-describe('uninstall', () => {
+describe('CLAIM-UNINSTALL-RESTORES · uninstall', () => {
   /**
    * The data-loss regression. Install, then make a change of your own, then
    * uninstall: your change must survive. Against the old wholesale-restore

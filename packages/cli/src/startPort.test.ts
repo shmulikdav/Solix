@@ -26,7 +26,7 @@ afterEach(() => {
   else process.env.SOLIX_PORT = SAVED;
 });
 
-describe('resolveAndPublishPort', () => {
+describe('CLAIM-GATE-ANY-PORT · resolveAndPublishPort', () => {
   /** The regression: the flag has to reach the hooks, not just the listener. */
   it('publishes an explicit --port so the hooks can find the server', () => {
     expect(resolveAndPublishPort({ port: 4360 })).toBe(4360);

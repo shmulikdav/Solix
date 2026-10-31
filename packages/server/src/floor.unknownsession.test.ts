@@ -35,7 +35,7 @@ function bashEvent(sessionId: string, command: string): HookEvent {
 
 const LEVELS: GovernanceLevel[] = ['observe', 'standard', 'strict'];
 
-describe('the floor and an unknown session', () => {
+describe('CLAIM-FLOOR-NO-SESSION · the floor and an unknown session', () => {
   let db: DB;
   let router: EventRouter;
   let sent: ServerMessage[];

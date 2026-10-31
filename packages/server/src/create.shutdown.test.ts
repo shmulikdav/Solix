@@ -68,7 +68,7 @@ function heldEvent(command: string): HookEvent {
   } as HookEvent;
 }
 
-describe('shutting down while a request is held', () => {
+describe('CLAIM-SHUTDOWN-RELEASES · shutting down while a request is held', () => {
   let db: DB;
   let handle: SolixServerHandle | null = null;
   let prevHome: string | undefined;

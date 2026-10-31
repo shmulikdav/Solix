@@ -27,7 +27,7 @@ function bashEvent(sessionId: string, command: string): HookEvent {
   } as HookEvent;
 }
 
-describe('governance level', () => {
+describe('CLAIM-FLOOR-ALL-LEVELS · governance level', () => {
   let db: DB;
   let router: EventRouter;
 
