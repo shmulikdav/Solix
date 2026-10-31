@@ -46,6 +46,12 @@
       "heldBy": "packages/cli/src/runUngated.test.ts"
     },
     {
+      "id": "CLAIM-NO-TELEMETRY",
+      "claim": "Solix never chooses a network destination. Every outbound request goes somewhere the user configured. Nothing is collected and nothing is sent on its own.",
+      "publishedIn": "site (\"100% local\", \"Zero telemetry\"), FAQ, README",
+      "heldBy": "packages/server/src/noTelemetry.test.ts"
+    },
+    {
       "id": "CLAIM-WS-ORIGIN",
       "claim": "Only a loopback origin can drive the control plane.",
       "publishedIn": "site (\"100% local\"), FAQ",
