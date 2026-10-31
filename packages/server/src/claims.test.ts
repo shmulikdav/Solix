@@ -127,4 +127,30 @@ describe('the claims ledger binds to the tests', () => {
     const ids = ledger.map((r) => r.id);
     expect(ids).toHaveLength(new Set(ids).size);
   });
+
+  /**
+   * The published manifest is how the website repo learns what we promise.
+   * It can see none of this code, which is how "wrap it with `solix run` and
+   * it gets the same treatment" reached the home page while `run.ts` and
+   * CLAIM-RUN-UNGATED said the opposite. A stale manifest would put that gap
+   * straight back, so the ledger and the shipped file are locked together.
+   */
+  describe('the manifest the site reads', () => {
+    const manifest = JSON.parse(
+      readFileSync(join(ROOT, 'packages', 'cli', 'claims.json'), 'utf8'),
+    ) as { version: string; claims: Row[] };
+
+    it('carries every row of the ledger, unchanged', () => {
+      expect(manifest.claims).toEqual(ledger);
+    });
+
+    it('is stamped with the version those claims are true of', () => {
+      const pkg = JSON.parse(
+        readFileSync(join(ROOT, 'packages', 'cli', 'package.json'), 'utf8'),
+      ) as { version: string; files: string[] };
+      expect(manifest.version).toBe(pkg.version);
+      // Shipped, or the site has nothing to vendor from.
+      expect(pkg.files).toContain('claims.json');
+    });
+  });
 });
