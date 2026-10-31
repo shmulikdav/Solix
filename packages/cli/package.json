@@ -10,6 +10,7 @@
   "main": "./dist/index.js",
   "files": [
     "dist",
+    "claims.json",
     "README.md",
     "LICENSE"
   ],
