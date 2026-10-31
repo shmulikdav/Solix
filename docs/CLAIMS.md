@@ -1,0 +1,81 @@
+# Claims
+
+Every public promise Solix makes, with the test that fails when it stops
+being true.
+
+## Why this exists
+
+Six defects in six days, and they were all the same shape — not a crash, an
+**overclaim**: the product said it did X and did X-minus-something.
+
+| | the claim | where it broke |
+|---|---|---|
+| 1 | the gate holds risky commands | the env never reached the hook on `--port N` |
+| 2 | the denylist applies at every level | the floor never reached a session with no role |
+| 3 | the floor is a floor | the floor never reached an unknown session id |
+| 4 | fail-closed refuses the agent | the refusal never reached it for 300 seconds |
+| 5 | the denylist is scoped honestly | the corrected copy never reached the live site |
+| 6 | `solix run` is governed | it never was, and two documents said it is |
+
+Every one of them was invisible to a passing unit-test suite, because the
+code was right *somewhere* and wrong at the surface a reader meets. Numbers
+5 and 6 were not code defects at all: the behaviour was correct and the
+sentence describing it was false. No amount of testing the code finds those.
+
+So the rule here is the inverse of ordinary coverage. **A claim may not exist
+without a test that fails when it stops being true**, and `claims.test.ts`
+enforces that in both directions — a row with no test fails, and a
+`CLAIM-` id in a test that is not a row here fails too.
+
+This is not a coverage target. The starter set is deliberately the claims
+with a *track record of being false*, plus the load-bearing ones nothing was
+watching.
+
+## How to add one
+
+1. Add a row below with a new `CLAIM-` id.
+2. Put that id in the `describe()` of the test that holds it.
+3. Prove it: break the behaviour and watch *that* test fail.
+
+If you cannot write step 2, you cannot make the claim.
+
+## The ledger
+
+| ID | The claim | Published in | Held by |
+|---|---|---|---|
+| `CLAIM-GATE-HOLDS-LAUNCHED` | A sensitive call from a task Solix launched is held until a human answers. | README, site, brief, `solix level` | `packages/server/src/launcher.spawnenv.test.ts` |
+| `CLAIM-GATE-ANY-PORT` | The gate works on a non-default port. | implied everywhere `--port` is offered | `packages/cli/src/startPort.test.ts` |
+| `CLAIM-FLOOR-ALL-LEVELS` | The command denylist refuses at every level, including `observe`, for everything Solix launches. | README, site, `solix level` | `packages/server/src/governance.gate.test.ts` |
+| `CLAIM-FLOOR-NO-SESSION` | The floor applies even when the session row cannot be found. | implied by "floor" | `packages/server/src/floor.unknownsession.test.ts` |
+| `CLAIM-FAILCLOSED` | An unreachable gate denies rather than waving the command through. | site, brief, smoke E6 | `packages/server/src/launcher.spawnenv.test.ts` |
+| `CLAIM-SHUTDOWN-RELEASES` | Stopping Solix refuses what it is holding and exits, rather than hanging. | brief, smoke E6 | `packages/server/src/create.shutdown.test.ts` |
+| `CLAIM-RUN-UNGATED` | `solix run` adds a side channel, **not** governance. | site, brief, README | `packages/cli/src/runUngated.test.ts` |
+| `CLAIM-WS-ORIGIN` | Only a loopback origin can drive the control plane. | site ("100% local"), FAQ | `packages/server/src/origins.test.ts` |
+| `CLAIM-IMPORT-NO-SSRF` | A galaxy manifest URL cannot be turned into a probe of the local network. | implied by "nothing leaves your machine" | `packages/server/src/origins.test.ts` |
+| `CLAIM-NOTIFY-ON-HOLD` | You hear about a held decision after you have walked away. | brief step 3, site | `packages/web/src/store/notifyOnHold.test.ts` |
+| `CLAIM-UNINSTALL-RESTORES` | `solix uninstall` leaves your Claude config exactly as it found it. | brief, site, install guide | `packages/cli/src/uninstall.test.ts` |
+| `CLAIM-INSTALL-NEVER-CLOBBERS` | Install refuses to write a `settings.json` it could not read. | CHANGELOG 1.18.0, release notes | `packages/cli/src/install.test.ts` |
+| `CLAIM-TEAMS-IDEMPOTENT` | Installing a team twice does not create its routines twice. | CHANGELOG 1.18.0, release notes | `packages/server/src/teams.idempotent.test.ts` |
+
+## Not yet claimed here
+
+Honest gaps, so this file does not read as more complete than it is. These
+are published promises with no row yet:
+
+- cost and context figures are real and never invented (`transcript.ts`,
+  386 lines, has no direct test)
+- `solix demo` seeds a sandbox and cleans up after itself (`demo.ts`, 913
+  lines, no test)
+- `solix doctor` reports real state (`doctor.ts`, 288 lines, no test)
+- budgets pause a plan before it crosses its cap — tested, not yet bound
+- secrets are write-only and encrypted at rest — tested, not yet bound
+
+## The one this cannot reach
+
+Claims published in the **website repo** (`solixagent`) are not checked from
+here, and that is where number 5 and number 6 escaped. `solix run` was
+described correctly in this repo and wrongly on the home page for weeks,
+because nothing in that repo can see `run.ts`.
+
+Until that is closed, the site is the weakest surface, and the discipline is
+manual: when a row here changes, grep the site repo for the claim.

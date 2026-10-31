@@ -41,7 +41,7 @@ import type { DB } from './db.js';
  * them. This reads the env off the spawn itself, which is the only place the
  * question is actually settled.
  */
-describe('the spawned process really gets the gate', () => {
+describe('CLAIM-GATE-HOLDS-LAUNCHED + CLAIM-FAILCLOSED · the spawned process really gets the gate', () => {
   let db: DB;
 
   beforeEach(() => {
