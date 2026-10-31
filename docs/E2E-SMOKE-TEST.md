@@ -7,6 +7,34 @@
 
 ## Last run
 
+**2026-10-31, against 1.18.1 on the registry** — the fix for what the run
+below found, verified from the published tarball rather than a local build,
+on a **non-default port**.
+
+| | Result |
+|---|---|
+| the tarball is 1.18.1 | **PASS** — pinned on install, because the `latest` dist-tag is CDN-cached for up to 300s and still read 1.18.0 for minutes after publishing |
+| **E6** · a decision held, then `Ctrl+C` | **PASS** — exited in **216ms**, having printed `1 held request(s) refused on the way out`. 1.18.0 took ~300,000ms and printed nothing |
+| **E6** · the same with a browser tab open | **PASS** — **218ms** with a websocket deliberately held open for 300s. 1.18.0 took 16.2s, waiting on the tab |
+| **E3** · deny actually prevents it | **PASS** — canary survived, audit row names the decision |
+| the canary, throughout | **PASS** — survived all three |
+
+The audit trail is the clearest record of the difference. Two
+`Solix shut down while this was held: Bash was refused` rows for the kill
+cases, where 1.18.0 wrote `Timed out after 300s and was denied` instead, and
+one ordinary `Denied Bash … rm canary/keep.txt` for the human denial.
+
+> **Two ways this run lied to itself first**, both worth avoiding next time.
+> It polled the *port* to decide the server was up, and a stale 1.18.0
+> process from the previous walk was still listening — so the first attempt
+> reported on the wrong server entirely and recorded "the gate did not ask".
+> Wait for your own `server listening on …` line in your own log. And it
+> waited for the hold to open with an unbounded loop, so a hold that never
+> came spun for ten minutes instead of failing. Both fixed in
+> `verify-1181.sh`; neither was a product fault.
+
+---
+
 **2026-10-28, against the published npm tarball** — `npm i -g
 @shmulikdav/solix` into a sandbox prefix with its own `HOME`, which is what
 a design partner installs. Everything before this had been run against a
