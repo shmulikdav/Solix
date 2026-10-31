@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { Broadcaster } from './broadcaster.js';
-import { getDb } from './db.js';
+import { getDb, type DB } from './db.js';
 import { createHttpApp } from './http.js';
 import { Launcher } from './launcher.js';
 import { DB_PATH } from './paths.js';
@@ -28,7 +28,7 @@ import {
 } from './state/schedules.js';
 import type { ScheduledTask, TriggerKind } from '@solix/shared';
 import { startNotificationDispatcher } from './state/notifiers.js';
-import { ensureDefaultOrg } from './state/orgs.js';
+import { ensureDefaultOrg, getSetting, setSetting } from './state/orgs.js';
 import { now } from './util.js';
 
 // Models a plan task may be dispatched with (mirrors the New Task picker).
@@ -67,6 +67,60 @@ export interface SolixServerHandle {
   close: () => Promise<void>;
 }
 
+/** Marks the historical-spend reset as done, so it happens exactly once. */
+const COST_RESET_KEY = 'cost_reset_double_count_v1';
+
+/**
+ * Zero every recorded figure once, because some of them are wrong and there
+ * is no way to tell which.
+ *
+ * Until this release the transcript watcher re-counted its replay window on
+ * every start, so a session's `cost_usd` and a mission's `total_tokens` grew
+ * by the same messages each time Solix was restarted — measured at exactly
+ * 2.00× on a two-message transcript, compounding. Any install that has been
+ * restarted is carrying inflated numbers, and nothing in the database
+ * distinguishes real spend from spend counted twice.
+ *
+ * So the figures are reset rather than adjusted. It is a deliberate trade:
+ * it destroys genuine history, including figures that were never inflated,
+ * in exchange for a number that is obviously starting over instead of
+ * quietly wrong. `solix ledger` and `solix gain` lose their past spend with
+ * it.
+ *
+ * It says so on stdout. A product whose front page is "watch the money"
+ * should not zero your spend history in silence.
+ */
+export function resetDoubleCountedSpend(db: DB): void {
+  if (getSetting(db, COST_RESET_KEY) === 'done') return;
+
+  const sessions = db
+    .prepare(`SELECT count(*) AS n FROM sessions WHERE cost_usd > 0`)
+    .get() as { n: number };
+  const missions = db
+    .prepare(`SELECT count(*) AS n FROM missions WHERE total_tokens > 0`)
+    .get() as { n: number };
+
+  db.prepare(`UPDATE sessions SET cost_usd = 0 WHERE cost_usd > 0`).run();
+  db.prepare(
+    `UPDATE missions SET total_tokens = 0 WHERE total_tokens > 0`,
+  ).run();
+  // Start every session's counting from the beginning of its transcript, so
+  // the figures rebuild from zero rather than from a position that was set
+  // while the counting was wrong.
+  db.prepare(`UPDATE sessions SET transcript_pos = NULL`).run();
+  setSetting(db, COST_RESET_KEY, 'done');
+
+  if (sessions.n > 0 || missions.n > 0) {
+    console.log(
+      `[solix] reset spend on ${sessions.n} session(s) and tokens on ${missions.n} mission(s).\n` +
+        '        Until this version a restart re-counted part of each\n' +
+        '        transcript, so those figures were too high and there is no\n' +
+        '        way to tell by how much. They start from zero and are\n' +
+        '        counted once from here. This happens only once.',
+    );
+  }
+}
+
 export async function createSolixServer(
   opts: SolixServerOptions = {},
 ): Promise<SolixServerHandle> {
@@ -88,6 +142,7 @@ export async function createSolixServer(
   db.prepare(
     `UPDATE sessions SET wrapper_socket_path = NULL WHERE wrapper_socket_path IS NOT NULL`,
   ).run();
+  resetDoubleCountedSpend(db);
   // Boot diagnostic — prints the resolved DB path + row counts so a user
   // reporting an empty UI can confirm in one line which DB the server opened
   // and whether it actually has data. Best-effort; never blocks startup.

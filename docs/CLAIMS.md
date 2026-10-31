@@ -50,6 +50,7 @@ If you cannot write step 2, you cannot make the claim.
 | `CLAIM-FAILCLOSED` | An unreachable gate denies rather than waving the command through. | site, brief, smoke E6 | `packages/server/src/launcher.spawnenv.test.ts` |
 | `CLAIM-SHUTDOWN-RELEASES` | Stopping Solix refuses what it is holding and exits, rather than hanging. | brief, smoke E6 | `packages/server/src/create.shutdown.test.ts` |
 | `CLAIM-RUN-UNGATED` | `solix run` adds a side channel, **not** governance. | site, brief, README | `packages/cli/src/runUngated.test.ts` |
+| `CLAIM-COST-COUNTED-ONCE` | Every cost and token figure is the sum of the transcript, counted once — it does not grow when Solix restarts. | site ("watch the money", "every number is live and local"), Mission Control, `solix gain`, `solix ledger` | `packages/server/src/state/transcript.cost.test.ts` |
 | `CLAIM-NO-TELEMETRY` | Solix never chooses a network destination. Every outbound request goes somewhere the user configured. Nothing is collected and nothing is sent on its own. | site ("100% local", "Zero telemetry"), FAQ, README | `packages/server/src/noTelemetry.test.ts` |
 | `CLAIM-WS-ORIGIN` | Only a loopback origin can drive the control plane. | site ("100% local"), FAQ | `packages/server/src/origins.test.ts` |
 | `CLAIM-IMPORT-NO-SSRF` | A galaxy manifest URL cannot be turned into a probe of the local network. | implied by "nothing leaves your machine" | `packages/server/src/origins.test.ts` |

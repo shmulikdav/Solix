@@ -324,6 +324,37 @@ export function setSessionCost(
   return getSession(db, sessionId);
 }
 
+/**
+ * How far into this session's transcript the cost has already been counted.
+ *
+ * Kept on the session row rather than in memory, because the whole point is
+ * surviving a restart: the watcher used to re-read the replay window on every
+ * start and add the same messages to a `cost_usd` that was still in the
+ * database, doubling a session's recorded spend each time. Null for a session
+ * that predates this column, which reads as 0 and is correct — the one-time
+ * reset in `createSolixServer` zeroes those figures anyway.
+ */
+export function getTranscriptPos(db: DB, sessionId: string): number | null {
+  const row = db
+    .prepare('SELECT transcript_pos FROM sessions WHERE id = ?')
+    .get(sessionId) as { transcript_pos: number | null } | undefined;
+  return row?.transcript_pos ?? null;
+}
+
+/** Only ever moves forward: a shorter file means a truncation or a rotation,
+ *  and re-counting from there would charge twice for the same bytes. */
+export function setTranscriptPos(
+  db: DB,
+  sessionId: string,
+  pos: number,
+): void {
+  db.prepare(
+    `UPDATE sessions
+        SET transcript_pos = MAX(COALESCE(transcript_pos, 0), ?)
+      WHERE id = ?`,
+  ).run(Math.max(0, Math.floor(pos)), sessionId);
+}
+
 /** Sprint M — set (or raise) the per-session budget cap in USD. */
 export function setSessionBudget(
   db: DB,

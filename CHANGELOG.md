@@ -5,6 +5,47 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.2] — 2026-10-31
+
+**Your spend was counted again every time Solix restarted.**
+
+`solix start` re-reads the tail of each session's transcript so the Chat tab
+opens with recent context. The cost accumulator ran over those replayed
+lines too, and the session's `cost_usd` was still in the database from last
+time — so every restart added the same messages on top of themselves.
+
+Measured against 1.18.1, not inferred: a two-message transcript recorded
+$0.1425, then $0.285 after one restart and $0.4275 after two. Exactly one
+extra copy per start, compounding. Mission token totals doubled the same
+way, in the same block.
+
+This is worse than a wrong number on a screen. Budgets read it, so "pauses
+before the spend crosses the cap" would pause work that had not cost that
+much, and a budget alert could fire on spend that never happened. `solix
+gain` and `solix ledger` reported from it too. And a restart is not an edge
+case — it is what the 1.18.0 notes tell you to do after upgrading.
+
+The replay does two jobs and only one of them may repeat. Chat deltas have
+to be re-emitted or the panel opens empty; sums must not be. Each session
+now carries a persisted high-water mark (`sessions.transcript_pos`), and a
+line below it is replayed into the chat without being charged again. Lines
+written while Solix was down sit above the mark, so they are counted — which
+the simpler fix of suppressing the replay would have silently lost, along
+with the chat panel. Both of those were tried and both break tests here.
+
+**This release resets every recorded figure to zero, once.** Any install
+that has been restarted is carrying inflated numbers, and nothing in the
+database distinguishes real spend from spend counted twice — so there is no
+migration that could correct them. It is a deliberate trade: genuine
+history is destroyed, including figures that were never inflated, in
+exchange for numbers that visibly start over rather than being quietly
+wrong. `solix ledger` and `solix gain` lose their past spend with it. It
+says what it did on startup and happens only once.
+
+`transcript.ts` had no test of any kind, which is how it shipped. It has
+eight now, each proven by reinstating its own bug — and the whole set run
+against 1.18.1 to confirm they fail there.
+
 ## [1.18.1] — 2026-10-31
 
 **Stopping Solix no longer leaves the agent hanging.**

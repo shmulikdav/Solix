@@ -421,6 +421,11 @@ function applySchema(db: DB): void {
   ensureColumn(db, 'sessions', 'agent_view_summary', 'agent_view_summary TEXT');
   ensureColumn(db, 'sessions', 'pr_url', 'pr_url TEXT');
   ensureColumn(db, 'sessions', 'pr_check_status', 'pr_check_status TEXT');
+  // How far into this session's transcript the cost has already been
+  // counted. Without it the watcher re-counted every replayed line on each
+  // start, so a session's recorded spend doubled on every restart — and the
+  // release notes tell people to restart. See transcript.ts.
+  ensureColumn(db, 'sessions', 'transcript_pos', 'transcript_pos INTEGER');
   ensureColumn(db, 'advisors', 'texture_pack', 'texture_pack TEXT');
   ensureColumn(db, 'missions', 'error_summary', 'error_summary TEXT');
   // Sprint M — cost tracking, heartbeats, goals.
