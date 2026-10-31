@@ -329,6 +329,51 @@ export function listPlanTasks(db: DB, planId?: string): PlanTask[] {
   return rows.map(rowToPlanTask);
 }
 
+/**
+ * Whether a human may still edit this task's content, and why not.
+ *
+ * `PATCH /api/plans/:planId/tasks/:taskId` passed its whole body through to
+ * `updatePlanTask`, including `status`, with no regard for what the plan was
+ * doing. One level up, the plan's own PATCH has stripped `status` and
+ * `autoMode` since 1.17 precisely so "a generic PATCH must not flip a plan to
+ * `running` behind the orchestrator's back" — the task route never got the
+ * same treatment, so it could:
+ *
+ *   - mark a task `completed` without it ever having run, or `dispatched`
+ *     while the orchestrator believed otherwise;
+ *   - rewrite `prompt` or `acceptanceCriteria` of a task that is *mid-flight*,
+ *     changing what a worker was told after it was told it;
+ *   - rewrite the acceptance criteria of a task already `completed`, which
+ *     retroactively changes what "verified against its acceptance criteria"
+ *     meant. That is the product's central claim about Maestro.
+ *
+ * Only a loopback origin can reach the route, so this was never remotely
+ * exploitable — but the plan-editing UI is about to make it a button, and a
+ * footgun with a label on it is worse than one nobody can find.
+ *
+ * The rule, in one place so the UI and the route agree: a finished plan is a
+ * record, a task in flight belongs to the orchestrator, and a verified task's
+ * terms do not change after the fact. Everything else is yours to edit —
+ * including a `pending` task inside a running plan, which has not started.
+ */
+export function taskEditRefusal(
+  plan: Plan | null,
+  task: PlanTask | null,
+): string | null {
+  if (!plan || !task) return 'not found';
+  if (plan.status === 'completed' || plan.status === 'failed') {
+    return `this plan is ${plan.status} — it is a record now, not a draft`;
+  }
+  if (task.status === 'dispatched' || task.status === 'verifying') {
+    return `this task is ${task.status} — an agent is working on it. Abort the plan or wait for it to settle`;
+  }
+  if (task.status === 'completed') {
+    return 'this task is already verified — changing what it asked for would ' +
+      'change what "verified" meant. Add a follow-up task instead';
+  }
+  return null;
+}
+
 export function updatePlanTask(
   db: DB,
   id: string,

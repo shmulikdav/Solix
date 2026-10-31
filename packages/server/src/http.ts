@@ -108,6 +108,7 @@ import {
   getPlanTask,
   listPlans,
   listPlanTasks,
+  taskEditRefusal,
   updatePlan,
   updatePlanTask,
 } from './state/plans.js';
@@ -1350,7 +1351,22 @@ export function createHttpApp(opts: {
       budgetUsd: number;
       orderIndex: number;
     }>;
-    const task = updatePlanTask(opts.db, c.req.param('taskId'), body);
+    const taskId = c.req.param('taskId');
+    // `status` is the orchestrator's, exactly as on the plan's own PATCH: a
+    // generic edit must not be able to call a task `completed` without it
+    // running, or `dispatched` behind the scheduler's back.
+    const { status: _status, ...safe } = body;
+    const refusal = taskEditRefusal(
+      getPlan(opts.db, c.req.param('planId')),
+      getPlanTask(opts.db, taskId),
+    );
+    if (refusal) {
+      // 409, not 400: the request is well-formed, the plan's state says no.
+      // The reason is the message the UI shows, so it has to read as a
+      // sentence rather than a code.
+      return c.json({ error: refusal }, refusal === 'not found' ? 404 : 409);
+    }
+    const task = updatePlanTask(opts.db, taskId, safe);
     if (!task) return c.json({ error: 'not found' }, 404);
     opts.router.broadcastPlanTaskUpsert(task);
     return c.json(task);
@@ -1358,6 +1374,15 @@ export function createHttpApp(opts: {
 
   app.delete('/api/plans/:planId/tasks/:taskId', (c) => {
     const taskId = c.req.param('taskId');
+    // Same rule as editing: a finished plan is a record, and a task an agent
+    // is running is not yours to delete out from under it.
+    const refusal = taskEditRefusal(
+      getPlan(opts.db, c.req.param('planId')),
+      getPlanTask(opts.db, taskId),
+    );
+    if (refusal) {
+      return c.json({ error: refusal }, refusal === 'not found' ? 404 : 409);
+    }
     const ok = deletePlanTask(opts.db, taskId);
     if (ok) opts.router.broadcastPlanTaskRemove(taskId);
     return c.json({ ok });
