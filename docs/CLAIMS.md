@@ -45,7 +45,7 @@ If you cannot write step 2, you cannot make the claim.
 |---|---|---|---|
 | `CLAIM-GATE-HOLDS-LAUNCHED` | A sensitive call from a task Solix launched is held until a human answers. | README, site, brief, `solix level` | `packages/server/src/launcher.spawnenv.test.ts` |
 | `CLAIM-GATE-ANY-PORT` | The gate works on a non-default port. | implied everywhere `--port` is offered | `packages/cli/src/startPort.test.ts` |
-| `CLAIM-FLOOR-ALL-LEVELS` | The command denylist refuses at every level, including `observe`, for everything Solix launches. | README, site, `solix level` | `packages/server/src/governance.gate.test.ts` |
+| `CLAIM-FLOOR-ALL-LEVELS` | The command denylist refuses at every level, including `observe`, for everything Solix launches. | README, site, `solix level` | `packages/server/src/gate.matrix.test.ts` |
 | `CLAIM-FLOOR-NO-SESSION` | The floor applies even when the session row cannot be found. | implied by "floor" | `packages/server/src/floor.unknownsession.test.ts` |
 | `CLAIM-FAILCLOSED` | An unreachable gate denies rather than waving the command through. | site, brief, smoke E6 | `packages/server/src/launcher.spawnenv.test.ts` |
 | `CLAIM-SHUTDOWN-RELEASES` | Stopping Solix refuses what it is holding and exits, rather than hanging. | brief, smoke E6 | `packages/server/src/create.shutdown.test.ts` |
@@ -56,6 +56,22 @@ If you cannot write step 2, you cannot make the claim.
 | `CLAIM-UNINSTALL-RESTORES` | `solix uninstall` leaves your Claude config exactly as it found it. | brief, site, install guide | `packages/cli/src/uninstall.test.ts` |
 | `CLAIM-INSTALL-NEVER-CLOBBERS` | Install refuses to write a `settings.json` it could not read. | CHANGELOG 1.18.0, release notes | `packages/cli/src/install.test.ts` |
 | `CLAIM-TEAMS-IDEMPOTENT` | Installing a team twice does not create its routines twice. | CHANGELOG 1.18.0, release notes | `packages/server/src/teams.idempotent.test.ts` |
+
+## The matrix
+
+`packages/server/src/gate.matrix.test.ts` enumerates the gate's whole
+decision surface — every governance level × launch path × command class — and
+writes out the expected outcome for each of the thirty cells. All three gate
+P0s were *cells nobody had visited* rather than logic anyone could see by
+reading the function, so a table is the shape that makes a gap visible: an
+untested configuration is a missing row, not an absence of thought.
+
+It is proven against the defects it exists for. Reinstating the role-gated
+denylist fails six cells; putting the floor back behind the session lookup
+fails three; the four that shipped broken are marked `[was a P0]` in the
+output. The port dimension cannot be reached from that layer and is held
+next door, on the contained-worker path where the allowlist actually
+applies.
 
 ## Not yet claimed here
 

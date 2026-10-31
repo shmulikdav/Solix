@@ -19,7 +19,7 @@
       "id": "CLAIM-FLOOR-ALL-LEVELS",
       "claim": "The command denylist refuses at every level, including `observe`, for everything Solix launches.",
       "publishedIn": "README, site, `solix level`",
-      "heldBy": "packages/server/src/governance.gate.test.ts"
+      "heldBy": "packages/server/src/gate.matrix.test.ts"
     },
     {
       "id": "CLAIM-FLOOR-NO-SESSION",
