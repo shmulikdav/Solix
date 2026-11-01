@@ -109,10 +109,52 @@ passes *everything*, because the two defects that file has already shipped
 were a check that could not fail and a check that was permanently red on a
 healthy machine, and only that test can catch the second kind.
 
-948 tests. 89 of them are new here, across the shared rule, the route, the
-store, the rendered controls and the two commands — each proven by
-reinstating its own bug, including two that did not bind on the first attempt
-and had to be rewritten before they would fail for the right reason.
+**Routines are editable, and nothing is destroyed to do it.**
+
+The second disclosure on the brief's "what is young" list, and the Routines
+tab had been carrying the reason since it shipped: *"there is no edit: the
+server has no PATCH for a routine, and recreating one would drop its run
+history and rotate its webhook token, silently breaking any webhook already
+pointed at it."* So a mistyped cadence was unfixable — on the one surface
+whose whole purpose is making recurring spend controllable, and immediately
+after a release note explaining that a cadence Solix could not read would bill
+168× what the card said. That release started refusing bad cadences and could
+do nothing for anyone who already had one.
+
+`PATCH /api/schedules/:id` now exists. The row keeps its id, so `schedule_runs`
+still points at it, and keeps its `token`, so a URL already configured keeps
+firing — the two things a recreate destroyed, and neither is reachable from
+the route. **Edit** on a routine card changes the name, prompt, cadence and
+owner; a cadence change states the new spend before the button that commits to
+it, and `next_run_at` is measured from the save rather than from the last run,
+because measuring from the last run means shortening `1h` to `10m` fires
+immediately — a burst of unplanned spend caused by correcting a typo. A changed
+directory moves the routine to that directory's project, or its node keeps
+orbiting a project it no longer runs in.
+
+One refusal, stated once in `@solix/shared` so the route and the panel read the
+same predicate: the **trigger** cannot change, because a webhook routine's URL
+is bound to its kind. The field stays visible and goes grey with the reason.
+`enabled` is not editable here either — it has its own route, and a generic
+PATCH must not start a routine spending behind the toggle's back.
+
+The cadence parser moved to `@solix/shared` on the way. It was in the server
+and mirrored by a regex in the Routines tab *with a comment saying so* — two
+copies of the one rule that decides whether a routine costs what it claims to.
+
+988 tests, 129 of them new in this release: the two edit features (each with
+its rule in `@solix/shared`, its route, its store action and its rendered
+controls), the two untested commands, and one shared port parser. Every fix
+proven by reinstating its own bug and confirming the right test failed.
+
+**Three of those proofs failed on the first attempt**, which is the part worth
+recording. A plan-editing test asserted only the tooltip and passed with the
+rule bypassed. The demo's status-mix test agreed with the literal it replaced,
+because the literal happened to be correct for today's plan. And a routine test
+claiming the next run is measured from the save set the last run to *now*, so
+both formulas agreed and it proved nothing. All three were rewritten until they
+failed for the right reason. A test that cannot fail is the same defect as a
+sentence with nothing behind it — it is just harder to notice.
 
 ## [1.18.2] — 2026-10-31
 

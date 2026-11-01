@@ -5,7 +5,7 @@ being true.
 
 ## Why this exists
 
-Nine defects now, and they are all the same shape — not a crash, an
+Ten defects now, and they are all the same shape — not a crash, an
 **overclaim**: the product said it did X and did X-minus-something.
 
 | | the claim | where it broke |
@@ -19,6 +19,7 @@ Nine defects now, and they are all the same shape — not a crash, an
 | 7 | results are verified against their criteria | the criteria could be rewritten afterwards |
 | 8 | `solix demo` seeded a galaxy | "seed complete: 30 sessions" printed over writes that were rejected |
 | 9 | `solix doctor` tells you if it is running | it looked on 4242 whatever port you started on, and called a healthy server down |
+| 10 | recurring spend is controllable here | a mistyped cadence could not be corrected at all |
 
 Every one of them was invisible to a passing unit-test suite, because the
 code was right *somewhere* and wrong at the surface a reader meets. Numbers
@@ -64,6 +65,7 @@ If you cannot write step 2, you cannot make the claim.
 | `CLAIM-TEAMS-IDEMPOTENT` | Installing a team twice does not create its routines twice. | CHANGELOG 1.18.0, release notes | `packages/server/src/teams.idempotent.test.ts` |
 | `CLAIM-DEMO-SEEDS-OR-SAYS` | `solix demo` seeds a real galaxy into its own sandbox database and cleans up after itself — and when a seed write is rejected it says how many, instead of printing a summary over them. | brief, README, `docs/CAPTURE.md` | `packages/cli/src/demo.test.ts` |
 | `CLAIM-DOCTOR-REPORTS-REAL-STATE` | Every `solix doctor` check can both pass and fail, looks where Solix actually is, and degrades to "unknown" rather than to a verdict when it cannot reach the server. | brief, install guide, three error messages | `packages/cli/src/doctor.test.ts` |
+| `CLAIM-ROUTINE-EDIT-KEEPS-HISTORY` | Editing a routine keeps its run history and its webhook URL. A routine's cadence can be corrected; its trigger cannot be changed, and a generic edit cannot enable it. | brief, Routines tab, CHANGELOG 1.18.3 | `packages/server/src/http.routineedit.test.ts` |
 
 ## The matrix
 

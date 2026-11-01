@@ -1,5 +1,7 @@
 import { create } from 'zustand';
+import { routineEditRefusal } from '@solix/shared';
 import type {
+  RoutinePatch,
   Advisor,
   ChatDelta,
   ClientMessage,
@@ -362,10 +364,7 @@ interface SolixState {
    *  project (P2 #7). */
   /** Routines (scheduled tasks). Every mutating route broadcasts over the
    *  websocket, so none of these write optimistically — they POST and let the
-   *  snapshot land. There is deliberately no edit action: the server has no
-   *  PATCH /api/schedules/:id, and delete-and-recreate is not a substitute
-   *  because it drops run history and rotates the webhook token, which would
-   *  silently break any webhook already wired up. */
+   *  snapshot land. */
   loadSchedules: () => Promise<void>;
   createSchedule: (input: {
     cwd: string;
@@ -375,6 +374,15 @@ interface SolixState {
     trigger?: TriggerKind;
     owner?: string;
   }) => Promise<{ ok: boolean; error?: string }>;
+  /** Edit a routine in place. The id and the webhook token survive, which is
+   *  the whole reason this exists rather than delete-and-recreate: that drops
+   *  the run history and rotates the token, breaking any URL pointed at it.
+   *  Sends only what changed, so editing a name cannot re-send a cadence
+   *  someone corrected in another tab. */
+  updateSchedule: (
+    id: string,
+    patch: RoutinePatch,
+  ) => Promise<{ ok: boolean; error?: string }>;
   setScheduleEnabled: (id: string, enabled: boolean) => Promise<void>;
   deleteSchedule: (id: string) => Promise<void>;
   fireSchedule: (id: string) => Promise<{ ok: boolean; error?: string }>;
@@ -1109,6 +1117,28 @@ export const useSolixStore = create<SolixState>((set, get) => ({
       if (!res.ok) {
         const data = (await res.json().catch(() => ({}))) as { error?: string };
         return { ok: false, error: data.error ?? 'Could not create the routine.' };
+      }
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Could not reach the server.' };
+    }
+  },
+
+  updateSchedule: async (id, patch) => {
+    // The same predicate the route answers with, so a control is never offered
+    // for an edit the server is going to refuse. The server checks again — this
+    // is the message, not the enforcement.
+    const refusal = routineEditRefusal(get().schedules[id], patch);
+    if (refusal) return { ok: false, error: refusal };
+    try {
+      const res = await fetch(`/api/schedules/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(patch),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        return { ok: false, error: data.error ?? 'Could not save the routine.' };
       }
       return { ok: true };
     } catch {

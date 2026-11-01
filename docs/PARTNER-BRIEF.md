@@ -93,9 +93,18 @@ outside — but it was one text field away from being a feature.
 **Share doesn't share.** It does file import/export of a galaxy manifest. The
 publish-and-browse half exists on the server and has no UI.
 
-**Routines cannot be edited.** A typo in a cadence means delete and recreate,
-which loses the run history and rotates the webhook token. (Bad cadences are
-at least now refused rather than silently firing hourly.)
+**Routines are editable now**, as of 1.18.3 — this entry used to say they
+weren't, and that a typo in a cadence meant delete and recreate, losing the
+run history and rotating the webhook token. **Edit** on a routine card changes
+its name, its prompt, its cadence and its owner in place: the row keeps its
+id, so its history still points at it, and keeps its token, so a URL already
+wired up keeps firing. A cadence change tells you what it will cost before you
+save it, and counts from the save rather than from the last run, so shortening
+an interval cannot set off an immediate run.
+
+One thing is deliberately refused: the **trigger** cannot change, because a
+webhook routine's URL is bound to its kind. That field stays visible and goes
+grey with the reason.
 
 **Orgs are not fully tenanted** — routines are not org-scoped.
 
@@ -181,7 +190,7 @@ it tells you what kind of bugs this codebase produces:
   `--port` defect found in 1.15, by a different road. One parser now, in one
   place.
 
-948 tests, and each of those fixes was proven by reinstating the bug and
+988 tests, and each of those fixes was proven by reinstating the bug and
 watching the tests fail.
 
 ---

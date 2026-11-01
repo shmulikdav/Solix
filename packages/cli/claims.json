@@ -110,6 +110,12 @@
       "claim": "Every `solix doctor` check can both pass and fail, looks where Solix actually is, and degrades to \"unknown\" rather than to a verdict when it cannot reach the server.",
       "publishedIn": "brief, install guide, three error messages",
       "heldBy": "packages/cli/src/doctor.test.ts"
+    },
+    {
+      "id": "CLAIM-ROUTINE-EDIT-KEEPS-HISTORY",
+      "claim": "Editing a routine keeps its run history and its webhook URL. A routine's cadence can be corrected; its trigger cannot be changed, and a generic edit cannot enable it.",
+      "publishedIn": "brief, Routines tab, CHANGELOG 1.18.3",
+      "heldBy": "packages/server/src/http.routineedit.test.ts"
     }
   ]
 }

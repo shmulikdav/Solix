@@ -1,5 +1,11 @@
 import { useEffect, useState } from 'react';
-import type { ScheduledTask, ScheduleRun, TriggerKind } from '@solix/shared';
+import { cadenceToMs, routineEditRefusal } from '@solix/shared';
+import type {
+  RoutinePatch,
+  ScheduledTask,
+  ScheduleRun,
+  TriggerKind,
+} from '@solix/shared';
 import { selectSchedulesArray, useSolixStore } from '../../store/index.js';
 import { ProjectPicker } from '../ProjectPicker.js';
 import { Button } from '../../ui/Button.js';
@@ -17,9 +23,16 @@ import { Button } from '../../ui/Button.js';
  * is only a self-heal for a stale socket. Writes POST and let the broadcast
  * land, so nothing here is optimistic.
  *
- * There is no edit: the server has no PATCH for a routine, and recreating one
- * would drop its run history and rotate its webhook token, silently breaking
- * any webhook already pointed at it.
+ * Editing works now. It used to say here that it could not: "the server has no
+ * PATCH for a routine, and recreating one would drop its run history and
+ * rotate its webhook token, silently breaking any webhook already pointed at
+ * it." Both of those still describe a recreate, which is why the edit is a
+ * patch — the row keeps its id, so `schedule_runs` still points at it, and
+ * keeps its token, so a URL already wired up keeps working.
+ *
+ * What cannot change is the trigger: a webhook routine's URL is bound to its
+ * kind. That control is rendered and disabled with the reason, like the plan
+ * editor's, rather than hidden.
  */
 export function RoutinesTab({ open }: { open: boolean }): JSX.Element {
   const routines = useSolixStore(selectSchedulesArray);
@@ -83,13 +96,167 @@ function whenLabel(ts: number | undefined): string {
   return delta >= 0 ? `in ${unit}` : `${unit} ago`;
 }
 
-function RoutineCard({ routine }: { routine: ScheduledTask }): JSX.Element {
+/**
+ * Change a routine without destroying it.
+ *
+ * The cadence field is the one that matters: a routine whose cadence Solix
+ * cannot read was unfixable, and the release that started refusing bad
+ * cadences could not help anyone who already had one. It validates with the
+ * same parser the server uses — one function in `@solix/shared` now, where it
+ * used to be a regex here with a comment saying it mirrored the server.
+ */
+export function RoutineEditor({
+  routine,
+  onDone,
+}: {
+  routine: ScheduledTask;
+  onDone: () => void;
+}): JSX.Element {
+  const updateSchedule = useSolixStore((s) => s.updateSchedule);
+  const [name, setName] = useState(routine.name ?? '');
+  const [prompt, setPrompt] = useState(routine.prompt);
+  const [cadence, setCadence] = useState(routine.cron);
+  const [owner, setOwner] = useState(routine.owner ?? '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const trigger = routine.trigger ?? 'interval';
+  const isInterval = trigger === 'interval';
+
+  // Only what changed, so saving a name cannot re-send a cadence someone
+  // corrected in another tab.
+  const patch: RoutinePatch = {};
+  if (name.trim() !== (routine.name ?? '')) patch.name = name.trim();
+  if (prompt !== routine.prompt) patch.prompt = prompt;
+  if (owner.trim() !== (routine.owner ?? '')) patch.owner = owner.trim();
+  if (isInterval && cadence.trim() !== routine.cron) patch.cadence = cadence.trim();
+
+  const dirty = Object.keys(patch).length > 0;
+  const refusal = routineEditRefusal(routine, patch);
+  const cadenceUnreadable =
+    isInterval && cadence.trim() !== '' && cadenceToMs(cadence) === null;
+
+  const save = async (): Promise<void> => {
+    setBusy(true);
+    setErr(null);
+    const res = await updateSchedule(routine.id, patch);
+    setBusy(false);
+    if (!res.ok) {
+      setErr(res.error ?? 'Could not save the routine.');
+      return; // stay open; closing would discard what they typed
+    }
+    onDone();
+  };
+
+  return (
+    <div className="mt-2 border-t border-solix-border/60 pt-2 space-y-2">
+      <label className="block">
+        <span className="text-[10px] uppercase tracking-wide text-slate-400">
+          Name
+        </span>
+        <input
+          aria-label="Routine name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="w-full px-2 py-1 rounded bg-black/30 border border-solix-border text-sm focus:outline-none focus:border-solix-accent/60"
+        />
+      </label>
+
+      <label className="block">
+        <span className="text-[10px] uppercase tracking-wide text-slate-400">
+          What the agent is told to do
+        </span>
+        <textarea
+          aria-label="Routine prompt"
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          rows={3}
+          className="w-full px-2 py-1 rounded bg-black/30 border border-solix-border text-sm focus:outline-none focus:border-solix-accent/60"
+        />
+      </label>
+
+      <label className="block">
+        <span className="text-[10px] uppercase tracking-wide text-slate-400">
+          How often
+        </span>
+        <input
+          aria-label="Routine cadence"
+          value={isInterval ? cadence : cadenceLabel(routine)}
+          onChange={(e) => setCadence(e.target.value)}
+          disabled={!isInterval}
+          title={
+            isInterval
+              ? 'A number followed by m, h or d — 30m, 2h, 1d'
+              : routineEditRefusal(routine, { cadence: '1h' }) ?? undefined
+          }
+          placeholder="30m, 2h, 1d"
+          className="w-full px-2 py-1 rounded bg-black/30 border border-solix-border text-sm focus:outline-none focus:border-solix-accent/60 disabled:opacity-50"
+        />
+      </label>
+
+      <label className="block">
+        <span className="text-[10px] uppercase tracking-wide text-slate-400">
+          Owner (optional)
+        </span>
+        <input
+          aria-label="Routine owner"
+          value={owner}
+          onChange={(e) => setOwner(e.target.value)}
+          className="w-full px-2 py-1 rounded bg-black/30 border border-solix-border text-sm focus:outline-none focus:border-solix-accent/60"
+        />
+      </label>
+
+      {/* The cost of the change, before the button that makes it. */}
+      {patch.cadence && !cadenceUnreadable && (
+        <div className="text-[11px] text-solix-warn">
+          This will start a real agent session every {patch.cadence} instead of
+          every {routine.cron}, counting from when you save.
+        </div>
+      )}
+      {refusal && (
+        <div role="alert" className="text-[11px] text-solix-danger">
+          {refusal}
+        </div>
+      )}
+      {err && (
+        <div role="alert" className="text-[11px] text-solix-danger">
+          {err}
+        </div>
+      )}
+
+      <div className="flex gap-1.5">
+        <Button
+          size="sm"
+          onClick={() => void save()}
+          disabled={busy || !dirty || refusal !== null}
+          title={
+            refusal ??
+            (dirty ? 'Save these changes' : 'Nothing has changed yet')
+          }
+        >
+          {busy ? 'Saving…' : 'Save'}
+        </Button>
+        <Button variant="ghost" size="sm" onClick={onDone} disabled={busy}>
+          Cancel
+        </Button>
+      </div>
+
+      <div className="text-[10px] text-slate-500">
+        Its run history and
+        {trigger === 'webhook' ? ' webhook URL are' : ' schedule node are'} kept.
+      </div>
+    </div>
+  );
+}
+
+export function RoutineCard({ routine }: { routine: ScheduledTask }): JSX.Element {
   const setScheduleEnabled = useSolixStore((s) => s.setScheduleEnabled);
   const deleteSchedule = useSolixStore((s) => s.deleteSchedule);
   const fireSchedule = useSolixStore((s) => s.fireSchedule);
   const loadScheduleRuns = useSolixStore((s) => s.loadScheduleRuns);
 
   const [runs, setRuns] = useState<ScheduleRun[] | null>(null);
+  const [editing, setEditing] = useState(false);
   const [confirmFire, setConfirmFire] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -178,6 +345,18 @@ function RoutineCard({ routine }: { routine: ScheduledTask }): JSX.Element {
           </Button>
         )}
 
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            setErr(null);
+            setEditing((v) => !v);
+          }}
+          title="Change this routine without losing its history or its webhook URL"
+        >
+          {editing ? 'Close' : 'Edit'}
+        </Button>
+
         <Button variant="ghost" size="sm" onClick={() => void toggleRuns()}>
           {runs ? 'Hide history' : 'History'}
         </Button>
@@ -210,6 +389,10 @@ function RoutineCard({ routine }: { routine: ScheduledTask }): JSX.Element {
           </Button>
         )}
       </div>
+
+      {editing && (
+        <RoutineEditor routine={routine} onDone={() => setEditing(false)} />
+      )}
 
       {trigger === 'webhook' && routine.webhookToken && (
         <div className="mt-2 text-[10px] text-slate-500 break-all">
