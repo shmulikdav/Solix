@@ -3,8 +3,15 @@
  * `pnpm release:tag` — tag a release, refusing every way we have got it wrong.
  *
  * Pushing the tag IS publishing: `.github/workflows/publish.yml` fires on
- * `v*` and runs `npm publish`. It does not run tests, and npm only allows an
- * unpublish within 72 hours. So the checks belong here, before the push.
+ * `v*` and ends in `npm publish`, and npm only allows an unpublish within 72
+ * hours. So the checks belong before the push.
+ *
+ * Since #32 that workflow also runs the suite, `claims:check`, and an
+ * install-the-tarball-and-run-it step — this file said it did not for some
+ * time after that stopped being true, which is the defect this project keeps
+ * finding, in the script people read while cutting a release. The two sets of
+ * checks are different: the workflow verifies the artefact, and this verifies
+ * the *decision* to publish, which is the part a passing build cannot see.
  *
  * Three real failures this exists to prevent, all of which happened:
  *
@@ -196,7 +203,8 @@ async function main() {
 
   console.log(
     `\n${C.warn}Pushing ${tag} publishes ${pkg.name}@${version} to npm.${C.reset}\n` +
-      `${C.dim}The workflow does NOT run tests. npm allows an unpublish for 72 hours.${C.reset}`,
+      `${C.dim}The workflow runs the suite, claims:check, and installs the tarball${C.reset}\n` +
+      `${C.dim}before publishing. npm allows an unpublish for 72 hours.${C.reset}`,
   );
 
   if (!assumeYes) {
