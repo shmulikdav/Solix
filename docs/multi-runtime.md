@@ -11,25 +11,65 @@ pipeline.
 | Runtime | Observe (hooks → galaxy) | Dispatch (Maestro workers) | Verified against the real CLI |
 |---|---|---|---|
 | **Claude Code** | Supported | Supported | Spawn path, env/gate injection, argv, result parsing, cost, abort are covered by an end-to-end test against a stand-in binary (`launcher.integration.test.ts`). The envelope shape is pinned to the documented `SDKResultMessage` arms. A live smoke test against your installed `claude` is still the final check. |
-| **Codex** | **Experimental** | **Experimental** | **No.** Written against Codex's documented event stream and never executed against the real binary. |
+| **Codex** | **Experimental** | **Experimental** | **Partly.** The event normalizer is written against Codex's documented stream and still never run against a live session. What *has* been checked against the real binary (0.166.0) is its hook surface — see below: `PreToolUse` blocks and is deny-only. |
 
-## The gate does not cover Codex
+## The gate does not cover Codex — but it now can
 
-Worth stating plainly, because the rest of this page is about observation
-and dispatch and a reader could reasonably assume governance came along for
-the ride.
+**This section said "there is no Codex equivalent" of `PreToolUse`, and
+flagged itself as reasoning rather than a live result. The caveat was right
+to be there: it is out of date.**
 
-Every hook in `packages/cli/hooks/` is a Claude Code hook, registered in
-`~/.claude/settings.json`. There is no Codex equivalent, and `PreToolUse` is
-where the gate lives — so a Codex worker dispatched by Maestro receives
-`SOLIX_GATE_ENABLED=1` in its environment, nothing reads it, and **neither
-the human gate nor the command denylist applies to it**. Solix will observe
-what it reports and price its tokens; it will not stop it.
+Checked against `codex-cli 0.166.0`, installed and inspected rather than
+assumed. Its binary ships a full hook system — `PreModelRequest`,
+`PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`,
+`PostCompact`, `SessionStart`, `SessionEnd`, `SubagentStart` — using the same
+`hookSpecificOutput` / `permissionDecision` vocabulary Claude Code uses. Its
+own error strings settle what it does:
 
-This is reasoning from the code, not a live result — `codex` was not
-installed on the machine where it was checked — so treat it as the expected
-behaviour rather than a verified one, and the conservative assumption either
-way.
+```
+Command blocked by PreToolUse hook:
+Tool call blocked by PreToolUse hook:
+PreToolUse hook returned unsupported permissionDecision:allow
+PreToolUse hook returned unsupported permissionDecision:ask
+PreToolUse hook returned permissionDecision:deny without a non-empty permissionDecisionReason
+PreToolUse hook cannot change the tool environment
+```
+
+So: **`PreToolUse` blocks, it is deny-only, and a deny must carry a non-empty
+reason.** Deny-only is exactly what the command denylist needs — a floor only
+ever refuses — so the floor can cover Codex with a hook script and no change
+to the router's decision logic.
+
+### What is still unknown
+
+Whether **`PermissionRequest` can affirmatively approve**, which decides
+whether the *human* gate on Codex is as strong as it is on Claude Code or
+weaker.
+
+The binary contains `approve`, `block` and `allow` near a
+`PermissionRequestBehaviorWire`, and — unlike `PreToolUse` — its
+`PermissionRequest hook returned unsupported …` messages are all about other
+fields (`continue`, `interrupt`, `stop`, `suppress`, `updatedInput`) and
+never about a decision value. That is suggestive and not proof: a
+concatenated symbol table does not say which struct owns which string.
+
+If `PermissionRequest` supports approve, Solix holds there and answers either
+way, and the Codex gate means what the Claude Code gate means. If it does
+not, "approve" can only mean "do not deny" and Codex's own approval flow
+continues — a materially weaker promise that has to be said out loud rather
+than inherited by assumption.
+
+**Settle it by running it**, not by reading more strings: register a hook on
+an authenticated `codex`, return each decision value in turn, and record
+which ones it accepts. Until then no site copy or README line may claim the
+Codex gate holds for a human decision.
+
+### A limit that holds either way
+
+Hosted tools (web search and friends) do not pass through the local hook
+path, so neither the gate nor the denylist can reach them. A shell command is
+covered; a hosted tool is not. That belongs in the ledger before it belongs
+on the website.
 
 ## What "experimental" means for Codex
 
