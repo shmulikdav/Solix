@@ -37,8 +37,12 @@ const STATUS_PRIORITY: Record<string, number> = {
   error: 3,
   active: 4,
   spawning: 5,
-  idle: 6,
-  terminated: 7,
+  // Above idle on purpose. A session we cannot read might be any of the
+  // four above it, so burying it with the ones we know are resting is the
+  // same mistake as calling it idle in the first place.
+  unknown: 6,
+  idle: 7,
+  terminated: 8,
 };
 
 /**

@@ -5,7 +5,7 @@ being true.
 
 ## Why this exists
 
-Thirteen defects now, and they are all the same shape — not a crash, an
+Fourteen defects now, and they are all the same shape — not a crash, an
 **overclaim**: the product said it did X and did X-minus-something.
 
 | | the claim | where it broke |
@@ -23,6 +23,7 @@ Thirteen defects now, and they are all the same shape — not a crash, an
 | 11 | the context figure is live and local | nothing persisted it; `solix demo` was the only thing that ever wrote one |
 | 12 | the ledger is the record of what you allowed | it stopped at 1000 rows of any kind, and printed that as the total |
 | 13 | you can leave it running | every context update leaked a compiled shader, and re-rendered every planet |
+| 14 | the mirror shows your background agents | a failed directory read marked every one of them finished |
 
 Every one of them was invisible to a passing unit-test suite, because the
 code was right *somewhere* and wrong at the surface a reader meets. Numbers
@@ -68,6 +69,7 @@ If you cannot write step 2, you cannot make the claim.
 | `CLAIM-TEAMS-IDEMPOTENT` | Installing a team twice does not create its routines twice. | CHANGELOG 1.18.0, release notes | `packages/server/src/teams.idempotent.test.ts` |
 | `CLAIM-DEMO-SEEDS-OR-SAYS` | `solix demo` seeds a real galaxy into its own sandbox database and cleans up after itself — and when a seed write is rejected it says how many, instead of printing a summary over them. | brief, README, `docs/CAPTURE.md` | `packages/cli/src/demo.test.ts` |
 | `CLAIM-DOCTOR-REPORTS-REAL-STATE` | Every `solix doctor` check can both pass and fail, looks where Solix actually is, and degrades to "unknown" rather than to a verdict when it cannot reach the server. | brief, install guide, three error messages | `packages/cli/src/doctor.test.ts` |
+| `CLAIM-AGENTVIEW-REPORTS-WHAT-IT-SEES` | The Agent View mirror reports what it read. A state it does not recognise shows as unknown, not idle; a read it could not make never marks a session finished. | brief, the `agent` badge, Mission Control | `packages/server/src/state/agentview.test.ts` |
 | `CLAIM-RENDERER-RELEASES-GPU` | The galaxy can be left running. It builds one shader material per planet and disposes it, and a store event only re-renders the parts whose data changed. | brief ("would you leave it running?"), site (the galaxy itself) | `packages/web/src/scene/atmosphereRim.test.tsx` |
 | `CLAIM-LEDGER-COUNTS-EVERYTHING` | `solix ledger`, its exports and the signed fleet report count every decision in the window, and say so plainly when they are listing fewer than they counted. | `solix ledger`, `--md`/`--csv` exports, the fleet report | `packages/server/src/state/ledger.test.ts` |
 | `CLAIM-CONTEXT-IS-MEASURED` | The context percentage is measured from the transcript and written down. Where nothing has measured it, Solix says so instead of showing 0%, and never advises `/compact` on a reading it does not have. | site ("every number is live and local"), Mission Control, the advisor envelope, `solix doctor` | `packages/server/src/state/context.measured.test.ts` |
@@ -115,8 +117,6 @@ are published promises with no row yet:
 
 - budgets pause a plan before it crosses its cap — tested, not yet bound
 - secrets are write-only and encrypted at rest — tested, not yet bound
-- the Agent View mirror reports real sessions (`agentview.ts`, 328 lines, no
-  test)
 - `solix gain` and `solix ledger` arithmetic (`gain.ts`, 152 lines, no test —
   it reads the figures `CLAIM-COST-COUNTED-ONCE` pins, but its own sums are
   unchecked)

@@ -112,6 +112,12 @@
       "heldBy": "packages/cli/src/doctor.test.ts"
     },
     {
+      "id": "CLAIM-AGENTVIEW-REPORTS-WHAT-IT-SEES",
+      "claim": "The Agent View mirror reports what it read. A state it does not recognise shows as unknown, not idle; a read it could not make never marks a session finished.",
+      "publishedIn": "brief, the `agent` badge, Mission Control",
+      "heldBy": "packages/server/src/state/agentview.test.ts"
+    },
+    {
       "id": "CLAIM-RENDERER-RELEASES-GPU",
       "claim": "The galaxy can be left running. It builds one shader material per planet and disposes it, and a store event only re-renders the parts whose data changed.",
       "publishedIn": "brief (\"would you leave it running?\"), site (the galaxy itself)",
