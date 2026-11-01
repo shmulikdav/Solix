@@ -12,7 +12,12 @@ import { join } from 'node:path';
 import { costForUsage, totalTokens } from '@solix/shared';
 import type { Broadcaster } from '../broadcaster.js';
 import type { DB } from '../db.js';
-import { getSession, setSessionCost } from './sessions.js';
+import {
+  getSession,
+  getTranscriptPos,
+  setSessionCost,
+  setTranscriptPos,
+} from './sessions.js';
 import { addMissionTokens } from './missions.js';
 
 const TRANSCRIPT_BASE = join(homedir(), '.claude', 'projects');
@@ -74,6 +79,23 @@ interface WatcherRecord {
   position: number;
   fsWatcher?: FSWatcher;
   initialRead: boolean;
+  /**
+   * Byte offset up to which this transcript's cost has already been counted,
+   * persisted on the session row and therefore surviving a restart.
+   *
+   * The replay does two jobs and only one of them may repeat. Chat deltas
+   * have to be re-emitted every time something attaches, so the Chat tab has
+   * recent context the moment it is opened — that is the whole reason the
+   * replay exists. Cost and mission tokens *accumulate*, so re-emitting them
+   * charges for work that already happened.
+   *
+   * It did. `records` lives in memory, so after a restart the session's
+   * persisted costUsd was still there and the replay added the same messages
+   * on top: measured at exactly 2.00× on a two-message transcript, and
+   * compounding with every restart. Budgets read that number, so a plan
+   * would pause before spend it had not reached.
+   */
+  countedTo: number;
 }
 
 export class TranscriptWatcherManager {
@@ -104,6 +126,19 @@ export class TranscriptWatcherManager {
     }
 
     this.attach(sessionId, filePath);
+  }
+
+  /**
+   * Read whatever has been appended since the last read, now.
+   *
+   * This is the synchronous half of what the `fs.watch` callback triggers,
+   * exposed so a test can drive accrual deterministically instead of racing
+   * a filesystem event. Harmless in production: it reads from the stored
+   * position, so calling it adds nothing that is not new.
+   */
+  readNow(sessionId: string): void {
+    const record = this.records.get(sessionId);
+    if (record) this.readNewLines(record);
   }
 
   private scheduleRetry(
@@ -139,6 +174,7 @@ export class TranscriptWatcherManager {
       filePath,
       position: startPos,
       initialRead: startPos > 0,
+      countedTo: getTranscriptPos(this.db, sessionId) ?? 0,
     };
     this.records.set(sessionId, record);
 
@@ -179,25 +215,45 @@ export class TranscriptWatcherManager {
       );
       return;
     }
+    const readFrom = record.position;
     record.position = stat.size;
 
     let text = buf.toString('utf8');
     // First read after tail-jump: drop any partial line at the start so the
     // JSON parser doesn't see truncated input.
+    let dropped = 0;
     if (record.initialRead) {
       const nl = text.indexOf('\n');
+      dropped = nl >= 0 ? nl + 1 : text.length;
       text = nl >= 0 ? text.slice(nl + 1) : '';
       record.initialRead = false;
     }
 
+    // Walk the lines keeping each one's absolute end offset, so a line can be
+    // replayed into the chat while being recognised as already paid for.
+    // `dropped` counts in bytes; so does `offset`, which is why the length is
+    // measured on a Buffer rather than on the string — a multi-byte character
+    // would otherwise drift the offset and start charging twice again.
+    let offset = readFrom + dropped;
     const lines = text.split('\n');
-    for (const line of lines) {
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i]!;
+      // +1 for the newline that `split` consumed, except after the last piece.
+      const end = offset + Buffer.byteLength(line, 'utf8') + (i < lines.length - 1 ? 1 : 0);
+      offset = end;
       if (!line.trim()) continue;
-      this.processLine(record.sessionId, line);
+      this.processLine(record.sessionId, line, end > record.countedTo);
+    }
+
+    if (stat.size > record.countedTo) {
+      record.countedTo = stat.size;
+      setTranscriptPos(this.db, record.sessionId, stat.size);
     }
   }
 
-  private processLine(sessionId: string, line: string): void {
+  /** `countable` is false for a line replayed from before the high-water
+   *  mark: it still reaches the chat, it just must not be charged again. */
+  private processLine(sessionId: string, line: string, countable = true): void {
     let obj: TranscriptLine;
     try {
       obj = JSON.parse(line) as TranscriptLine;
@@ -212,7 +268,7 @@ export class TranscriptWatcherManager {
     if (role === 'user') {
       this.emitUser(sessionId, obj);
     } else if (role === 'assistant') {
-      this.emitAssistant(sessionId, obj);
+      this.emitAssistant(sessionId, obj, countable);
     }
   }
 
@@ -233,7 +289,11 @@ export class TranscriptWatcherManager {
     });
   }
 
-  private emitAssistant(sessionId: string, obj: TranscriptLine): void {
+  private emitAssistant(
+    sessionId: string,
+    obj: TranscriptLine,
+    countable = true,
+  ): void {
     const message = obj.message;
     if (!message) return;
 
@@ -253,8 +313,13 @@ export class TranscriptWatcherManager {
       });
 
       // Sprint M — accumulate dollar cost from this message's token usage.
-      const inc = costForUsage(message.model, message.usage);
-      const session = getSession(this.db, sessionId);
+      //
+      // Everything below here adds to a running total, so it must happen
+      // exactly once per line of transcript, ever. `context_update` above
+      // stays outside the guard because it is a view of the latest message
+      // rather than a sum: re-deriving it is free and correct.
+      const inc = countable ? costForUsage(message.model, message.usage) : 0;
+      const session = countable ? getSession(this.db, sessionId) : null;
       if (session) {
         const updated = setSessionCost(this.db, sessionId, session.costUsd + inc);
         const costUsd = updated?.costUsd ?? session.costUsd + inc;

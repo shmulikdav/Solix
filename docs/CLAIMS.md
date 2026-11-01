@@ -50,6 +50,8 @@ If you cannot write step 2, you cannot make the claim.
 | `CLAIM-FAILCLOSED` | An unreachable gate denies rather than waving the command through. | site, brief, smoke E6 | `packages/server/src/launcher.spawnenv.test.ts` |
 | `CLAIM-SHUTDOWN-RELEASES` | Stopping Solix refuses what it is holding and exits, rather than hanging. | brief, smoke E6 | `packages/server/src/create.shutdown.test.ts` |
 | `CLAIM-RUN-UNGATED` | `solix run` adds a side channel, **not** governance. | site, brief, README | `packages/cli/src/runUngated.test.ts` |
+| `CLAIM-COST-COUNTED-ONCE` | Every cost and token figure is the sum of the transcript, counted once — it does not grow when Solix restarts. | site ("watch the money", "every number is live and local"), Mission Control, `solix gain`, `solix ledger` | `packages/server/src/state/transcript.cost.test.ts` |
+| `CLAIM-NO-TELEMETRY` | Solix never chooses a network destination. Every outbound request goes somewhere the user configured. Nothing is collected and nothing is sent on its own. | site ("100% local", "Zero telemetry"), FAQ, README | `packages/server/src/noTelemetry.test.ts` |
 | `CLAIM-WS-ORIGIN` | Only a loopback origin can drive the control plane. | site ("100% local"), FAQ | `packages/server/src/origins.test.ts` |
 | `CLAIM-IMPORT-NO-SSRF` | A galaxy manifest URL cannot be turned into a probe of the local network. | implied by "nothing leaves your machine" | `packages/server/src/origins.test.ts` |
 | `CLAIM-NOTIFY-ON-HOLD` | You hear about a held decision after you have walked away. | brief step 3, site | `packages/web/src/store/notifyOnHold.test.ts` |
@@ -72,6 +74,25 @@ fails three; the four that shipped broken are marked `[was a P0]` in the
 output. The port dimension cannot be reached from that layer and is held
 next door, on the contained-worker path where the allowlist actually
 applies.
+
+## There is no hosted Solix
+
+Worth writing down, because it was asked and the answer was not obvious from
+the inside. Solix is three things and none of them is a server anyone
+operates:
+
+- **npm** — `@shmulikdav/solix`. The product is the package.
+- **the user's machine** — `127.0.0.1:4242`, SQLite at `~/.solix/solix.db`.
+  No account, no sign-in, no tenancy.
+- **a marketing site**, built and published through Lovable, which knows
+  nothing about any install.
+
+Audited rather than assumed: no shipped file names a remote host except
+`api.telegram.org`, in the notifier that needs a bot token the user pasted.
+Slack's destination is the webhook URL they supplied. `RegistryClient` reads
+`SOLIX_REGISTRY_URL` and is inert without it — a client for a service that
+was never built, which is why the brief says Share does not share. That is
+pinned by `CLAIM-NO-TELEMETRY`.
 
 ## Not yet claimed here
 

@@ -283,6 +283,62 @@ interface SolixState {
   ) => Promise<{ ok: boolean; error?: string }>;
   /** Remove a plan and its tasks. A failed planner run leaves a dead card forever. */
   deletePlan: (planId: string) => Promise<{ ok: boolean; error?: string }>;
+  /**
+   * Edit a drafted task: retitle, re-prompt, change acceptance criteria,
+   * retarget the model, move it in the order.
+   *
+   * The server endpoints for all of this have shipped since Maestro landed and
+   * nothing called them — the brief has been disclosing "you cannot reorder,
+   * retitle, retarget a model, drop a task or add one" for weeks. These four
+   * actions are that gap.
+   *
+   * `status` is deliberately not in the patch type: a task's lifecycle belongs
+   * to the orchestrator, and the route strips it anyway. The server also
+   * refuses an edit to a task an agent is running, to a verified task's terms,
+   * and to anything in a finished plan — it returns 409 with a sentence, which
+   * is what lands in `error` for the UI to show.
+   */
+  updatePlanTask: (
+    planId: string,
+    taskId: string,
+    patch: Partial<{
+      title: string;
+      prompt: string;
+      acceptanceCriteria: string;
+      assignedAdvisorRole: string;
+      model: string;
+      budgetUsd: number;
+      orderIndex: number;
+    }>,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  /** Drop a task from a plan. Same refusals as editing one. */
+  deletePlanTask: (
+    planId: string,
+    taskId: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
+  /** Add a task to an existing plan. */
+  addPlanTask: (
+    planId: string,
+    input: {
+      title: string;
+      prompt: string;
+      acceptanceCriteria?: string;
+      assignedAdvisorRole?: string;
+      model?: string;
+      orderIndex?: number;
+    },
+  ) => Promise<{ ok: boolean; taskId?: string; error?: string }>;
+  /**
+   * Move a task one place earlier or later by swapping `orderIndex` with its
+   * neighbour. Two PATCHes rather than one, because the server stores an index
+   * per task and has no "move" verb — and doing it in the store keeps the
+   * panel from having to know that.
+   */
+  movePlanTask: (
+    planId: string,
+    taskId: string,
+    direction: 'up' | 'down',
+  ) => Promise<{ ok: boolean; error?: string }>;
   /** Load a task's thread (GET) into the store — call when a task is expanded. */
   fetchTaskThread: (planId: string, taskId: string) => Promise<void>;
   /** Append a human comment to a task's thread (POST). */
@@ -1236,6 +1292,113 @@ export const useSolixStore = create<SolixState>((set, get) => ({
     } catch {
       return { ok: false, error: 'Not connected — the task was not retried.' };
     }
+  },
+
+  updatePlanTask: async (planId, taskId, patch) => {
+    try {
+      const res = await fetch(
+        `/api/plans/${encodeURIComponent(planId)}/tasks/${encodeURIComponent(taskId)}`,
+        {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(patch),
+        },
+      );
+      // A 409 carries the server's own sentence — "an agent is working on it",
+      // "already verified", "a record now". Surfacing it verbatim is the
+      // point: a generic failure toast would leave the user re-trying an edit
+      // the plan's state will never accept.
+      const data = (await res.json().catch(() => ({}))) as {
+        id?: string;
+        error?: string;
+      };
+      if (!res.ok) {
+        return { ok: false, error: data.error ?? 'Could not save that edit.' };
+      }
+      // The server broadcasts plan_task_upsert, so the panel updates from the
+      // socket rather than from an optimistic write here. A dropped socket
+      // then shows the old value instead of pretending the edit landed.
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Not connected — the edit was not saved.' };
+    }
+  },
+
+  deletePlanTask: async (planId, taskId) => {
+    try {
+      const res = await fetch(
+        `/api/plans/${encodeURIComponent(planId)}/tasks/${encodeURIComponent(taskId)}`,
+        { method: 'DELETE' },
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+      };
+      if (!res.ok || data.ok !== true) {
+        return {
+          ok: false,
+          error: data.error ?? 'Could not remove that task.',
+        };
+      }
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Not connected — the task was not removed.' };
+    }
+  },
+
+  addPlanTask: async (planId, input) => {
+    try {
+      const res = await fetch(
+        `/api/plans/${encodeURIComponent(planId)}/tasks`,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(input),
+        },
+      );
+      const data = (await res.json().catch(() => ({}))) as {
+        id?: string;
+        error?: string;
+      };
+      if (!res.ok || !data.id) {
+        return { ok: false, error: data.error ?? 'Could not add that task.' };
+      }
+      return { ok: true, taskId: data.id };
+    } catch {
+      return { ok: false, error: 'Not connected — the task was not added.' };
+    }
+  },
+
+  movePlanTask: async (planId, taskId, direction) => {
+    // Order comes from the store's own copy, which the socket keeps current.
+    const ordered = Object.values(get().planTasks)
+      .filter((t) => t.planId === planId)
+      .sort((a, b) => a.orderIndex - b.orderIndex);
+    const i = ordered.findIndex((t) => t.id === taskId);
+    const j = direction === 'up' ? i - 1 : i + 1;
+    if (i < 0 || j < 0 || j >= ordered.length) {
+      // Already at the end it was asked to move towards. Not an error worth a
+      // toast — the button should have been disabled.
+      return { ok: true };
+    }
+    const a = ordered[i]!;
+    const b = ordered[j]!;
+    // Swap, and stop if the first half is refused rather than leaving two
+    // tasks sharing an index.
+    const first = await get().updatePlanTask(planId, a.id, {
+      orderIndex: b.orderIndex,
+    });
+    if (!first.ok) return first;
+    const second = await get().updatePlanTask(planId, b.id, {
+      orderIndex: a.orderIndex,
+    });
+    if (!second.ok) {
+      // Put the first one back, so a half-applied swap does not leave the
+      // list in an order nobody asked for.
+      await get().updatePlanTask(planId, a.id, { orderIndex: a.orderIndex });
+      return second;
+    }
+    return { ok: true };
   },
 
   deletePlan: async (planId) => {
