@@ -128,8 +128,11 @@ program
 program
   .command('doctor')
   .description('Run diagnostics')
-  .action(async () => {
-    await doctor();
+  // No commander default, for the same reason `start` has none: it would
+  // always beat SOLIX_PORT. doctor() applies the fallback.
+  .option('-p, --port <port>', 'port Solix is listening on', (v) => parseInt(v, 10))
+  .action(async (opts: { port?: number }) => {
+    await doctor({ port: opts.port });
   });
 
 program

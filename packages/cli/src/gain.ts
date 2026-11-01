@@ -1,3 +1,4 @@
+import { resolvePort } from '@solix/shared';
 /**
  * `solix gain` — what Solix prevented.
  *
@@ -72,7 +73,7 @@ export async function gain(opts: {
   share?: boolean;
   json?: boolean;
 } = {}): Promise<void> {
-  const port = Number(process.env.SOLIX_PORT ?? 4242);
+  const port = resolvePort();
   const qs = opts.days ? `?days=${opts.days}` : '';
   let impact: Impact;
   try {

@@ -47,9 +47,114 @@ the second is refused, or two tasks would share an order; and a new task's
 acceptance criteria default to its title rather than the empty string, which
 would pass anything.
 
-909 tests. 50 of them are new here, across the shared rule, the route, the
-store and the rendered controls, each proven by reinstating its own bug —
-including one that caught a weakness in its own assertions.
+**The two untested commands on the first-impression path.**
+
+`demo.ts` (913 lines) and `doctor.ts` (288) had no tests between them, and
+they are what a new reader runs first — one to have anything to look at, the
+other to find out why they do not. Both were producing the defect this
+release keeps finding: a sentence printed with nothing behind it.
+
+- **`solix demo` could report a galaxy it had not seeded.** The fix for the
+  original seeded-nothing bug added *one* preflight event to `demoCmd` and
+  left the seeder discarding every result after it, though `postEvent`'s own
+  comment claimed "the ticker ignores it; the seeder does not". A server that
+  accepted the first event and then stopped still printed "seed complete: 30
+  sessions across 8 projects". Rejected writes are now counted and named, the
+  dollar total sums only what the server accepted, and the header says
+  "finished with gaps" when there were any.
+- **The status mix it printed was a string literal.** "5 active, 18 idle, 3
+  awaiting_permission…" was typed out, not derived, so editing the seed plan
+  made the summary quietly false. It is derived now — and the first test of it
+  passed with the literal reinstated, because the literal happened to agree
+  with today's plan; the test now moves the plan.
+- **`solix demo --no-ticker` never exited**, though the flag is documented as
+  "seed once and exit" and `docs/CAPTURE.md` tells you to use it for
+  screenshots. A live child keeps the parent's event loop open, so it printed
+  "Exiting." and hung — and the only way out, Ctrl+C, reached the child
+  through the shared process group and killed the sandbox you were about to
+  capture. The child is released now and the command says how to stop it.
+- **The stale-sandbox reaper ran after the port was chosen**, which defeated
+  most of it: one orphan and the demo stepped aside to the next port to avoid
+  a server it was about to kill; two orphans and it gave up with "both ports
+  are in use. Stop one of them or pass --port" — the exact stuck state the
+  reaper exists to prevent, printed as advice to go do its job by hand.
+- **The preflight event left a stray planet.** It posted a `demo-preflight`
+  session under the demo root, which landed as a 31st session in a 9th project
+  of its own while the summary beneath it said "30 sessions across 8
+  projects". The preflight is now the first session of the plan, so the galaxy
+  is exactly the one described. Caught by running the command and counting the
+  projects the server actually returned.
+- **`solix doctor` looked on the wrong port.** It read `SOLIX_PORT` and
+  defaulted to 4242 with no flag of its own, so after `solix start --port
+  5000` the one command you run to find out what is wrong reported a healthy
+  server down and advised `solix start`, which would have hit a port
+  conflict. It takes `--port` now, and says so when it finds nothing.
+
+And a thirteenth place with the same loose parse, found while fixing the
+twelfth. Every package read `SOLIX_PORT` for itself, in three different
+ways, and all three mishandle it being **set but empty** — which a
+conditional CI step, a half-filled `.env` or `SOLIX_PORT= solix doctor` all
+produce, because `??` fires only on null and undefined. The string form built
+`http://127.0.0.1:/api/…`; `Number('')` is **0**, so `solix start` would bind
+port 0 — a random free port — and publish "0" to the hooks, which would then
+call port 0, find nothing, and fail-closed on every tool call. That is the
+defect `CLAIM-GATE-ANY-PORT` exists to prevent, reached from an empty
+variable instead of a flag, and its test now covers this road too. One
+`resolvePort` in `@solix/shared`, strict decimal, used in all thirteen.
+
+Both commands are now in the ledger — `CLAIM-DEMO-SEEDS-OR-SAYS` and
+`CLAIM-DOCTOR-REPORTS-REAL-STATE` — where they had been listed as gaps. The
+doctor set includes one test whose only job is to confirm a healthy machine
+passes *everything*, because the two defects that file has already shipped
+were a check that could not fail and a check that was permanently red on a
+healthy machine, and only that test can catch the second kind.
+
+**Routines are editable, and nothing is destroyed to do it.**
+
+The second disclosure on the brief's "what is young" list, and the Routines
+tab had been carrying the reason since it shipped: *"there is no edit: the
+server has no PATCH for a routine, and recreating one would drop its run
+history and rotate its webhook token, silently breaking any webhook already
+pointed at it."* So a mistyped cadence was unfixable — on the one surface
+whose whole purpose is making recurring spend controllable, and immediately
+after a release note explaining that a cadence Solix could not read would bill
+168× what the card said. That release started refusing bad cadences and could
+do nothing for anyone who already had one.
+
+`PATCH /api/schedules/:id` now exists. The row keeps its id, so `schedule_runs`
+still points at it, and keeps its `token`, so a URL already configured keeps
+firing — the two things a recreate destroyed, and neither is reachable from
+the route. **Edit** on a routine card changes the name, prompt, cadence and
+owner; a cadence change states the new spend before the button that commits to
+it, and `next_run_at` is measured from the save rather than from the last run,
+because measuring from the last run means shortening `1h` to `10m` fires
+immediately — a burst of unplanned spend caused by correcting a typo. A changed
+directory moves the routine to that directory's project, or its node keeps
+orbiting a project it no longer runs in.
+
+One refusal, stated once in `@solix/shared` so the route and the panel read the
+same predicate: the **trigger** cannot change, because a webhook routine's URL
+is bound to its kind. The field stays visible and goes grey with the reason.
+`enabled` is not editable here either — it has its own route, and a generic
+PATCH must not start a routine spending behind the toggle's back.
+
+The cadence parser moved to `@solix/shared` on the way. It was in the server
+and mirrored by a regex in the Routines tab *with a comment saying so* — two
+copies of the one rule that decides whether a routine costs what it claims to.
+
+988 tests, 129 of them new in this release: the two edit features (each with
+its rule in `@solix/shared`, its route, its store action and its rendered
+controls), the two untested commands, and one shared port parser. Every fix
+proven by reinstating its own bug and confirming the right test failed.
+
+**Three of those proofs failed on the first attempt**, which is the part worth
+recording. A plan-editing test asserted only the tooltip and passed with the
+rule bypassed. The demo's status-mix test agreed with the literal it replaced,
+because the literal happened to be correct for today's plan. And a routine test
+claiming the next run is measured from the save set the last run to *now*, so
+both formulas agreed and it proved nothing. All three were rewritten until they
+failed for the right reason. A test that cannot fail is the same defect as a
+sentence with nothing behind it — it is just harder to notice.
 
 ## [1.18.2] — 2026-10-31
 

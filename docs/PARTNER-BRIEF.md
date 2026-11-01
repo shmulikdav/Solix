@@ -71,31 +71,8 @@ dial and refuses at every level, including `observe`.
 Named deliberately. These are real, they are known, and none of them is a
 surprise to me.
 
-**Plan editing is whole now**, as of 1.18.3 — this entry used to say it was
-half there, and that the server endpoints shipped while the frontend called
-two of them. Reorder, retitle, re-prompt, change the acceptance criteria,
-retarget the model, drop a task, add one.
-
-Two things are deliberately refused rather than missing, and both are worth
-knowing before you try them. A task an agent is **currently running** cannot
-be edited — abort the plan or let it settle. And a task that has been
-**verified** cannot have its terms changed, because "verified against its
-acceptance criteria" would stop meaning anything if the criteria could move
-afterwards; add a follow-up task instead. The controls stay visible and go
-grey with the reason in the tooltip, so you can tell a refusal from a bug.
-
-Building this found the hole underneath it: that same route would previously
-accept a rewrite of a verified task's acceptance criteria, and would let a
-task be marked `completed` without ever running. Only something already on
-your loopback interface could reach it, so it was never exploitable from
-outside — but it was one text field away from being a feature.
-
 **Share doesn't share.** It does file import/export of a galaxy manifest. The
 publish-and-browse half exists on the server and has no UI.
-
-**Routines cannot be edited.** A typo in a cadence means delete and recreate,
-which loses the run history and rotates the webhook token. (Bad cadences are
-at least now refused rather than silently firing hourly.)
 
 **Orgs are not fully tenanted** — routines are not org-scoped.
 
@@ -106,6 +83,39 @@ the screen and the List table is clipped with no horizontal scroll.
 galaxy will struggle: no selector memoisation, no virtualised list, a DOM
 node per planet. The List view's collapse-by-project helps. This is known and
 unaddressed.
+
+### Two things this list used to say
+
+Both were closed in 1.18.3. They are here rather than deleted because what
+each one now refuses is worth knowing before you try it.
+
+**Plan editing is whole.** It used to be half there — the server endpoints
+shipped and the frontend called two of them. Reorder, retitle, re-prompt,
+change the acceptance criteria, retarget the model, drop a task, add one.
+
+Two refusals, both deliberate. A task an agent is **currently running** cannot
+be edited — abort the plan or let it settle. And a task that has been
+**verified** cannot have its terms changed, because "verified against its
+acceptance criteria" would stop meaning anything if the criteria could move
+afterwards; add a follow-up task instead.
+
+Building it found the hole underneath: that route would previously accept a
+rewrite of a verified task's acceptance criteria, and would let a task be
+marked `completed` without ever running. Loopback-only, so never exploitable
+from outside — but one text field away from being a feature.
+
+**Routines are editable.** It used to be that a typo in a cadence meant delete
+and recreate, losing the run history and rotating the webhook token. **Edit**
+on a routine card changes its name, prompt, cadence and owner in place: the
+row keeps its id, so its history still points at it, and keeps its token, so a
+URL already wired up keeps firing. A cadence change tells you what it will
+cost before you save, and counts from the save rather than the last run, so
+shortening an interval cannot set off an immediate run. One refusal: the
+**trigger** cannot change, because a webhook routine's URL is bound to its
+kind.
+
+In both, a refused control stays visible and goes grey with the reason in the
+tooltip, so you can tell a refusal from a bug.
 
 ---
 
@@ -156,7 +166,32 @@ it tells you what kind of bugs this codebase produces:
   exits in about 200ms. If you are on 1.18.0, this is the one thing in here
   you will see misbehave.
 
-909 tests, and each of those fixes was proven by reinstating the bug and
+- **The two commands you meet first had no tests at all.** `solix demo` and
+  `solix doctor` — 1,200 lines between them — and both were producing this
+  release's recurring defect, a sentence with nothing behind it. The demo
+  checked one preflight event and discarded every write after it, so "seed
+  complete: 30 sessions across 8 projects" could print over a seed that had
+  mostly failed; the status mix it printed was a hardcoded sentence rather
+  than the plan it actually ran; and `--no-ticker`, documented as "seed once
+  and exit" and used for screenshots, never exited — it hung, and Ctrl+C
+  killed the sandbox you were about to capture. Fixed, with 32 tests — and
+  then by running the command, which showed the first fix was incomplete and
+  that the demo had been seeding one planet more than it claimed.
+- **`solix doctor` looked on the wrong port.** It had no `--port` of its own,
+  so after `solix start --port 5000` the one command you run to find out what
+  is wrong reported your running server as down and told you to start it.
+  Worth knowing because it changes what a red line there means: if you are on
+  a non-default port, pass `--port` to `doctor` too.
+- **An empty `SOLIX_PORT` could turn the gate off.** Thirteen places read that
+  variable and all of them mishandled it being *set but empty* — `??` fires
+  only on null and undefined, so `SOLIX_PORT=` read as port **0**. `solix
+  start` would bind a random free port and publish "0" to the hooks, which
+  would call port 0, find nothing, and fail-closed on every tool call: safe,
+  and useless, with no decision card ever appearing. Same class as the
+  `--port` defect found in 1.15, by a different road. One parser now, in one
+  place.
+
+988 tests, and each of those fixes was proven by reinstating the bug and
 watching the tests fail.
 
 ---

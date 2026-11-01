@@ -98,6 +98,24 @@
       "claim": "Installing a team twice does not create its routines twice.",
       "publishedIn": "CHANGELOG 1.18.0, release notes",
       "heldBy": "packages/server/src/teams.idempotent.test.ts"
+    },
+    {
+      "id": "CLAIM-DEMO-SEEDS-OR-SAYS",
+      "claim": "`solix demo` seeds a real galaxy into its own sandbox database and cleans up after itself — and when a seed write is rejected it says how many, instead of printing a summary over them.",
+      "publishedIn": "brief, README, `docs/CAPTURE.md`",
+      "heldBy": "packages/cli/src/demo.test.ts"
+    },
+    {
+      "id": "CLAIM-DOCTOR-REPORTS-REAL-STATE",
+      "claim": "Every `solix doctor` check can both pass and fail, looks where Solix actually is, and degrades to \"unknown\" rather than to a verdict when it cannot reach the server.",
+      "publishedIn": "brief, install guide, three error messages",
+      "heldBy": "packages/cli/src/doctor.test.ts"
+    },
+    {
+      "id": "CLAIM-ROUTINE-EDIT-KEEPS-HISTORY",
+      "claim": "Editing a routine keeps its run history and its webhook URL. A routine's cadence can be corrected; its trigger cannot be changed, and a generic edit cannot enable it.",
+      "publishedIn": "brief, Routines tab, CHANGELOG 1.18.3",
+      "heldBy": "packages/server/src/http.routineedit.test.ts"
     }
   ]
 }

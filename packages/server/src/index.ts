@@ -1,3 +1,4 @@
+import { resolvePort } from '@solix/shared';
 import { createSolixServer } from './create.js';
 
 export { createSolixServer } from './create.js';
@@ -9,7 +10,7 @@ const isMain =
   process.argv[1]?.endsWith('packages/server/dist/index.js');
 
 if (isMain) {
-  const port = parseInt(process.env.SOLIX_PORT ?? '4242', 10);
+  const port = resolvePort();
   createSolixServer({ port })
     .then((h) => {
       console.log(

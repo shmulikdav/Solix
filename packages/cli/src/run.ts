@@ -3,8 +3,9 @@ import { mkdirSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { nanoid } from 'nanoid';
+import { resolvePort } from '@solix/shared';
 
-const PORT = process.env.SOLIX_PORT ?? '4242';
+const PORT = String(resolvePort());
 const BASE = `http://127.0.0.1:${PORT}`;
 
 interface RegisterPayload {

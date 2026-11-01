@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { nanoid } from 'nanoid';
+import { cadenceToMs } from '@solix/shared';
 import type { ScheduledTask, ScheduleRun, TriggerKind } from '@solix/shared';
 import type { DB } from '../db.js';
 import { ensureProject } from './projects.js';
@@ -37,21 +38,6 @@ function rowToSchedule(row: ScheduleRow): ScheduledTask {
     // Only webhook triggers carry a usable token; never surface a stray one.
     webhookToken: trigger === 'webhook' ? row.token ?? undefined : undefined,
   };
-}
-
-/**
- * Parse a simple cadence string into milliseconds. Sprint M supports
- * `<n>m` (minutes), `<n>h` (hours), `<n>d` (days). Full cron is future
- * work. Returns null for unparseable input.
- */
-export function cadenceToMs(cadence: string): number | null {
-  const m = cadence.trim().match(/^(\d+)\s*([mhd])$/i);
-  if (!m) return null;
-  const n = Number(m[1]);
-  if (!Number.isFinite(n) || n <= 0) return null;
-  const unit = m[2]!.toLowerCase();
-  const mult = unit === 'm' ? 60_000 : unit === 'h' ? 3_600_000 : 86_400_000;
-  return n * mult;
 }
 
 export function nextRunFrom(fromMs: number, cadence: string): number {
@@ -142,6 +128,70 @@ export function listDueSchedules(db: DB, asOf: number): ScheduledTask[] {
     )
     .all(asOf) as ScheduleRow[];
   return rows.map(rowToSchedule);
+}
+
+/**
+ * Change a routine without destroying it.
+ *
+ * Everything a recreate would have lost stays put: the row's id, so its
+ * `schedule_runs` history still points at it, and its `token`, so a webhook
+ * already configured somewhere keeps firing. Neither is touched here, and
+ * neither is reachable from the route.
+ *
+ * `next_run_at` is recomputed from **now** when the cadence changes, not from
+ * the last run. Recomputing from the last run means shortening `1h` to `10m`
+ * fires immediately if the last run was an hour ago — a burst of unplanned
+ * spend as the direct result of correcting a typo. A full fresh interval is
+ * the predictable reading of "every 10 minutes from now on".
+ *
+ * A changed `cwd` moves the routine to that directory's project, or its node
+ * would keep orbiting the project it no longer runs in.
+ */
+export function updateSchedule(
+  db: DB,
+  id: string,
+  patch: {
+    name?: string | null;
+    prompt?: string;
+    cadence?: string;
+    owner?: string | null;
+    cwd?: string;
+  },
+): ScheduledTask | null {
+  const current = getSchedule(db, id);
+  if (!current) return null;
+
+  const sets: string[] = [];
+  const args: (string | number | null)[] = [];
+
+  if (patch.name !== undefined) {
+    sets.push('name = ?');
+    args.push(patch.name === null || patch.name === '' ? null : patch.name);
+  }
+  if (patch.prompt !== undefined) {
+    sets.push('prompt = ?');
+    args.push(patch.prompt);
+  }
+  if (patch.owner !== undefined) {
+    sets.push('owner = ?');
+    args.push(patch.owner === null || patch.owner === '' ? null : patch.owner);
+  }
+  if (patch.cwd !== undefined && patch.cwd !== current.cwd) {
+    const project = ensureProject(db, patch.cwd);
+    sets.push('cwd = ?', 'project_id = ?');
+    args.push(patch.cwd, project.id);
+  }
+  if (patch.cadence !== undefined && (current.trigger ?? 'interval') === 'interval') {
+    sets.push('cron = ?', 'next_run_at = ?');
+    args.push(patch.cadence, nextRunFrom(now(), patch.cadence));
+  }
+
+  if (sets.length === 0) return current;
+  args.push(id);
+  db.prepare(
+    `UPDATE scheduled_tasks SET ${sets.join(', ')} WHERE id = ?`,
+  ).run(...args);
+  return getSchedule(db, id);
 }
 
 export function setScheduleEnabled(

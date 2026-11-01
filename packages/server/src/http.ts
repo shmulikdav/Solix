@@ -27,6 +27,11 @@ function isAgentViewVersion(version: string | undefined): boolean {
 }
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import {
+  cadenceToMs,
+  routineEditRefusal,
+  ROUTINE_READONLY_FIELDS,
+} from '@solix/shared';
 import type { HookEvent } from '@solix/shared';
 import type { DB } from './db.js';
 import type { EventRouter } from './router.js';
@@ -80,8 +85,8 @@ import {
 } from './state/wrappers.js';
 import { clearSessionWrapper } from './state/sessions.js';
 import {
-  cadenceToMs,
   createSchedule,
+  updateSchedule,
   deleteSchedule,
   getSchedule,
   getScheduleByToken,
@@ -1046,6 +1051,50 @@ export function createHttpApp(opts: {
     });
     opts.router.broadcastScheduleUpsert(schedule);
     return c.json(schedule);
+  });
+
+  /**
+   * Edit a routine in place.
+   *
+   * The Routines tab has said "there is no edit" since it shipped, and spelled
+   * out the cost: recreating a routine drops its run history and rotates its
+   * webhook token, breaking any URL pointed at it. So a mistyped cadence was
+   * unfixable, on the one surface whose purpose is making recurring spend
+   * controllable.
+   *
+   * Read-only fields are stripped rather than refused, because a client that
+   * sends the routine back unchanged is the obvious thing to write and should
+   * not be rejected for it. `enabled` is among them: it has its own route, and
+   * a generic PATCH must not start a routine spending behind the toggle's
+   * back — the rule the plan PATCH has followed since 1.17.
+   *
+   * To be exact about where that is enforced: `updateSchedule` reads a fixed
+   * set of keys and ignores everything else, and *that* is what makes these
+   * fields unreachable. Deleting them here changes no outcome today — proven,
+   * by removing this line and watching every test still pass. It stays as the
+   * declaration of intent that a future branch in `updateSchedule` would
+   * otherwise quietly contradict.
+   */
+  app.patch('/api/schedules/:id', async (c) => {
+    const id = c.req.param('id');
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    for (const field of ROUTINE_READONLY_FIELDS) delete body[field];
+
+    const current = getSchedule(opts.db, id);
+    const patch = body as import('@solix/shared').RoutinePatch & {
+      trigger?: import('@solix/shared').TriggerKind;
+    };
+    if (patch.cwd !== undefined) patch.cwd = expandHome(patch.cwd);
+
+    const refusal = routineEditRefusal(current, patch);
+    if (refusal) {
+      return c.json({ error: refusal }, refusal === 'not found' ? 404 : 409);
+    }
+
+    const updated = updateSchedule(opts.db, id, patch);
+    if (!updated) return c.json({ error: 'not found' }, 404);
+    opts.router.broadcastScheduleUpsert(updated);
+    return c.json(updated);
   });
 
   app.post('/api/schedules/:id/toggle', async (c) => {
