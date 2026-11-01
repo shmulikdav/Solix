@@ -1,4 +1,4 @@
-# Solix 1.18.1 — what to try, and what is young
+# Solix 1.18.3 — what to try, and what is young
 
 A note to go with the build, written to be read before you open it.
 
@@ -71,11 +71,24 @@ dial and refuses at every level, including `observe`.
 Named deliberately. These are real, they are known, and none of them is a
 surprise to me.
 
-**Plan editing is half there.** Maestro turns a goal into a task list and
-you get one button: *Approve & run*. You can now retry a failed or escalated
-task, and delete a plan you are done with — but you cannot reorder, retitle,
-retarget a model, drop a task or add one. The server endpoints for all of
-that ship; the frontend calls two of them.
+**Plan editing is whole now**, as of 1.18.3 — this entry used to say it was
+half there, and that the server endpoints shipped while the frontend called
+two of them. Reorder, retitle, re-prompt, change the acceptance criteria,
+retarget the model, drop a task, add one.
+
+Two things are deliberately refused rather than missing, and both are worth
+knowing before you try them. A task an agent is **currently running** cannot
+be edited — abort the plan or let it settle. And a task that has been
+**verified** cannot have its terms changed, because "verified against its
+acceptance criteria" would stop meaning anything if the criteria could move
+afterwards; add a follow-up task instead. The controls stay visible and go
+grey with the reason in the tooltip, so you can tell a refusal from a bug.
+
+Building this found the hole underneath it: that same route would previously
+accept a rewrite of a verified task's acceptance criteria, and would let a
+task be marked `completed` without ever running. Only something already on
+your loopback interface could reach it, so it was never exploitable from
+outside — but it was one text field away from being a feature.
 
 **Share doesn't share.** It does file import/export of a galaxy manifest. The
 publish-and-browse half exists on the server and has no UI.
@@ -143,7 +156,7 @@ it tells you what kind of bugs this codebase produces:
   exits in about 200ms. If you are on 1.18.0, this is the one thing in here
   you will see misbehave.
 
-799 tests, and each of those fixes was proven by reinstating the bug and
+909 tests, and each of those fixes was proven by reinstating the bug and
 watching the tests fail.
 
 ---
