@@ -15,6 +15,7 @@ import type { DB } from '../db.js';
 import {
   getSession,
   getTranscriptPos,
+  setSessionContextUsage,
   setSessionCost,
   setTranscriptPos,
 } from './sessions.js';
@@ -22,16 +23,36 @@ import { addMissionTokens } from './missions.js';
 
 const TRANSCRIPT_BASE = join(homedir(), '.claude', 'projects');
 
-// Heuristic context window for percentage. Claude Opus 4.x is ~200K. We pick
-// a single anchor for now; per-model anchors land when transcripts include
-// model metadata reliably (they already do — `message.model` is set).
-const CONTEXT_BUDGETS_BY_MODEL: Record<string, number> = {
-  'claude-opus-4-7': 200_000,
-  'claude-opus-4-6': 200_000,
-  'claude-sonnet-4-6': 200_000,
-  'claude-haiku-4-5': 200_000,
-  default: 200_000,
-};
+/**
+ * The context window we measure against.
+ *
+ * This was a map of five model ids to the same number, with a comment
+ * promising per-model anchors "when transcripts include model metadata
+ * reliably (they already do)". Five identical values is false precision: it
+ * reads as a lookup and is a constant, and every model id shipped since was
+ * absent from it anyway, so every real session took the default.
+ *
+ * One honest constant. 200K is the standard Claude context window; a session
+ * whose usage exceeds it is evidence the window is larger than this anchor,
+ * not evidence that the session is full — see `contextPct`.
+ */
+const CONTEXT_WINDOW_ANCHOR_TOKENS = 200_000;
+
+/**
+ * How full the context is, or null when this anchor cannot answer.
+ *
+ * The old expression was `Math.min(100, (total / budget) * 100)`, and the
+ * clamp was the problem: a session on a larger window than the anchor
+ * reported a confident **100%**, `.toFixed(0)` hid that it had been clamped,
+ * and the advisor envelope told the model to suggest `/compact` on a session
+ * that was nowhere near full. Exceeding the anchor means we do not know the
+ * window, so we say so rather than rounding the uncertainty into an alarm.
+ */
+export function contextPct(totalTokens: number): number | null {
+  if (!Number.isFinite(totalTokens) || totalTokens <= 0) return null;
+  if (totalTokens > CONTEXT_WINDOW_ANCHOR_TOKENS) return null;
+  return (totalTokens / CONTEXT_WINDOW_ANCHOR_TOKENS) * 100;
+}
 
 // Cap how much of an existing transcript we replay on first attach. Anything
 // older falls off — the chat UI is for live conversation, not deep history.
@@ -302,10 +323,22 @@ export class TranscriptWatcherManager {
         (message.usage.input_tokens ?? 0) +
         (message.usage.cache_read_input_tokens ?? 0) +
         (message.usage.cache_creation_input_tokens ?? 0);
-      const budget =
-        CONTEXT_BUDGETS_BY_MODEL[message.model ?? 'default'] ??
-        CONTEXT_BUDGETS_BY_MODEL.default!;
-      const pct = Math.min(100, (total / budget) * 100);
+      // Measured, and written down.
+      //
+      // This broadcast was the only thing that happened with the percentage:
+      // nothing persisted it, so `sessions.context_usage_pct` stayed at its
+      // `REAL DEFAULT 0` forever. Every advisor envelope said `context=0%`,
+      // the "⚠ CONTEXT NEAR LIMIT … run /compact" branch was unreachable, and
+      // a browser reload dropped the side panel's live figure back to zero.
+      // The only writer in the product was `solix demo`, with a hardcoded 62
+      // and 89 — the demo was the sole reason the number ever looked real.
+      //
+      // It stays outside the `countable` guard below: this is a view of the
+      // latest message rather than a sum, so re-deriving it on a replayed
+      // line is both free and correct, and it is what repopulates the figure
+      // after a restart.
+      const pct = contextPct(total);
+      setSessionContextUsage(this.db, sessionId, pct);
       this.broadcaster.broadcast({
         type: 'context_update',
         sessionId,

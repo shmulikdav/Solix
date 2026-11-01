@@ -112,6 +112,12 @@
       "heldBy": "packages/cli/src/doctor.test.ts"
     },
     {
+      "id": "CLAIM-CONTEXT-IS-MEASURED",
+      "claim": "The context percentage is measured from the transcript and written down. Where nothing has measured it, Solix says so instead of showing 0%, and never advises `/compact` on a reading it does not have.",
+      "publishedIn": "site (\"every number is live and local\"), Mission Control, the advisor envelope, `solix doctor`",
+      "heldBy": "packages/server/src/state/context.measured.test.ts"
+    },
+    {
       "id": "CLAIM-ROUTINE-EDIT-KEEPS-HISTORY",
       "claim": "Editing a routine keeps its run history and its webhook URL. A routine's cadence can be corrected; its trigger cannot be changed, and a generic edit cannot enable it.",
       "publishedIn": "brief, Routines tab, CHANGELOG 1.18.3",

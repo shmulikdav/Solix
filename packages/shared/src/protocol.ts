@@ -60,7 +60,7 @@ export type ServerMessage =
     }
   | { type: 'plan_proposed'; sessionId: string; plan: string }
   | { type: 'chat_delta'; sessionId: string; delta: ChatDelta }
-  | { type: 'context_update'; sessionId: string; usagePct: number }
+  | { type: 'context_update'; sessionId: string; usagePct: number | null }
   | {
       type: 'cost_update';
       sessionId: string;

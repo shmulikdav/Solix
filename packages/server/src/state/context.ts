@@ -40,6 +40,11 @@ function summarizeMission(m: Mission): string {
 function contextBudgetNote(target: Session | null): string {
   if (!target) return '';
   const pct = target.contextUsagePct;
+  // No measurement is not a quiet session. Until the watcher persisted this,
+  // the column sat at 0 forever and neither branch below could ever be
+  // reached outside `solix demo` — so the one advisor instruction that
+  // depends on context pressure had never fired in real use.
+  if (pct === null) return '';
   if (pct >= 90) {
     return `\n\n⚠ CONTEXT NEAR LIMIT: target session is at ${pct.toFixed(0)}%. Suggest the user run /compact before deeper work.`;
   }
@@ -103,7 +108,14 @@ export function buildContextEnvelope(
     lines.push('');
     lines.push(`Active project: ${target.cwd}`);
     lines.push(
-      `Focused planet: ${target.name ?? target.id.slice(0, 8)} (${target.model}, status=${target.status}, context=${target.contextUsagePct.toFixed(0)}%)`,
+      // "context=0%" was what every advisor was told, always. Saying
+      // "unknown" when nothing has measured it is the difference between a
+      // model reasoning from a fact and reasoning from a default.
+      `Focused planet: ${target.name ?? target.id.slice(0, 8)} (${target.model}, status=${target.status}, context=${
+        target.contextUsagePct === null
+          ? 'unknown'
+          : `${target.contextUsagePct.toFixed(0)}%`
+      })`,
     );
   }
 

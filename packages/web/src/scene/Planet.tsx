@@ -129,7 +129,9 @@ export function Planet({ session }: PlanetProps): JSX.Element {
       if (motionEnabled) {
         planetRef.current.rotation.y += delta * 0.4;
       }
-      const targetScale = 0.55 + (session.contextUsagePct / 100) * 0.5;
+      // Unmeasured sessions sit at the base size rather than growing from
+      // an assumed 0% — the planet's size is a claim about context pressure.
+      const targetScale = 0.55 + ((session.contextUsagePct ?? 0) / 100) * 0.5;
       const cur = planetRef.current.scale.x;
       const next = MathUtils.lerp(cur, targetScale, 0.04);
       planetRef.current.scale.set(next, next, next);
@@ -151,8 +153,11 @@ export function Planet({ session }: PlanetProps): JSX.Element {
     }
 
     if (flareRef.current) {
-      const ctxCritical = session.contextUsagePct >= 90;
-      const ctxWarn = session.contextUsagePct >= 80 && !ctxCritical;
+      // A flare is an alarm. Nothing measured means nothing to be alarmed
+      // about yet, not a calm reading.
+      const ctxPct = session.contextUsagePct;
+      const ctxCritical = ctxPct !== null && ctxPct >= 90;
+      const ctxWarn = ctxPct !== null && ctxPct >= 80 && !ctxCritical;
       const showFlare =
         session.status === 'awaiting_permission' ||
         session.status === 'awaiting_input' ||

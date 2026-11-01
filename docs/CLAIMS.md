@@ -5,7 +5,7 @@ being true.
 
 ## Why this exists
 
-Ten defects now, and they are all the same shape — not a crash, an
+Eleven defects now, and they are all the same shape — not a crash, an
 **overclaim**: the product said it did X and did X-minus-something.
 
 | | the claim | where it broke |
@@ -20,6 +20,7 @@ Ten defects now, and they are all the same shape — not a crash, an
 | 8 | `solix demo` seeded a galaxy | "seed complete: 30 sessions" printed over writes that were rejected |
 | 9 | `solix doctor` tells you if it is running | it looked on 4242 whatever port you started on, and called a healthy server down |
 | 10 | recurring spend is controllable here | a mistyped cadence could not be corrected at all |
+| 11 | the context figure is live and local | nothing persisted it; `solix demo` was the only thing that ever wrote one |
 
 Every one of them was invisible to a passing unit-test suite, because the
 code was right *somewhere* and wrong at the surface a reader meets. Numbers
@@ -65,6 +66,7 @@ If you cannot write step 2, you cannot make the claim.
 | `CLAIM-TEAMS-IDEMPOTENT` | Installing a team twice does not create its routines twice. | CHANGELOG 1.18.0, release notes | `packages/server/src/teams.idempotent.test.ts` |
 | `CLAIM-DEMO-SEEDS-OR-SAYS` | `solix demo` seeds a real galaxy into its own sandbox database and cleans up after itself — and when a seed write is rejected it says how many, instead of printing a summary over them. | brief, README, `docs/CAPTURE.md` | `packages/cli/src/demo.test.ts` |
 | `CLAIM-DOCTOR-REPORTS-REAL-STATE` | Every `solix doctor` check can both pass and fail, looks where Solix actually is, and degrades to "unknown" rather than to a verdict when it cannot reach the server. | brief, install guide, three error messages | `packages/cli/src/doctor.test.ts` |
+| `CLAIM-CONTEXT-IS-MEASURED` | The context percentage is measured from the transcript and written down. Where nothing has measured it, Solix says so instead of showing 0%, and never advises `/compact` on a reading it does not have. | site ("every number is live and local"), Mission Control, the advisor envelope, `solix doctor` | `packages/server/src/state/context.measured.test.ts` |
 | `CLAIM-ROUTINE-EDIT-KEEPS-HISTORY` | Editing a routine keeps its run history and its webhook URL. A routine's cadence can be corrected; its trigger cannot be changed, and a generic edit cannot enable it. | brief, Routines tab, CHANGELOG 1.18.3 | `packages/server/src/http.routineedit.test.ts` |
 
 ## The matrix
@@ -107,8 +109,6 @@ pinned by `CLAIM-NO-TELEMETRY`.
 Honest gaps, so this file does not read as more complete than it is. These
 are published promises with no row yet:
 
-- context percentages are real and never invented (the cost half is held by
-  `CLAIM-COST-COUNTED-ONCE`; the context view has no test of its own)
 - budgets pause a plan before it crosses its cap — tested, not yet bound
 - secrets are write-only and encrypted at rest — tested, not yet bound
 - the Agent View mirror reports real sessions (`agentview.ts`, 328 lines, no

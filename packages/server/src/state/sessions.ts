@@ -58,7 +58,14 @@ function rowToSession(row: SessionRow): Session {
     kind: row.kind ?? 'user',
     advisorRole: row.advisor_role ?? undefined,
     parentSessionId: row.parent_session_id ?? undefined,
-    contextUsagePct: row.context_usage_pct,
+    // The column is `REAL DEFAULT 0` and predates nullability, so a stored
+    // 0 is a row nothing has measured — a real session with any usage at all
+    // reports a percentage above zero. Mapping it here avoids a migration and
+    // keeps "no data" distinguishable from "empty context".
+    contextUsagePct:
+      typeof row.context_usage_pct === 'number' && row.context_usage_pct > 0
+        ? row.context_usage_pct
+        : null,
     currentMissionId: row.current_mission_id ?? undefined,
     lastCompletedMissionId: row.last_completed_mission_id ?? undefined,
     orbitSlot: row.orbit_slot,
@@ -196,7 +203,7 @@ export function upsertSession(db: DB, input: CreateSessionInput): Session {
     kind,
     advisorRole: input.advisorRole,
     parentSessionId: input.parentSessionId,
-    contextUsagePct: 0,
+    contextUsagePct: null,
     orbitSlot,
     worktreePath: input.worktreePath,
     wrapperSocketPath: input.wrapperSocketPath,
@@ -301,9 +308,9 @@ export function clearSessionWrapper(
 export function setSessionContextUsage(
   db: DB,
   sessionId: string,
-  pct: number,
+  pct: number | null,
 ): Session | null {
-  const clamped = Math.max(0, Math.min(100, pct));
+  const clamped = pct === null ? null : Math.max(0, Math.min(100, pct));
   const ts = now();
   db.prepare(
     `UPDATE sessions SET context_usage_pct = ?, updated_at = ? WHERE id = ?`,
