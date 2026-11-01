@@ -71,40 +71,8 @@ dial and refuses at every level, including `observe`.
 Named deliberately. These are real, they are known, and none of them is a
 surprise to me.
 
-**Plan editing is whole now**, as of 1.18.3 — this entry used to say it was
-half there, and that the server endpoints shipped while the frontend called
-two of them. Reorder, retitle, re-prompt, change the acceptance criteria,
-retarget the model, drop a task, add one.
-
-Two things are deliberately refused rather than missing, and both are worth
-knowing before you try them. A task an agent is **currently running** cannot
-be edited — abort the plan or let it settle. And a task that has been
-**verified** cannot have its terms changed, because "verified against its
-acceptance criteria" would stop meaning anything if the criteria could move
-afterwards; add a follow-up task instead. The controls stay visible and go
-grey with the reason in the tooltip, so you can tell a refusal from a bug.
-
-Building this found the hole underneath it: that same route would previously
-accept a rewrite of a verified task's acceptance criteria, and would let a
-task be marked `completed` without ever running. Only something already on
-your loopback interface could reach it, so it was never exploitable from
-outside — but it was one text field away from being a feature.
-
 **Share doesn't share.** It does file import/export of a galaxy manifest. The
 publish-and-browse half exists on the server and has no UI.
-
-**Routines are editable now**, as of 1.18.3 — this entry used to say they
-weren't, and that a typo in a cadence meant delete and recreate, losing the
-run history and rotating the webhook token. **Edit** on a routine card changes
-its name, its prompt, its cadence and its owner in place: the row keeps its
-id, so its history still points at it, and keeps its token, so a URL already
-wired up keeps firing. A cadence change tells you what it will cost before you
-save it, and counts from the save rather than from the last run, so shortening
-an interval cannot set off an immediate run.
-
-One thing is deliberately refused: the **trigger** cannot change, because a
-webhook routine's URL is bound to its kind. That field stays visible and goes
-grey with the reason.
 
 **Orgs are not fully tenanted** — routines are not org-scoped.
 
@@ -115,6 +83,39 @@ the screen and the List table is clipped with no horizontal scroll.
 galaxy will struggle: no selector memoisation, no virtualised list, a DOM
 node per planet. The List view's collapse-by-project helps. This is known and
 unaddressed.
+
+### Two things this list used to say
+
+Both were closed in 1.18.3. They are here rather than deleted because what
+each one now refuses is worth knowing before you try it.
+
+**Plan editing is whole.** It used to be half there — the server endpoints
+shipped and the frontend called two of them. Reorder, retitle, re-prompt,
+change the acceptance criteria, retarget the model, drop a task, add one.
+
+Two refusals, both deliberate. A task an agent is **currently running** cannot
+be edited — abort the plan or let it settle. And a task that has been
+**verified** cannot have its terms changed, because "verified against its
+acceptance criteria" would stop meaning anything if the criteria could move
+afterwards; add a follow-up task instead.
+
+Building it found the hole underneath: that route would previously accept a
+rewrite of a verified task's acceptance criteria, and would let a task be
+marked `completed` without ever running. Loopback-only, so never exploitable
+from outside — but one text field away from being a feature.
+
+**Routines are editable.** It used to be that a typo in a cadence meant delete
+and recreate, losing the run history and rotating the webhook token. **Edit**
+on a routine card changes its name, prompt, cadence and owner in place: the
+row keeps its id, so its history still points at it, and keeps its token, so a
+URL already wired up keeps firing. A cadence change tells you what it will
+cost before you save, and counts from the save rather than the last run, so
+shortening an interval cannot set off an immediate run. One refusal: the
+**trigger** cannot change, because a webhook routine's URL is bound to its
+kind.
+
+In both, a refused control stays visible and goes grey with the reason in the
+tooltip, so you can tell a refusal from a bug.
 
 ---
 
