@@ -1,10 +1,28 @@
-# Solix — launch readiness
+# Solix — launch readiness *(historical — 1.13.0, 2026-10-25)*
+
+> **Read this as a record, not a status.** It was written against `1.13.0`
+> and is left here because the reasoning is worth keeping, but most of it has
+> since been done and some of it is now actively wrong:
+>
+> - **B1, the stop-ship:** Suite E has been run. It failed first (the gate did
+>   not ask at the default level), was fixed, and passes — results in
+>   `docs/E2E-SMOKE-TEST.md`, including E6 fail-closed against a real agent.
+> - **B2:** containment against a real agent is covered, and the denylist now
+>   has a thirty-cell matrix (`packages/server/src/gate.matrix.test.ts`).
+> - **L1:** the `Agnet` typo is fixed.
+> - **L2:** GitHub Releases are backfilled through v1.18.0.
+> - **L3:** the site has been refreshed several times since.
+>
+> A document asserting a state that is not true is the same defect this
+> project keeps finding everywhere else, so: current readiness lives in
+> `docs/CLAIMS.md` and `docs/PARTNER-BRIEF.md`. Nothing below is a live
+> checklist.
 
 **Assessed:** 2026-10-25 against `1.13.0` (published to npm) and
 `www.solixsys.com` (live).
 
-**Verdict:** the product is built and shipped. What is missing is almost
-entirely *proof* and *distribution*, not code. One item is a genuine
+**Verdict (as of then):** the product is built and shipped. What is missing is
+almost entirely *proof* and *distribution*, not code. One item is a genuine
 stop-ship.
 
 ---

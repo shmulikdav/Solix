@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { memo, useMemo, useRef } from 'react';
 import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import { Color, Group, Mesh, MathUtils, MeshStandardMaterial } from 'three';
@@ -22,7 +22,16 @@ interface PlanetProps {
   session: Session;
 }
 
-export function Planet({ session }: PlanetProps): JSX.Element {
+/**
+ * One planet.
+ *
+ * `memo` because the store's selectors are now reference-stable: `Scene`
+ * re-renders on any session change, but a planet whose own `session` object
+ * did not change has nothing to redo. Without the stable selectors this
+ * would be worthless — `session` would be a new object every time — which
+ * is why the two changes land together.
+ */
+export const Planet = memo(function Planet({ session }: PlanetProps): JSX.Element {
   const hoverCursor = useHoverCursor();
   const groupRef = useRef<Group>(null);
   const planetRef = useRef<Mesh>(null);
@@ -129,7 +138,9 @@ export function Planet({ session }: PlanetProps): JSX.Element {
       if (motionEnabled) {
         planetRef.current.rotation.y += delta * 0.4;
       }
-      const targetScale = 0.55 + (session.contextUsagePct / 100) * 0.5;
+      // Unmeasured sessions sit at the base size rather than growing from
+      // an assumed 0% — the planet's size is a claim about context pressure.
+      const targetScale = 0.55 + ((session.contextUsagePct ?? 0) / 100) * 0.5;
       const cur = planetRef.current.scale.x;
       const next = MathUtils.lerp(cur, targetScale, 0.04);
       planetRef.current.scale.set(next, next, next);
@@ -151,8 +162,11 @@ export function Planet({ session }: PlanetProps): JSX.Element {
     }
 
     if (flareRef.current) {
-      const ctxCritical = session.contextUsagePct >= 90;
-      const ctxWarn = session.contextUsagePct >= 80 && !ctxCritical;
+      // A flare is an alarm. Nothing measured means nothing to be alarmed
+      // about yet, not a calm reading.
+      const ctxPct = session.contextUsagePct;
+      const ctxCritical = ctxPct !== null && ctxPct >= 90;
+      const ctxWarn = ctxPct !== null && ctxPct >= 80 && !ctxCritical;
       const showFlare =
         session.status === 'awaiting_permission' ||
         session.status === 'awaiting_input' ||
@@ -376,7 +390,7 @@ export function Planet({ session }: PlanetProps): JSX.Element {
       </Html>
     </group>
   );
-}
+});
 
 /**
  * Deterministic small tilt in degrees from a string key. Same id always

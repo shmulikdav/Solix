@@ -112,6 +112,24 @@
       "heldBy": "packages/cli/src/doctor.test.ts"
     },
     {
+      "id": "CLAIM-RENDERER-RELEASES-GPU",
+      "claim": "The galaxy can be left running. It builds one shader material per planet and disposes it, and a store event only re-renders the parts whose data changed.",
+      "publishedIn": "brief (\"would you leave it running?\"), site (the galaxy itself)",
+      "heldBy": "packages/web/src/scene/atmosphereRim.test.tsx"
+    },
+    {
+      "id": "CLAIM-LEDGER-COUNTS-EVERYTHING",
+      "claim": "`solix ledger`, its exports and the signed fleet report count every decision in the window, and say so plainly when they are listing fewer than they counted.",
+      "publishedIn": "`solix ledger`, `--md`/`--csv` exports, the fleet report",
+      "heldBy": "packages/server/src/state/ledger.test.ts"
+    },
+    {
+      "id": "CLAIM-CONTEXT-IS-MEASURED",
+      "claim": "The context percentage is measured from the transcript and written down. Where nothing has measured it, Solix says so instead of showing 0%, and never advises `/compact` on a reading it does not have.",
+      "publishedIn": "site (\"every number is live and local\"), Mission Control, the advisor envelope, `solix doctor`",
+      "heldBy": "packages/server/src/state/context.measured.test.ts"
+    },
+    {
       "id": "CLAIM-ROUTINE-EDIT-KEEPS-HISTORY",
       "claim": "Editing a routine keeps its run history and its webhook URL. A routine's cadence can be corrected; its trigger cannot be changed, and a generic edit cannot enable it.",
       "publishedIn": "brief, Routines tab, CHANGELOG 1.18.3",

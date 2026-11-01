@@ -71,9 +71,29 @@ export function recordAudit(db: DB, input: RecordAuditInput): AuditEvent {
   return event;
 }
 
+/**
+ * The most rows a single query will materialise.
+ *
+ * This used to be 1000, applied inside `listAudit` to everything. That is a
+ * sensible guard for `/api/audit`, which takes a caller-supplied `limit` —
+ * and a silent corruption of anything exporting a complete record, which is
+ * what `listLedger` does. The route clamps its own input now; this is only
+ * here so a runaway caller cannot ask for the whole table at once.
+ */
+export const MAX_AUDIT_ROWS = 50_000;
+
 export interface ListAuditOptions {
   sessionId?: string;
   kind?: AuditKind;
+  /**
+   * Several kinds at once, filtered in SQL.
+   *
+   * Without this, a caller wanting three kinds had to over-fetch and throw
+   * the rest away in JS — which is exactly what `listLedger` did, so its
+   * limit applied to *all* audit rows and the decisions that survived were
+   * whatever happened to be among the newest N of everything.
+   */
+  kinds?: readonly AuditKind[];
   since?: number;
   until?: number;
   limit?: number;
@@ -98,7 +118,10 @@ export interface ListAuditOptions {
  */
 export function countAudit(
   db: DB,
-  opts: Pick<ListAuditOptions, 'sessionId' | 'kind' | 'since' | 'until'> = {},
+  opts: Pick<
+    ListAuditOptions,
+    'sessionId' | 'kind' | 'kinds' | 'since' | 'until'
+  > = {},
 ): number {
   const where: string[] = [];
   const params: (string | number)[] = [];
@@ -109,6 +132,10 @@ export function countAudit(
   if (opts.kind) {
     where.push('kind = ?');
     params.push(opts.kind);
+  }
+  if (opts.kinds && opts.kinds.length > 0) {
+    where.push(`kind IN (${opts.kinds.map(() => '?').join(', ')})`);
+    params.push(...opts.kinds);
   }
   if (opts.since !== undefined) {
     where.push('ts >= ?');
@@ -129,7 +156,7 @@ export function listAudit(
   db: DB,
   opts: ListAuditOptions = {},
 ): AuditEvent[] {
-  const limit = Math.min(opts.limit ?? 200, 1000);
+  const limit = Math.min(opts.limit ?? 200, MAX_AUDIT_ROWS);
   const where: string[] = [];
   const params: (string | number)[] = [];
   if (opts.sessionId) {
@@ -139,6 +166,10 @@ export function listAudit(
   if (opts.kind) {
     where.push('kind = ?');
     params.push(opts.kind);
+  }
+  if (opts.kinds && opts.kinds.length > 0) {
+    where.push(`kind IN (${opts.kinds.map(() => '?').join(', ')})`);
+    params.push(...opts.kinds);
   }
   if (typeof opts.since === 'number') {
     where.push('ts >= ?');
@@ -230,16 +261,50 @@ export function summarizeImpact(
     )
     .all(since, until) as { payload_json: string | null }[];
 
-  let spendAtPauseUsd = 0;
+  /**
+   * The dollars a cap actually held back, counted once per plan.
+   *
+   * `spentUsd` in a `budget_paused` row is the plan's **cumulative** spend
+   * at that moment, not the increment since the last pause. Summing the
+   * rows therefore counted the same dollars again every time a plan paused
+   * twice — and three paths put a paused plan back to `running` with its
+   * budget untouched (`resumePlan`, `retryTask`, `addFollowUpTask`), so the
+   * next tick re-evaluates the same breach and writes another row.
+   *
+   * `solix gain` renders this as "Spend held at those pauses $X" and the
+   * fleet report repeats it; both read to a person as money saved. It is
+   * the cost-counted-twice defect of 1.18.2, one table over.
+   *
+   * Per plan, the last pause carries the largest cumulative figure, so the
+   * max is the spend that plan was holding when it last stopped. A row with
+   * no `planId` predates that field and is counted on its own, which is the
+   * old behaviour and the best available for it.
+   */
+  const spendByPlan = new Map<string, number>();
+  let spendWithoutPlan = 0;
   for (const row of pauses) {
     if (!row.payload_json) continue;
     try {
-      const spent = (JSON.parse(row.payload_json) as { spentUsd?: number }).spentUsd;
-      if (typeof spent === 'number' && isFinite(spent)) spendAtPauseUsd += spent;
+      const payload = JSON.parse(row.payload_json) as {
+        spentUsd?: number;
+        planId?: string;
+      };
+      const spent = payload.spentUsd;
+      if (typeof spent !== 'number' || !isFinite(spent)) continue;
+      if (typeof payload.planId === 'string' && payload.planId !== '') {
+        spendByPlan.set(
+          payload.planId,
+          Math.max(spendByPlan.get(payload.planId) ?? 0, spent),
+        );
+      } else {
+        spendWithoutPlan += spent;
+      }
     } catch {
       /* ignore */
     }
   }
+  const spendAtPauseUsd =
+    spendWithoutPlan + [...spendByPlan.values()].reduce((a, b) => a + b, 0);
 
   return {
     sinceMs: since,

@@ -215,20 +215,32 @@ export function SidePanel(): JSX.Element | null {
       <div className="px-4 py-2 border-b border-solix-border">
         <div className="flex items-center justify-between text-xs text-slate-400">
           <span>context pressure</span>
-          <span>{session.contextUsagePct.toFixed(0)}%</span>
+          <span>
+            {session.contextUsagePct === null
+              ? '—'
+              : `${session.contextUsagePct.toFixed(0)}%`}
+          </span>
         </div>
-        <div className="mt-1 h-1.5 rounded-full bg-slate-800 overflow-hidden">
-          <div
-            className={`h-full ${
-              session.contextUsagePct >= 90
-                ? 'bg-solix-danger'
-                : session.contextUsagePct >= 80
-                  ? 'bg-solix-warn'
-                  : 'bg-solix-accent'
-            }`}
-            style={{ width: `${Math.min(100, session.contextUsagePct)}%` }}
-          />
-        </div>
+        {session.contextUsagePct === null ? (
+          // Nothing has measured it — the watcher learns this from an
+          // assistant message's usage block, so a session that has not
+          // answered yet has no figure. An empty track says that; a 0% bar
+          // would say the context is empty.
+          <div className="mt-1 h-1.5 rounded-full bg-slate-800/50" />
+        ) : (
+          <div className="mt-1 h-1.5 rounded-full bg-slate-800 overflow-hidden">
+            <div
+              className={`h-full ${
+                session.contextUsagePct >= 90
+                  ? 'bg-solix-danger'
+                  : session.contextUsagePct >= 80
+                    ? 'bg-solix-warn'
+                    : 'bg-solix-accent'
+              }`}
+              style={{ width: `${Math.min(100, session.contextUsagePct)}%` }}
+            />
+          </div>
+        )}
       </div>
 
       <div className="flex border-b border-solix-border text-xs">

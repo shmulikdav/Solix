@@ -47,7 +47,17 @@ export interface Session {
   runtime?: AgentRuntime;
   advisorRole?: string;
   parentSessionId?: string;
-  contextUsagePct: number;
+  /**
+   * How full the session's context window is, or **null when nothing has
+   * measured it yet**.
+   *
+   * Nullable on purpose. The watcher only learns this from an assistant
+   * message's usage block, so a session that has not produced one has no
+   * measurement — and `0` cannot carry that, because `0` is also what an
+   * empty context looks like. The house rule is an em dash where there is no
+   * data, and that rule needs a value to hang on.
+   */
+  contextUsagePct: number | null;
   currentMissionId?: string;
   lastCompletedMissionId?: string;
   orbitSlot: number;

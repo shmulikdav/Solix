@@ -34,7 +34,7 @@ import { dirname, join } from 'node:path';
 import type { DB } from '../db.js';
 import { SOLIX_HOME } from '../paths.js';
 import { summarizeImpact, type ImpactSummary } from './audit.js';
-import { listLedger, type LedgerDecision, type LedgerEntry } from './ledger.js';
+import { listLedger, type LedgerDecision, type LedgerEntry, countLedgerDecisions } from './ledger.js';
 
 export const REPORT_VERSION = 1 as const;
 
@@ -60,6 +60,11 @@ export interface FleetReport {
   /** True when `detail` holds fingerprints rather than the commands. */
   redacted: boolean;
   summary: ImpactSummary;
+  /**
+   * How many decisions the window holds. Separate from `records.length`
+   * because a capped export must still be able to say what it left out.
+   */
+  decisionCount?: number;
   records: ReportRecord[];
   chain: { algorithm: 'sha256-chain'; digest: string };
   signature?: { algorithm: 'ed25519'; publicKey: string; value: string };
@@ -240,6 +245,11 @@ export function buildReport(db: DB, opts: BuildReportOptions = {}): FleetReport 
 
   const records = collectRecords(db, { since, until, redact: redacted });
   const summary = summarizeImpact(db, { since, until });
+  // Counted independently of what was fetched, so the report can be honest
+  // about a window larger than it carries. Deliberately NOT part of the
+  // digest: the chain signs the records, and adding a derived count to it
+  // would change every existing signature for no gain in integrity.
+  const decisionCount = countLedgerDecisions(db, { since, until });
   const digest = chainDigest(records, { since, until }, redacted);
 
   const report: FleetReport = {
@@ -248,6 +258,7 @@ export function buildReport(db: DB, opts: BuildReportOptions = {}): FleetReport 
     window: { since, until },
     redacted,
     summary,
+    decisionCount,
     records,
     chain: { algorithm: 'sha256-chain', digest },
   };
@@ -308,7 +319,14 @@ export function reportToMarkdown(report: FleetReport): string {
     '',
     `**Window:** ${iso(report.window.since)} — ${iso(report.window.until)} (UTC)  `,
     `**Generated:** ${iso(report.generatedAt)} (UTC)  `,
-    `**Decisions:** ${report.records.length}${report.redacted ? ' · commands redacted to fingerprints' : ''}`,
+    // `report.records.length` on its own was the count of a silently
+    // truncated set, inside an artifact whose whole purpose is being a
+    // fixed, signable record of a window.
+    `**Decisions:** ${report.decisionCount ?? report.records.length}${
+      report.decisionCount != null && report.decisionCount > report.records.length
+        ? ` · **${report.records.length} listed below, the rest omitted** — narrow the window`
+        : ''
+    }${report.redacted ? ' · commands redacted to fingerprints' : ''}`,
     '',
     '## Summary',
     '',

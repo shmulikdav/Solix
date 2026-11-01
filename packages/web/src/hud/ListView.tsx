@@ -163,7 +163,7 @@ export function ListView(): JSX.Element {
           dir
         );
       case 'context':
-        return (a.session.contextUsagePct - b.session.contextUsagePct) * dir;
+        return cmpContext(a.session.contextUsagePct, b.session.contextUsagePct, dir);
       case 'lastActivity':
         return (a.session.updatedAt - b.session.updatedAt) * dir;
       case 'needs':
@@ -175,7 +175,7 @@ export function ListView(): JSX.Element {
         // stable, meaningful order instead of shuffling.
         const bySeverity = severityRank(a.attention) - severityRank(b.attention);
         if (bySeverity !== 0) return bySeverity * dir;
-        return (a.session.contextUsagePct - b.session.contextUsagePct) * dir;
+        return cmpContext(a.session.contextUsagePct, b.session.contextUsagePct, dir);
       }
       case 'cost':
         return (a.session.costUsd - b.session.costUsd) * dir;
@@ -673,7 +673,29 @@ function AttentionCell({ suggestion }: { suggestion: Suggestion | null }): JSX.E
   );
 }
 
-function ContextBar({ pct }: { pct: number }): JSX.Element {
+/**
+ * Sort by context pressure, with "not measured" always at the bottom.
+ *
+ * Treating null as 0 would file every unmeasured session among the roomiest,
+ * which is a claim about them. They are not roomy; they are unknown.
+ */
+function cmpContext(a: number | null, b: number | null, dir: number): number {
+  if (a === null && b === null) return 0;
+  if (a === null) return 1;
+  if (b === null) return -1;
+  return (a - b) * dir;
+}
+
+function ContextBar({ pct }: { pct: number | null }): JSX.Element {
+  // No measurement yet. An em dash, not a 0% bar — the house rule, and the
+  // reason the column is nullable at all.
+  if (pct === null) {
+    return (
+      <span className="text-[11px] text-slate-600 font-mono" title="not measured yet">
+        —
+      </span>
+    );
+  }
   const color =
     pct >= 90
       ? 'bg-solix-danger'

@@ -191,8 +191,27 @@ it tells you what kind of bugs this codebase produces:
   `--port` defect found in 1.15, by a different road. One parser now, in one
   place.
 
-988 tests, and each of those fixes was proven by reinstating the bug and
-watching the tests fail.
+- **Four numbers it published that nothing guaranteed.** The context
+  percentage was the worst: nothing persisted it, so every advisor was told
+  the session it was looking at sat at `0%`, and `solix demo` — hardcoding 62
+  and 89 — was the only thing in the product that ever wrote one. `solix
+  ledger` and the signed fleet report counted at most 1000 audit rows of any
+  kind and printed that as the window's total. Spend held at budget pauses
+  was added again every time a plan re-paused. And a session on a context
+  window larger than the 200K anchor reported a confident 100%, which told
+  the model to suggest `/compact` on a session nowhere near full. All four
+  fixed, and where there is no measurement you now get an em dash rather than
+  a zero.
+- **The galaxy leaked while you watched it.** Every context update built a
+  new compiled shader and nothing ever released it, and every store event
+  re-rendered every planet. Both fixed. Worth knowing because the leak grew
+  with event volume rather than fleet size, so it did not need a big galaxy
+  to matter — which bears directly on question 4 below.
+
+1025 tests, and each of those fixes was proven by reinstating the bug and
+watching the tests fail. Six of those proofs did not work first time — the
+test had set up a case where the broken and the fixed code agree — and were
+rewritten until they failed for the right reason.
 
 ---
 

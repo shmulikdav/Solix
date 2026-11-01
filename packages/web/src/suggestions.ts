@@ -134,8 +134,10 @@ export function suggestForPermission(
     }
   }
 
-  // Cross-tool rules — context exhaustion drowns nuance.
-  if (session.contextUsagePct >= 90) {
+  // Cross-tool rules — context exhaustion drowns nuance. `null` is "not
+  // measured yet", and telling someone to /compact on the strength of a
+  // missing reading is exactly the advice the advisor envelope used to give.
+  if (session.contextUsagePct !== null && session.contextUsagePct >= 90) {
     return {
       severity: 'warn',
       text: `Context at ${session.contextUsagePct.toFixed(0)}%. Run /compact before continuing.`,
@@ -202,13 +204,13 @@ export function suggestForSession(
   if (session.status === 'terminated') {
     return { severity: 'info', text: 'Done' };
   }
-  if (session.contextUsagePct >= 90) {
+  if (session.contextUsagePct !== null && session.contextUsagePct >= 90) {
     return {
       severity: 'warn',
       text: `Context at ${session.contextUsagePct.toFixed(0)}%. Compact the conversation before the next prompt.`,
     };
   }
-  if (session.contextUsagePct >= 80) {
+  if (session.contextUsagePct !== null && session.contextUsagePct >= 80) {
     return {
       severity: 'info',
       text: `Context at ${session.contextUsagePct.toFixed(0)}%. Watch out — output quality drops past 90.`,
