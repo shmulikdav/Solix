@@ -46,8 +46,8 @@ solix level strict
 ```
 
 Then launch a task from the UI (**＋ New task**) and ask the agent to do
-something you would not want done unsupervised — delete a directory, force-
-push, rewrite a config. Solix should hold it and wait for you.
+something you would not want done unsupervised — delete a directory,
+force-push, rewrite a config. Solix should hold it and wait for you.
 
 Three things worth checking while you are there:
 
