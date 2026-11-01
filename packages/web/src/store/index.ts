@@ -1788,22 +1788,82 @@ function effectiveSessions(state: SolixState): Record<string, Session> {
     : state.sessions;
 }
 
-export function selectPlanets(state: SolixState): Session[] {
-  return Object.values(effectiveSessions(state)).filter(
-    (s) => !s.parentSessionId && s.kind !== 'advisor',
-  );
+/**
+ * Cache a derived value on the state slices it was derived from.
+ *
+ * Zustand compares a selector's result with `Object.is`, so a selector that
+ * builds a fresh array re-renders its component on **every** store write —
+ * not merely the writes that touch what it read. Every array selector here
+ * did exactly that, and `session_upsert`, `context_update`, `cost_update`,
+ * `tool_call` and `chat_delta` each replace a top-level slice. With no
+ * `memo()` on `Planet`, one cost event re-rendered every planet in the
+ * galaxy; `solix demo` seeds thirty of them.
+ *
+ * One slot is enough because these are called during render with the same
+ * state, and the slices are replaced wholesale on write — the identical
+ * assumption Zustand's own subscription already makes, so this adds no new
+ * way to be wrong.
+ */
+function memoOn<K extends readonly unknown[], R>(
+  compute: (...keys: K) => R,
+): (...keys: K) => R {
+  let lastKeys: readonly unknown[] | null = null;
+  let lastValue: R;
+  return (...keys: K): R => {
+    if (
+      lastKeys !== null &&
+      lastKeys.length === keys.length &&
+      lastKeys.every((k, i) => Object.is(k, keys[i]))
+    ) {
+      return lastValue;
+    }
+    lastKeys = keys;
+    lastValue = compute(...keys);
+    return lastValue;
+  };
 }
+
+/** Shared empty array, so "none" is also a stable reference. */
+const NONE: never[] = [];
+
+const planetsOf = memoOn((sessions: Record<string, Session>): Session[] =>
+  Object.values(sessions).filter((s) => !s.parentSessionId && s.kind !== 'advisor'),
+);
+
+export function selectPlanets(state: SolixState): Session[] {
+  return planetsOf(effectiveSessions(state));
+}
+
+const advisorPlanetsOf = memoOn((sessions: Record<string, Session>): Session[] =>
+  Object.values(sessions).filter((s) => !s.parentSessionId && s.kind === 'advisor'),
+);
 
 export function selectAdvisorPlanets(state: SolixState): Session[] {
-  return Object.values(effectiveSessions(state)).filter(
-    (s) => !s.parentSessionId && s.kind === 'advisor',
-  );
+  return advisorPlanetsOf(effectiveSessions(state));
 }
 
+/**
+ * Moons grouped by their parent, once.
+ *
+ * `selectMoons` was called *inside* `Planet`, so a galaxy of N planets ran N
+ * full scans of every session on every render — and each returned a new
+ * array, which re-rendered the planet that asked. One grouping pass instead.
+ */
+const moonsByParent = memoOn(
+  (sessions: Record<string, Session>): Map<string, Session[]> => {
+    const byParent = new Map<string, Session[]>();
+    for (const s of Object.values(sessions)) {
+      if (!s.parentSessionId) continue;
+      const existing = byParent.get(s.parentSessionId);
+      if (existing) existing.push(s);
+      else byParent.set(s.parentSessionId, [s]);
+    }
+    return byParent;
+  },
+);
+
 export function selectMoons(state: SolixState, planetId: string): Session[] {
-  return Object.values(effectiveSessions(state)).filter(
-    (s) => s.parentSessionId === planetId,
-  );
+  return moonsByParent(effectiveSessions(state)).get(planetId) ?? NONE;
 }
 
 export interface WorkspaceSummary {
@@ -1842,8 +1902,40 @@ export interface WorkspaceSummary {
  * is filled from the persisted audit log by the panel itself (async); everything
  * here is synchronous from store state.
  */
-export function selectWorkspaceSummary(state: SolixState): WorkspaceSummary {
-  const planets = selectPlanets(state);
+/**
+ * Mission Control's tiles.
+ *
+ * Returns a fresh object *and* a fresh `needsYou` array, so before this it
+ * re-rendered both Mission Control and the top bar on literally every store
+ * write. Keyed on the six slices it actually reads.
+ */
+export const selectWorkspaceSummary = (state: SolixState): WorkspaceSummary =>
+  workspaceSummaryOf(
+    effectiveSessions(state),
+    state.missions,
+    state.pendingPermissions,
+    state.projects,
+    state.advisors,
+    state.skills,
+  );
+
+const workspaceSummaryOf = memoOn(
+  (
+    sessions: Record<string, Session>,
+    missions: SolixState['missions'],
+    pendingPermissions: SolixState['pendingPermissions'],
+    projects: SolixState['projects'],
+    advisors: SolixState['advisors'],
+    skills: SolixState['skills'],
+  ): WorkspaceSummary => {
+  const state = {
+    missions,
+    pendingPermissions,
+    projects,
+    advisors,
+    skills,
+  };
+  const planets = planetsOf(sessions);
   let totalSpendUsd = 0;
   let activeCount = 0;
   let attentionCount = 0;
@@ -1906,7 +1998,8 @@ export function selectWorkspaceSummary(state: SolixState): WorkspaceSummary {
     contextAvgPct: ctxN > 0 ? ctxSum / ctxN : null,
     contextMaxPct: ctxN > 0 ? ctxMax : null,
   };
-}
+  },
+);
 
 export function selectVisibleToolCalls(state: SolixState): RecentToolCall[] {
   return state.playback.active
@@ -1914,23 +2007,39 @@ export function selectVisibleToolCalls(state: SolixState): RecentToolCall[] {
     : state.recentToolCalls;
 }
 
+const enabledAdvisorsOf = memoOn((advisors: Record<string, Advisor>): Advisor[] =>
+  Object.values(advisors).filter((a) => a.enabled),
+);
+
 export function selectEnabledAdvisors(state: SolixState): Advisor[] {
-  return Object.values(state.advisors).filter((a) => a.enabled);
+  return enabledAdvisorsOf(state.advisors);
 }
+
+const optInAdvisorsOf = memoOn((advisors: Record<string, Advisor>): Advisor[] =>
+  Object.values(advisors).filter((a) => !a.enabled),
+);
 
 export function selectOptInAdvisors(state: SolixState): Advisor[] {
-  return Object.values(state.advisors).filter((a) => !a.enabled);
+  return optInAdvisorsOf(state.advisors);
 }
 
-export function selectAllAdvisors(state: SolixState): Advisor[] {
-  return Object.values(state.advisors).sort((a, b) => {
+const allAdvisorsOf = memoOn((advisors: Record<string, Advisor>): Advisor[] =>
+  Object.values(advisors).sort((a, b) => {
     if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
     return a.codename.localeCompare(b.codename);
-  });
+  }),
+);
+
+export function selectAllAdvisors(state: SolixState): Advisor[] {
+  return allAdvisorsOf(state.advisors);
 }
 
+const skillsArrayOf = memoOn((skills: Record<string, Skill>): Skill[] =>
+  Object.values(skills),
+);
+
 export function selectSkillsArray(state: SolixState): Skill[] {
-  return Object.values(state.skills);
+  return skillsArrayOf(state.skills);
 }
 
 /**
@@ -1980,31 +2089,53 @@ export function selectCanResolveByKey(state: SolixState): boolean {
   return state.activePanel === 'decisions';
 }
 
+const pendingOrderedOf = memoOn(
+  (pending: Record<string, PendingPermission>): PendingPermission[] =>
+    Object.values(pending).sort((a, b) => b.receivedAt - a.receivedAt),
+);
+
 export function selectPendingPermissionsOrdered(
   state: SolixState,
 ): PendingPermission[] {
-  return Object.values(state.pendingPermissions).sort(
-    (a, b) => b.receivedAt - a.receivedAt,
-  );
+  return pendingOrderedOf(state.pendingPermissions);
 }
 
 /** Enabled routines only — the galaxy's pulsing heartbeat nodes depend on this
  *  filter, so do not widen it. The Fleet > Routines tab wants every routine,
  *  including the disabled ones it needs to offer re-enabling. */
+const enabledSchedulesOf = memoOn(
+  (schedules: Record<string, ScheduledTask>): ScheduledTask[] =>
+    Object.values(schedules).filter((s) => s.enabled),
+);
+
 export function selectEnabledSchedules(state: SolixState): ScheduledTask[] {
-  return Object.values(state.schedules).filter((s) => s.enabled);
+  return enabledSchedulesOf(state.schedules);
 }
 
 /** Every routine, newest-firing first, disabled ones last. */
+const schedulesArrayOf = memoOn(
+  (schedules: Record<string, ScheduledTask>): ScheduledTask[] =>
+    Object.values(schedules).sort((a, b) => {
+      if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
+      return a.nextRunAt - b.nextRunAt;
+    }),
+);
+
 export function selectSchedulesArray(state: SolixState): ScheduledTask[] {
-  return Object.values(state.schedules).sort((a, b) => {
-    if (a.enabled !== b.enabled) return a.enabled ? -1 : 1;
-    return a.nextRunAt - b.nextRunAt;
-  });
+  return schedulesArrayOf(state.schedules);
 }
 
+const goalsArrayOf = memoOn(
+  (goals: Record<string, Goal>, currentOrgId: string): Goal[] =>
+    // Scoped to the current org, which it was not. `selectPlansArray` next
+    // door has always filtered; goals carried an `orgId` that nothing read,
+    // so ConstellationLines drew every org's goals at once — the same gap
+    // the brief discloses for routines, one selector over.
+    Object.values(goals).filter((g) => inCurrentOrg(g.orgId, currentOrgId)),
+);
+
 export function selectGoalsArray(state: SolixState): Goal[] {
-  return Object.values(state.goals);
+  return goalsArrayOf(state.goals, state.currentOrgId);
 }
 
 // ── v2 Maestro selectors ───────────────────────────────────────────────
@@ -2016,17 +2147,35 @@ function inCurrentOrg(orgId: string | undefined, currentOrgId: string): boolean 
 }
 
 /** Plans in the currently-selected org (P3 #10), newest first. */
+const plansArrayOf = memoOn(
+  (plans: Record<string, Plan>, currentOrgId: string): Plan[] =>
+    Object.values(plans)
+      .filter((p) => inCurrentOrg(p.orgId, currentOrgId))
+      .sort((a, b) => b.createdAt - a.createdAt),
+);
+
 export function selectPlansArray(state: SolixState): Plan[] {
-  return Object.values(state.plans)
-    .filter((p) => inCurrentOrg(p.orgId, state.currentOrgId))
-    .sort((a, b) => b.createdAt - a.createdAt);
+  return plansArrayOf(state.plans, state.currentOrgId);
 }
 
-/** Tasks for one plan, in display order. */
+/** Tasks grouped by plan, in display order, once per change. */
+const planTasksByPlan = memoOn(
+  (planTasks: Record<string, PlanTask>): Map<string, PlanTask[]> => {
+    const byPlan = new Map<string, PlanTask[]>();
+    for (const t of Object.values(planTasks)) {
+      const existing = byPlan.get(t.planId);
+      if (existing) existing.push(t);
+      else byPlan.set(t.planId, [t]);
+    }
+    for (const list of byPlan.values()) {
+      list.sort((a, b) => a.orderIndex - b.orderIndex || a.createdAt - b.createdAt);
+    }
+    return byPlan;
+  },
+);
+
 export function selectPlanTasks(state: SolixState, planId: string): PlanTask[] {
-  return Object.values(state.planTasks)
-    .filter((t) => t.planId === planId)
-    .sort((a, b) => a.orderIndex - b.orderIndex || a.createdAt - b.createdAt);
+  return planTasksByPlan(state.planTasks).get(planId) ?? NONE;
 }
 
 /** A task's thread entries (chronological), or an empty array if not loaded. */

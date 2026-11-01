@@ -142,19 +142,95 @@ The cadence parser moved to `@solix/shared` on the way. It was in the server
 and mirrored by a regex in the Routines tab *with a comment saying so* — two
 copies of the one rule that decides whether a routine costs what it claims to.
 
-988 tests, 129 of them new in this release: the two edit features (each with
-its rule in `@solix/shared`, its route, its store action and its rendered
-controls), the two untested commands, and one shared port parser. Every fix
-proven by reinstating its own bug and confirming the right test failed.
+**The numbers audit, and the renderer.**
 
-**Three of those proofs failed on the first attempt**, which is the part worth
-recording. A plan-editing test asserted only the tooltip and passed with the
-rule bypassed. The demo's status-mix test agreed with the literal it replaced,
-because the literal happened to be correct for today's plan. And a routine test
-claiming the next run is measured from the save set the last run to *now*, so
-both formulas agreed and it proved nothing. All three were rewritten until they
-failed for the right reason. A test that cannot fail is the same defect as a
-sentence with nothing behind it — it is just harder to notice.
+Four figures the product published that nothing guaranteed, and one thing it
+leaked while you watched it. All the same shape as everything above.
+
+- **The context percentage was only ever real in the demo.** The transcript
+  watcher computed it from an assistant message's usage block and broadcast
+  it **without writing it down**, so `sessions.context_usage_pct` stayed at
+  its `REAL DEFAULT 0` for the life of every install. The only writer in the
+  product was `solix demo`, hardcoding 62 and 89 — the demo was the sole
+  reason the number ever looked real. Every advisor envelope therefore said
+  `context=0%`, the "⚠ CONTEXT NEAR LIMIT … run /compact" branch was
+  unreachable, and a browser reload dropped the side panel's live figure back
+  to zero. It is persisted now, and **nullable**, because once it is written
+  down a stored `0` is indistinguishable from "nothing has measured this
+  yet". Every surface shows an em dash where it has no reading, and no
+  suggestion fires on one.
+- **And the clamp is gone.** `Math.min(100, total / 200_000 * 100)` meant a
+  session on a larger window reported a confident **100%**, with `toFixed(0)`
+  hiding that it had been clamped — so the model was told to suggest
+  `/compact` on a session nowhere near full. Exceeding the anchor is evidence
+  the anchor is wrong, so it reports nothing instead. The five-model map of
+  identical 200K values, which read as a lookup and was a constant, is now
+  one named anchor.
+- **`solix ledger` stopped at 1000 and called it the total.** It asked for
+  5000 rows and `listAudit` clamped to 1000 — of *every* audit kind, with the
+  non-decisions discarded in JS afterwards. The real ceiling was "decisions
+  among the newest 1000 events of any sort". Three surfaces printed that as
+  the whole record, including `**Decisions:** N` inside the **signed** fleet
+  report. The kind filter moves into SQL, the clamp moves to the `/api/audit`
+  route where it belongs as a guard on caller input, and every surface
+  reports a counted total and says plainly when it is listing fewer.
+- **Spend held at budget pauses was counted twice.** `spentUsd` is a plan's
+  cumulative spend at the moment it paused, and `resumePlan`, `retryTask` and
+  `addFollowUpTask` all return a paused plan to `running` with its budget
+  untouched — so the next tick re-pauses it and writes the same dollars
+  again. `solix gain` renders the sum as "Spend held at those pauses", which
+  reads as money saved. Counted once per plan now: the cost-counted-twice fix
+  of 1.18.2, one table over.
+- **The galaxy leaked a compiled shader on every context update.**
+  `AtmosphereRim` memoised its `ShaderMaterial` on an `intensity` derived
+  from `contextUsagePct`, and nothing in `packages/web/src/scene/` ever
+  called `dispose()`. Three.js frees GPU resources when you free them. The
+  leak scaled with **event volume, not fleet size** — a thirty-planet
+  `solix demo` left running does it, and "would you leave it running?" is one
+  of the four questions the brief asks.
+- **And every store event re-rendered every planet.** Zustand compares with
+  `Object.is`, and every array selector built a fresh array, so a cost event
+  re-rendered components that had read nothing which changed — with no
+  `memo()` anywhere in the scene, and `selectMoons` running a full scan of
+  every session from inside each planet's own render. The selectors are
+  cached on the slices they read, moons and plan tasks are grouped once
+  rather than scanned per parent, and `Planet` and `Moon` are memoised. The
+  two halves only work together: stable selectors are pointless without
+  `memo`, and `memo` is pointless with new props every render.
+
+Two smaller things found on the way. `selectGoalsArray` had no org filter
+while `selectPlansArray` next door always has, so the galaxy drew every org's
+goals at once. And `docs/LAUNCH-READINESS.md` still listed Suite E as an
+unrun **STOP-SHIP** and the `Agnet` typo as open, both closed days ago; it is
+marked historical rather than left asserting a state that is not true.
+
+CLAIM-CONTEXT-IS-MEASURED, CLAIM-LEDGER-COUNTS-EVERYTHING and
+CLAIM-RENDERER-RELEASES-GPU. The first two move off the ledger's gap list.
+
+1025 tests, 166 of them new in this release: the two edit features (each with
+its rule in `@solix/shared`, its route, its store action and its rendered
+controls), the two untested commands, one shared port parser, and the
+reporting and renderer work above. Every fix proven by reinstating its own
+bug and confirming the right test failed.
+
+**Six of those proofs failed on the first attempt**, which is the part worth
+recording, because they failed the same way: the test set up a state in which
+the broken and the fixed code agree.
+
+A plan-editing test asserted only the tooltip and passed with the rule
+bypassed. The demo's status-mix test agreed with the literal it replaced,
+because the literal happened to be right for that day's plan. A routine test
+claiming the next run is measured from the save set the last run to *now*. A
+ledger test seeded 1,800 rows under a 5,000-row fetch, so removing the SQL
+filter changed nothing, and another could not tell an independent count from
+a full one until the fetch was limited. And a test asserting the rim material
+is built once created exactly one material by hand — true by construction,
+which is the "check that cannot fail" defect committed inside a test written
+to catch it.
+
+All six were rewritten until they failed for the right reason. A test that
+cannot fail is the same defect as a sentence with nothing behind it; it is
+just harder to notice, and apparently just as easy to write.
 
 ## [1.18.2] — 2026-10-31
 

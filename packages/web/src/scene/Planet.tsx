@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { memo, useMemo, useRef } from 'react';
 import { useFrame, type ThreeEvent } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
 import { Color, Group, Mesh, MathUtils, MeshStandardMaterial } from 'three';
@@ -22,7 +22,16 @@ interface PlanetProps {
   session: Session;
 }
 
-export function Planet({ session }: PlanetProps): JSX.Element {
+/**
+ * One planet.
+ *
+ * `memo` because the store's selectors are now reference-stable: `Scene`
+ * re-renders on any session change, but a planet whose own `session` object
+ * did not change has nothing to redo. Without the stable selectors this
+ * would be worthless — `session` would be a new object every time — which
+ * is why the two changes land together.
+ */
+export const Planet = memo(function Planet({ session }: PlanetProps): JSX.Element {
   const hoverCursor = useHoverCursor();
   const groupRef = useRef<Group>(null);
   const planetRef = useRef<Mesh>(null);
@@ -381,7 +390,7 @@ export function Planet({ session }: PlanetProps): JSX.Element {
       </Html>
     </group>
   );
-}
+});
 
 /**
  * Deterministic small tilt in degrees from a string key. Same id always

@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { memo, useMemo, useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import { Color, Group, MathUtils, Mesh, MeshStandardMaterial } from 'three';
 import type { Session } from '@solix/shared';
@@ -12,7 +12,11 @@ interface MoonProps {
   speed: number;
 }
 
-export function Moon({ session, index, speed }: MoonProps): JSX.Element {
+export const Moon = memo(function Moon({
+  session,
+  index,
+  speed,
+}: MoonProps): JSX.Element {
   const groupRef = useRef<Group>(null);
   const meshRef = useRef<Mesh>(null);
   const materialRef = useRef<MeshStandardMaterial>(null);
@@ -64,4 +68,4 @@ export function Moon({ session, index, speed }: MoonProps): JSX.Element {
       </mesh>
     </group>
   );
-}
+});
