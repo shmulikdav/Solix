@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import open from 'open';
 import {
   SettingsUnreadableError,
+  claudeBinaryPresent,
   claudeCodePresent,
   hooksInstalled,
   hooksSupported,
@@ -90,10 +91,16 @@ function ensureWired(noWire = false): void {
   // server — and never finds out.
   const stale = hooksInstalled();
 
-  if (!claudeCodePresent()) {
+  if (!claudeCodePresent() && !claudeBinaryPresent()) {
     // Nothing to wire into, and that is a legitimate state — the demo runs
     // without Claude Code. Say so once instead of creating a config
     // directory for software that is not installed.
+    //
+    // Both checks, because they answer different questions. This used to ask
+    // only whether `~/.claude` existed, so someone who had installed Claude
+    // Code but not yet run it was told to install Claude Code. The directory
+    // is what we merge into; the binary is what decides whether merging is
+    // worth doing.
     console.log(
       '[solix] Claude Code not detected — no hooks wired.\n' +
         '        Run `solix demo` to explore, or install Claude Code and\n' +

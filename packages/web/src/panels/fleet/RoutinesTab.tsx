@@ -339,7 +339,16 @@ export function RoutineCard({ routine }: { routine: ScheduledTask }): JSX.Elemen
               setErr(null);
               setConfirmFire(true);
             }}
-            title="Start this routine now, without waiting for its schedule"
+            disabled={!routine.enabled}
+            title={
+              routine.enabled
+                ? 'Start this routine now, without waiting for its schedule'
+                : // Offered on a disabled card until now, and the server
+                  // did not check either — so turning a routine Off and
+                  // then clicking the obvious button spent money. Grey with
+                  // the reason, like every other refusal here.
+                  'This routine is off. Turn it on first, or it is not really off.'
+            }
           >
             Run now
           </Button>

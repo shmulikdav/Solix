@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -30,6 +37,64 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllEnvs();
   rmSync(home, { recursive: true, force: true });
+});
+
+describe('claudeBinaryPresent', () => {
+  /**
+   * Found by walking the partner brief's install sequence against a packed
+   * tarball, on a machine where `claude --version` printed 2.1.316.
+   *
+   * `start` decided whether to wire hooks with `claudeCodePresent()`, which
+   * is `existsSync(~/.claude)` — "has Claude Code ever *run*". So installing
+   * Claude Code and running `solix` before ever running `claude` printed
+   * "Claude Code not detected … install Claude Code and restart Solix",
+   * wired nothing, and left a new user watching an empty galaxy having been
+   * told to install software they had just installed.
+   *
+   * The directory is what we merge into. The binary is what decides whether
+   * merging is worth doing. They are different questions and `start` now
+   * asks both.
+   */
+  it('finds a binary named by SOLIX_CLAUDE_BIN', async () => {
+    const fake = join(home, 'claude');
+    writeFileSync(fake, '#!/bin/sh\necho 2.1.0\n');
+    vi.stubEnv('SOLIX_CLAUDE_BIN', fake);
+    const { claudeBinaryPresent } = await load();
+    expect(claudeBinaryPresent()).toBe(true);
+  });
+
+  it('is false when SOLIX_CLAUDE_BIN points at nothing', async () => {
+    // Naming a path that does not exist is a stronger signal than silence:
+    // the user told us where it is and they were wrong.
+    vi.stubEnv('SOLIX_CLAUDE_BIN', join(home, 'nope', 'claude'));
+    const { claudeBinaryPresent } = await load();
+    expect(claudeBinaryPresent()).toBe(false);
+  });
+
+  it('falls back to looking on PATH', async () => {
+    const bin = join(home, 'bin');
+    mkdirSync(bin, { recursive: true });
+    const fake = join(bin, 'claude');
+    writeFileSync(fake, '#!/bin/sh\necho 2.1.0\n');
+    chmodSync(fake, 0o755);
+    vi.stubEnv('SOLIX_CLAUDE_BIN', '');
+    vi.stubEnv('PATH', bin);
+    const { claudeBinaryPresent } = await load();
+    expect(claudeBinaryPresent()).toBe(true);
+  });
+
+  it('is false when it is on neither', async () => {
+    vi.stubEnv('SOLIX_CLAUDE_BIN', '');
+    vi.stubEnv('PATH', join(home, 'empty'));
+    const { claudeBinaryPresent } = await load();
+    expect(claudeBinaryPresent()).toBe(false);
+  });
+
+  it('answers a different question from claudeCodePresent', () => {
+    // The whole bug in one sentence: a machine can have the binary and no
+    // config directory, and that combination must still wire.
+    expect(existsSync(join(home, '.claude'))).toBe(false);
+  });
 });
 
 describe('hooksSupported', () => {

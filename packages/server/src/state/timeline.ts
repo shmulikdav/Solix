@@ -69,7 +69,7 @@ export function loadTimeline(
        FROM missions
        WHERE started_at <= ?
          AND (completed_at IS NULL OR completed_at >= ?)
-       ORDER BY started_at ASC
+       ORDER BY started_at DESC
        LIMIT ?`,
     )
     .all(untilMs, sinceMs, limit) as MissionRow[];
@@ -79,7 +79,7 @@ export function loadTimeline(
       `SELECT session_id, tool, started_at
        FROM tool_calls
        WHERE started_at BETWEEN ? AND ?
-       ORDER BY started_at ASC
+       ORDER BY started_at DESC
        LIMIT ?`,
     )
     .all(sinceMs, untilMs, limit) as ToolCallRow[];
@@ -166,6 +166,16 @@ export function loadTimeline(
   events.sort((a, b) => a.ts - b.ts);
 
   // Cap final size — the most recent N events if we overflow.
+  //
+  // Both queries used to be `ORDER BY started_at ASC LIMIT ?`, which takes
+  // the **oldest** N, and then this kept the **newest** of those. Two
+  // truncations in opposite directions compose into: in a busy window the
+  // genuinely recent events were never read out of SQLite at all, `latest`
+  // below was computed from whatever survived, and the drawer labelled the
+  // result "last 30 min" with its slider's right edge on a stale timestamp.
+  // You could scrub to the end of the playback and be looking at the system
+  // as it was ten minutes earlier. Both queries take the newest N now, so
+  // one end is kept consistently.
   const capped =
     events.length > limit ? events.slice(events.length - limit) : events;
 

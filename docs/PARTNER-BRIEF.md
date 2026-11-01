@@ -208,10 +208,30 @@ it tells you what kind of bugs this codebase produces:
   with event volume rather than fleet size, so it did not need a big galaxy
   to matter — which bears directly on question 4 below.
 
-1025 tests, and each of those fixes was proven by reinstating the bug and
-watching the tests fail. Six of those proofs did not work first time — the
-test had set up a case where the broken and the fixed code agree — and were
-rewritten until they failed for the right reason.
+- **Agent View could tell you a running agent had finished.** One failed
+  directory read made Solix mark every mirrored background session
+  `terminated`, which the UI renders as "Done" — asserting completion from
+  the absence of a reading. And a status string it did not recognise showed
+  as a calm `idle` rather than as unknown. Both fixed.
+- **A routine you switched off would still run** if you clicked **Run now**,
+  because the fire route never checked — while the webhook route for the
+  same routine refused it. "Disabled" now means disabled from every surface,
+  and "fired" is only reported when the launch actually started.
+- **The timeline never fetched its most recent events** in a busy window, so
+  scrubbing to the end of a playback showed you the system as it was some
+  minutes earlier, under a label saying "last 30 min".
+
+1050 tests, and each of those fixes was proven by reinstating the bug and
+watching the tests fail. **Nine of those proofs did not work first time** —
+the test had set up a case where the broken and the fixed code agree — and
+were rewritten until they failed for the right reason. That count is in here
+deliberately: a test that cannot fail is the same defect as a sentence with
+nothing behind it, and apparently just as easy to write.
+
+This build was also installed from a packed tarball into a clean machine and
+put through the twenty-minute sequence above before being sent to you: the
+gate held, deny prevented it, killing Solix mid-hold refused the held call
+in 24ms, and the canary survived all of it.
 
 ---
 

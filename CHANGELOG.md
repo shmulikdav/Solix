@@ -207,7 +207,61 @@ marked historical rather than left asserting a state that is not true.
 CLAIM-CONTEXT-IS-MEASURED, CLAIM-LEDGER-COUNTS-EVERYTHING and
 CLAIM-RENDERER-RELEASES-GPU. The first two move off the ledger's gap list.
 
-1025 tests, 166 of them new in this release: the two edit features (each with
+**The ledger's gap list, closed — and what closing it found.**
+
+`docs/CLAIMS.md` keeps an explicit list of published promises with no test
+behind them. It is down to one honest entry, and getting there turned up
+four more defects of the usual shape.
+
+- **Agent View said "Done" when it had simply failed to look.** `readRoster`
+  and `readJobIds` both returned `[]` on error, so "nothing is running" and
+  "we could not look" were the same value — and the reap marks every
+  mirrored session `terminated` on the first, which the UI renders as
+  **"Done"**. The readers report failure now and the reap is skipped when
+  either could not be read. An unrecognised `state.json` value maps to a new
+  `unknown` status instead of a calm `idle`, which is the same discipline as
+  the nullable context percentage; the file's own `mapPrStatus`, fourteen
+  lines away, had been making that call correctly all along.
+- **`setAgentViewFields` never wrote `terminated_at`**, unlike
+  `setSessionStatus`, and the timeline windows on that column — so no Agent
+  View session ending had ever appeared in it.
+- **A routine you switched off still ran.** `POST /api/schedules/:id/fire`
+  had no `enabled` check while the webhook route six lines below returned
+  409 for exactly that, and **Run now** was rendered on a disabled card. Two
+  routes giving opposite answers about one piece of state means "disabled"
+  guaranteed nothing. `fireSchedule` also returned `void`, so the route
+  answered `{ok:true}` over a launch that was skipped or threw — the demo's
+  "seed complete" defect on a different command.
+- **The timeline never fetched its most recent events.** Both queries took
+  the **oldest** N (`ORDER BY started_at ASC LIMIT ?`) and the final cap kept
+  the **newest** of those. Two truncations in opposite directions: in a busy
+  window the recent events were never read out of SQLite, and the scrubber's
+  right edge sat on a stale timestamp under a label saying "last 30 min".
+
+Three claims that were already tested are now bound —
+`CLAIM-BUDGET-PAUSES-BEFORE-THE-CAP`, `CLAIM-SECRETS-WRITE-ONLY`,
+`CLAIM-DISABLED-MEANS-DISABLED` — along with
+`CLAIM-AGENTVIEW-REPORTS-WHAT-IT-SEES`. And the gap list's entry for
+`gain.ts` was itself wrong: it blamed the file for "its own sums" when it
+computes nothing but a window label. Corrected rather than papered over with
+a weak test.
+
+**Walked against a packed tarball before any of this.** Installed 1.18.3
+into a clean `HOME` against a real `claude` 2.1.316 and ran the partner
+brief's own sequence: the gate held with the exact command, deny prevented
+it, killing Solix mid-hold exited in **24ms** having refused the held call,
+and the canary survived throughout. `solix doctor --port` reported *All
+checks passed*, and `contextUsagePct` came back **19.547** from a real
+transcript — a field that was `0` for the life of every install before this
+release.
+
+That walk found the last defect: **Solix told a machine with Claude Code
+installed to install Claude Code.** `claudeCodePresent()` is
+`existsSync(~/.claude)` — "has it ever *run*" — and `start` used it to
+answer "is it installed". Run `solix` before you have ever run `claude` and
+you were told to install what you had just installed, with nothing wired.
+
+1050 tests, 191 of them new in this release: the two edit features (each with
 its rule in `@solix/shared`, its route, its store action and its rendered
 controls), the two untested commands, one shared port parser, and the
 reporting and renderer work above. Every fix proven by reinstating its own

@@ -6,7 +6,19 @@ export type SessionStatus =
   | 'awaiting_permission'
   | 'plan_review'
   | 'error'
-  | 'terminated';
+  | 'terminated'
+  /**
+   * We are mirroring this session from somewhere else and do not recognise
+   * what it told us.
+   *
+   * Only Agent View produces this today: its `state.json` schema is
+   * undocumented, and an unrecognised string used to be mapped to `idle` —
+   * a positive claim (a dormant planet, the dimmest colour, near the bottom
+   * of the sort) about a session we know nothing about. Saying "unknown" is
+   * the same discipline as a null context percentage: report the absence
+   * rather than a plausible default.
+   */
+  | 'unknown';
 
 export type Model = 'opus' | 'sonnet' | 'haiku' | 'default' | string;
 

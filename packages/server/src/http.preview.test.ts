@@ -36,7 +36,7 @@ function makeApp(db: DB) {
     db,
     router,
     orchestrator,
-    fireSchedule: (_s: ScheduledTask, _t: TriggerKind) => {},
+    fireSchedule: (_s: ScheduledTask, _t: TriggerKind) => ({ ok: true as const }),
   });
 }
 

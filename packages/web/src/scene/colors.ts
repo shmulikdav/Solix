@@ -33,6 +33,12 @@ export function statusEmissive(status: SessionStatus): {
       return { color: '#dc2626', intensity: 0.30 };
     case 'spawning':
       return { color: '#ffffff', intensity: 0.20 };
+    case 'unknown':
+      // Not idle. A mirrored session whose reported state we do not
+      // recognise gets its own muted violet rather than the idle slate,
+      // because "we don't know" and "it is resting" are different facts and
+      // the idle colour is the dimmest thing on screen.
+      return { color: '#6b7280', intensity: 0.18 };
     case 'idle':
     default:
       return { color: '#1e293b', intensity: 0.05 };
@@ -65,6 +71,8 @@ export function statusLabel(status: SessionStatus): string {
       return 'Spawning';
     case 'terminated':
       return 'Terminated';
+    case 'unknown':
+      return 'Unknown';
     case 'idle':
     default:
       return 'Idle';

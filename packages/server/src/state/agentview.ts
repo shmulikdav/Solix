@@ -56,8 +56,67 @@ interface AgentViewBridgeOpts {
   broadcaster: Broadcaster;
 }
 
-/** Map Agent View state strings → Solix SessionStatus. */
-function mapStatus(state: string | undefined): SessionStatus {
+/**
+ * A read that can say it failed.
+ *
+ * `readRoster` and `readJobIds` both returned `[]` on error, which made "the
+ * roster says nothing is running" and "we could not read the roster"
+ * indistinguishable — and the reap below treats the first as grounds to mark
+ * every mirrored session `terminated`. `suggestions.ts` renders `terminated`
+ * as **"Done"**, so a single failed `readdirSync` had Solix telling you a
+ * running agent had finished, from the absence of a reading.
+ */
+type Read<T> = { ok: true; value: T } | { ok: false };
+
+/** State strings the supervisor is known to write. */
+const KNOWN_STATES = new Set([
+  'working',
+  'needs_input',
+  'idle',
+  'completed',
+  'failed',
+  'stopped',
+]);
+
+/** State strings we have already complained about, so we complain once each. */
+const unknownStatesSeen = new Set<string>();
+
+/** Jobs we have already reported as unreadable, likewise. */
+const unreadableJobsSeen = new Set<string>();
+
+/**
+ * Say once that a job is being skipped.
+ *
+ * Silence here is the problem: a session whose `state.json` cannot be read
+ * keeps rendering its last-seen status with full confidence, and is not
+ * reaped either, because its directory still exists. One line in the log is
+ * the difference between a stale frame and an invisible one.
+ */
+function noteUnreadable(jobId: string, why: string): void {
+  if (unreadableJobsSeen.has(jobId)) return;
+  unreadableJobsSeen.add(jobId);
+  console.warn(
+    `[solix] Agent View job ${jobId} skipped — ${why}. ` +
+      'Its session keeps the last status Solix saw.',
+  );
+}
+
+/**
+ * Map Agent View state strings → Solix SessionStatus.
+ *
+ * An unrecognised state used to return `idle`, which is a **positive
+ * assertion** about a session we know nothing about: a dormant planet, the
+ * dimmest colour in the palette, second-from-last in the list sort. If the
+ * supervisor ever renamed `needs_input`, a session blocked on a human would
+ * quietly leave the attention path — "Needs you" and all.
+ *
+ * Fourteen lines below, `mapPrStatus` makes the opposite call on identically
+ * undocumented data: unrecognised → `undefined` → the chip is simply absent,
+ * claiming nothing. That is the right instinct, and this is it applied here.
+ * "Parse defensively", in the docstring at the top of this file, means never
+ * throw; it does not mean never assert.
+ */
+export function mapStatus(state: string | undefined): SessionStatus {
   switch (state) {
     case 'working':
       return 'active';
@@ -72,7 +131,14 @@ function mapStatus(state: string | undefined): SessionStatus {
     case 'stopped':
       return 'terminated';
     default:
-      return 'idle';
+      if (state !== undefined && !KNOWN_STATES.has(state) && !unknownStatesSeen.has(state)) {
+        unknownStatesSeen.add(state);
+        console.warn(
+          `[solix] Agent View reported a state Solix does not know: "${state}". ` +
+            'Showing it as unknown rather than guessing.',
+        );
+      }
+      return 'unknown';
   }
 }
 
@@ -85,39 +151,47 @@ function mapPrStatus(
   return undefined;
 }
 
-function readRoster(): RosterEntry[] {
-  if (!existsSync(ROSTER_PATH)) return [];
+function readRoster(rosterPath: string): Read<RosterEntry[]> {
+  // A roster that is not there is a real answer — plenty of installs never
+  // write one, which is why `liveIds` unions two sources. A roster that is
+  // there and unreadable is not.
+  if (!existsSync(rosterPath)) return { ok: true, value: [] };
   try {
-    const raw = readFileSync(ROSTER_PATH, 'utf8');
+    const raw = readFileSync(rosterPath, 'utf8');
     const parsed = JSON.parse(raw) as
       | { sessions?: RosterEntry[] }
       | RosterEntry[]
       | null;
-    if (Array.isArray(parsed)) return parsed;
-    if (parsed && Array.isArray(parsed.sessions)) return parsed.sessions;
-    return [];
+    if (Array.isArray(parsed)) return { ok: true, value: parsed };
+    if (parsed && Array.isArray(parsed.sessions)) {
+      return { ok: true, value: parsed.sessions };
+    }
+    return { ok: true, value: [] };
   } catch {
-    return [];
+    return { ok: false };
   }
 }
 
-function readJobIds(): string[] {
-  if (!existsSync(JOBS_DIR)) return [];
+function readJobIds(jobsDir: string): Read<string[]> {
+  if (!existsSync(jobsDir)) return { ok: true, value: [] };
   try {
-    return readdirSync(JOBS_DIR).filter((entry) => {
-      try {
-        return statSync(join(JOBS_DIR, entry)).isDirectory();
-      } catch {
-        return false;
-      }
-    });
+    return {
+      ok: true,
+      value: readdirSync(jobsDir).filter((entry) => {
+        try {
+          return statSync(join(jobsDir, entry)).isDirectory();
+        } catch {
+          return false;
+        }
+      }),
+    };
   } catch {
-    return [];
+    return { ok: false };
   }
 }
 
-function readJobState(jobId: string): AgentViewStateFile | null {
-  const p = join(JOBS_DIR, jobId, 'state.json');
+function readJobState(jobsDir: string, jobId: string): AgentViewStateFile | null {
+  const p = join(jobsDir, jobId, 'state.json');
   if (!existsSync(p)) return null;
   try {
     return JSON.parse(readFileSync(p, 'utf8')) as AgentViewStateFile;
@@ -133,17 +207,26 @@ function readJobState(jobId: string): AgentViewStateFile | null {
  * sessions get inserted; sessions missing from the roster but
  * previously seen are marked terminated.
  */
-async function syncFromDisk({
+export async function syncFromDisk({
   db,
   broadcaster,
-}: AgentViewBridgeOpts): Promise<void> {
-  const roster = readRoster();
-  const jobIds = readJobIds();
+  rosterPath = ROSTER_PATH,
+  jobsDir = JOBS_DIR,
+}: AgentViewBridgeOpts & {
+  /** Overridable so a test can point them at a temp dir, or at a file to
+   *  make the read genuinely fail. You cannot portably force an EACCES —
+   *  CI often runs as root — but `readdirSync` on a file is ENOTDIR
+   *  everywhere. */
+  rosterPath?: string;
+  jobsDir?: string;
+}): Promise<void> {
+  const roster = readRoster(rosterPath);
+  const jobIds = readJobIds(jobsDir);
   // Union of ids known to disk. Some setups write state.json before
   // the roster updates, so we trust both sources.
   const liveIds = new Set<string>();
-  for (const e of roster) if (e.id) liveIds.add(e.id);
-  for (const id of jobIds) liveIds.add(id);
+  if (roster.ok) for (const e of roster.value) if (e.id) liveIds.add(e.id);
+  if (jobIds.ok) for (const id of jobIds.value) liveIds.add(id);
 
   let processed = 0;
   for (const agentViewId of liveIds) {
@@ -155,10 +238,22 @@ async function syncFromDisk({
     if ((processed++ & 15) === 0) {
       await new Promise<void>((r) => setImmediate(r));
     }
-    const state = readJobState(agentViewId);
-    if (!state) continue;
+    // Two ways to fall out of this loop without touching the row, and
+    // neither used to leave a trace. The session keeps its last-seen status
+    // and even its `updated_at`, so nothing downstream can tell a live
+    // reading from a frozen one. A truncated mid-write `state.json` heals
+    // on the next sync ~50ms later; a permanently malformed one, or one
+    // with no `cwd`, does not.
+    const state = readJobState(jobsDir, agentViewId);
+    if (!state) {
+      noteUnreadable(agentViewId, 'its state.json could not be read');
+      continue;
+    }
     const cwd = state.cwd ?? '';
-    if (!cwd) continue;
+    if (!cwd) {
+      noteUnreadable(agentViewId, 'its state.json names no working directory');
+      continue;
+    }
 
     // Solix's session id for an Agent View session: prefixed so we
     // don't collide with hook-driven session ids (claude assigns
@@ -219,6 +314,22 @@ async function syncFromDisk({
   // Reap: any session we've seen before with origin=agentview and not
   // in the current liveIds set transitions to terminated. We don't
   // delete — the user may still want to peek at the history.
+  //
+  // Only when we actually read both sources. An unreadable roster or jobs
+  // directory used to be indistinguishable from an empty one, and this loop
+  // treats empty as grounds to declare every mirrored agent finished —
+  // which `suggestions.ts` renders as "Done". Marking a running agent done
+  // because a directory read failed is an assertion from an absence of
+  // evidence, and it is exactly the shape this codebase keeps producing.
+  if (!roster.ok || !jobIds.ok) {
+    console.warn(
+      '[solix] could not read Agent View state' +
+        `${roster.ok ? '' : ` (${rosterPath})`}${jobIds.ok ? '' : ` (${jobsDir})`}` +
+        ' — leaving the mirrored sessions as they are rather than marking them finished.',
+    );
+    return;
+  }
+
   const rows = db
     .prepare(
       `SELECT id, agent_view_id FROM sessions

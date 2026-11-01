@@ -101,11 +101,17 @@ export async function gain(opts: {
   }
 
   const d = days(impact);
+  // Every figure this command goes on to print, not four of the seven.
+  // `advisorInvocations` and `sessionsTerminated` could both be non-zero
+  // while this said "nothing happened yet" and skipped the report that
+  // would have shown them.
   const nothingHappened =
     impact.blockedByContainment === 0 &&
     impact.denied === 0 &&
     impact.budgetPauses === 0 &&
-    impact.approved === 0;
+    impact.approved === 0 &&
+    impact.advisorInvocations === 0 &&
+    impact.sessionsTerminated === 0;
 
   console.log(`\n${BOLD}What Solix prevented${RESET} ${DIM}· last ${d} day${d === 1 ? '' : 's'}${RESET}\n`);
 

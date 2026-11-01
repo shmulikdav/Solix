@@ -7,7 +7,47 @@
 
 ## Last run
 
-**2026-10-31, against 1.18.1 on the registry** — the fix for what the run
+**2026-11-01, against a packed 1.18.3 tarball** — installed with
+`npm i -g ./shmulikdav-solix-1.18.3.tgz` into an isolated `HOME`, driven
+against a real `claude` 2.1.316, on a non-default port (41901). Ten commits
+had landed since the previous walk, touching the `SOLIX_PORT` parser,
+`demo`, `doctor` and the renderer.
+
+| | Result |
+|---|---|
+| install from the tarball | **PASS** — discloses the nine hooks and the fifteen agent files before writing, backs `settings.json` up first |
+| **E2** · a sensitive call is held | **PASS** — held with the exact command, `Bash {"command":"rm canary/keep.txt"}`; the hook's `curl --max-time 305` is visible holding the agent's blocking path |
+| **E3** · deny actually prevents it | **PASS** — `permission_response approved=false` → `permission_resolved outcome: denied` → canary **survived** |
+| **E6** · killed mid-hold | **PASS** — **24ms**, printed `1 held request(s) refused on the way out`, canary survived. The brief says "about 200ms"; it is an order of magnitude better than that now |
+| `solix doctor --port 41901` | **PASS** — *All checks passed. Solix is healthy.* Every check green on a real install, which is what the keystone unit test asserts and had never been seen end to end |
+| `solix doctor` on the wrong port | **PASS** — ✗ with `pass --port if Solix is on another one`, rather than a bare "not running" |
+| the context percentage | **PASS** — `contextUsagePct: 19.547`, persisted from a real transcript. Before 1.18.3 this field was `0` for the life of every install |
+| `solix ledger` | **PASS** — "2 decisions in the window", counted with `countLedgerDecisions` rather than the length of a truncated fetch |
+| the audit trail | **PASS** — both denials recorded, including `Solix shut down while this was held: Bash was refused` |
+
+**One defect found, and it is why this walk is worth doing.** The very first
+run printed *"Claude Code not detected — no hooks wired … install Claude
+Code and restart Solix"* on a machine where `claude --version` prints
+2.1.316. `claudeCodePresent()` is `existsSync(~/.claude)` — "has Claude Code
+ever *run*" — and `start` was using it to answer "is Claude Code
+installed". Install Claude Code, run `solix` before you have ever run
+`claude`, and the product tells you to install what you just installed,
+wires nothing, and leaves you watching an empty galaxy. Fixed in 1.18.3:
+`start` asks both questions, and `claudeBinaryPresent()` honours
+`SOLIX_CLAUDE_BIN` for the same reason the launcher does.
+
+**One correction to my own method, recorded because it nearly became a false
+PASS.** The first deny attempt sent `{type:'permission_decision', id, …}`;
+the protocol is `{type:'permission_response', requestId, approved}`. The
+message was ignored, the call stayed held, and the canary survived — which
+looks exactly like "deny prevents it" and is not. E3 above is the re-run
+with the correct message, confirmed by `permission_resolved outcome:
+denied`. A canary that survives because nothing was ever decided proves the
+hold, not the denial.
+
+---
+
+## 2026-10-31, against 1.18.1 on the registry — the fix for what the run
 below found, verified from the published tarball rather than a local build,
 on a **non-default port**.
 

@@ -9,6 +9,7 @@ import {
   writeFileSync,
   chmodSync,
 } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import {
@@ -311,9 +312,42 @@ export function hooksSupported(): boolean {
   return process.platform !== 'win32';
 }
 
-/** Has Claude Code ever run on this machine? */
+/** Has Claude Code ever run on this machine? (i.e. is there a config to merge into) */
 export function claudeCodePresent(): boolean {
   return existsSync(CLAUDE_DIR);
+}
+
+/**
+ * Is the `claude` binary on this machine, whether or not it has ever run?
+ *
+ * `claudeCodePresent()` answers "is there a config directory", which is a
+ * different question, and `start` was using it to decide whether to print
+ * "Claude Code not detected — … install Claude Code and restart Solix".
+ * Install Claude Code, run `solix` before you have ever run `claude`, and
+ * the product told you to install software you had just installed, wired
+ * nothing, and left you watching an empty galaxy. Found by walking the
+ * partner brief's own install sequence against a packed tarball.
+ *
+ * `~/.claude` not existing yet is not a reason to decline: Claude Code reads
+ * that directory on its first run, so writing the settings there is exactly
+ * what wiring means. Declining is only right when the binary is absent too.
+ *
+ * Honours `SOLIX_CLAUDE_BIN` for the same reason the launcher does — under
+ * nvm or a version manager, `claude` may not be on the PATH Solix inherits,
+ * and the brief already tells people to set it.
+ */
+export function claudeBinaryPresent(): boolean {
+  const override = (process.env.SOLIX_CLAUDE_BIN ?? '').trim();
+  if (override) return existsSync(override);
+  const probe =
+    process.platform === 'win32'
+      ? spawnSync('where', ['claude'], { encoding: 'utf8', timeout: 3000 })
+      : spawnSync('command', ['-v', 'claude'], {
+          encoding: 'utf8',
+          timeout: 3000,
+          shell: true,
+        });
+  return probe.status === 0 && Boolean((probe.stdout ?? '').trim());
 }
 
 /**

@@ -85,7 +85,7 @@ describe('withinParallelLimit', () => {
   });
 });
 
-describe('isBudgetExceeded', () => {
+describe('CLAIM-BUDGET-PAUSES-BEFORE-THE-CAP · isBudgetExceeded', () => {
   it('never trips without a budget', () => {
     expect(isBudgetExceeded(9999, undefined)).toBe(false);
   });

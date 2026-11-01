@@ -186,10 +186,20 @@ export function createHttpApp(opts: {
   /** Fire a routine now (launch it, record the run, advance/broadcast). Wired
    *  by create.ts where the launcher lives; absent in embedded/test contexts,
    *  where the fire routes report the capability is unavailable. */
+  /**
+   * Fire a routine, and say whether it actually started.
+   *
+   * This returned `void`, so the route answered `{ok:true}` over a launch
+   * that was skipped (no working directory) or threw — both of which the
+   * implementation records in the run history and nowhere else. `solix
+   * schedules fire X` printed "fired routine X" either way, and the UI's
+   * "Run it now — this costs money" reported success the same. That is the
+   * demo's "seed complete" defect on a different command.
+   */
   fireSchedule?: (
     schedule: import('@solix/shared').ScheduledTask,
     trigger: import('@solix/shared').TriggerKind,
-  ) => void;
+  ) => { ok: true } | { ok: false; error: string };
 }) {
   const app = new Hono();
   // The UI is served same-origin from this same port, so it never needs CORS.
@@ -1126,10 +1136,18 @@ export function createHttpApp(opts: {
   app.post('/api/schedules/:id/fire', (c) => {
     const s = getSchedule(opts.db, c.req.param('id'));
     if (!s) return c.json({ error: 'not found' }, 404);
+    // The webhook route below has always refused a disabled routine; this
+    // one never checked, so `solix schedules disable X` printed "disabled"
+    // and `fire X` ran it anyway. Two routes giving opposite answers about
+    // the same state means "disabled" was not a guarantee of anything.
+    if (!s.enabled) {
+      return c.json({ ok: false, error: 'routine is disabled' }, 409);
+    }
     if (!opts.fireSchedule) {
       return c.json({ ok: false, error: 'firing unavailable in this context' }, 503);
     }
-    opts.fireSchedule(s, 'manual');
+    const result = opts.fireSchedule(s, 'manual');
+    if (!result.ok) return c.json({ ok: false, error: result.error }, 500);
     return c.json({ ok: true });
   });
 
@@ -1144,7 +1162,8 @@ export function createHttpApp(opts: {
     if (!opts.fireSchedule) {
       return c.json({ ok: false, error: 'firing unavailable in this context' }, 503);
     }
-    opts.fireSchedule(s, 'webhook');
+    const result = opts.fireSchedule(s, 'webhook');
+    if (!result.ok) return c.json({ ok: false, error: result.error }, 500);
     return c.json({ ok: true });
   });
 

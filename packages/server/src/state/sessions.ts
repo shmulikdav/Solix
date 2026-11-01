@@ -241,6 +241,16 @@ export function setAgentViewFields(
   if (fields.status !== undefined) {
     updates.push('status = ?');
     values.push(fields.status);
+    // `setSessionStatus` writes `terminated_at` alongside the status and
+    // this did not, so every Agent View session — reaped or legitimately
+    // finished — ended up `terminated` with a NULL `terminated_at`. The
+    // timeline builds its window from that column, so no Agent View session
+    // ending has ever appeared in it. Only set it once: a second sync must
+    // not move the moment it ended.
+    if (fields.status === 'terminated') {
+      updates.push('terminated_at = COALESCE(terminated_at, ?)');
+      values.push(ts);
+    }
   }
   if (fields.agentViewSummary !== undefined) {
     updates.push('agent_view_summary = ?');
