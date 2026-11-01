@@ -46,8 +46,8 @@ solix level strict
 ```
 
 Then launch a task from the UI (**＋ New task**) and ask the agent to do
-something you would not want done unsupervised — delete a directory, force-
-push, rewrite a config. Solix should hold it and wait for you.
+something you would not want done unsupervised — delete a directory,
+force-push, rewrite a config. Solix should hold it and wait for you.
 
 Three things worth checking while you are there:
 
@@ -79,10 +79,14 @@ publish-and-browse half exists on the server and has no UI.
 **It is desktop-only.** No responsive layout at all. On a phone the rail eats
 the screen and the List table is clipped with no horizontal scroll.
 
-**It has not been tuned for a large fleet.** With a few hundred sessions the
-galaxy will struggle: no selector memoisation, no virtualised list, a DOM
-node per planet. The List view's collapse-by-project helps. This is known and
-unaddressed.
+**It has not been tuned for a large fleet.** Half of this was fixed in
+1.18.3 and the rest was not. Every store selector now returns a stable
+reference and the planets are memoised, so a cost or context event no longer
+re-renders the whole galaxy — before that, one event re-rendered every
+planet, and each one re-scanned every session from inside its own render.
+What remains: the List view is not virtualised, and there is still a DOM node
+per planet for its label. With a few hundred sessions that is still what will
+strain. Collapse-by-project in the List view helps.
 
 ### Two things this list used to say
 
@@ -163,8 +167,10 @@ it tells you what kind of bugs this codebase produces:
   and the agent waited five minutes before being refused, because a held
   decision is an open connection the shutdown was waiting on — and so was
   your open browser tab. It now refuses what it is holding, says so, and
-  exits in about 200ms. If you are on 1.18.0, this is the one thing in here
-  you will see misbehave.
+  exits: 24ms with one decision held, 1,956ms with two, both measured against
+  the published build. Treat those as examples rather than a bound — the
+  point is that it refuses and leaves, not that it hits a number. If you are
+  on 1.18.0, this is the one thing in here you will see misbehave.
 
 - **The two commands you meet first had no tests at all.** `solix demo` and
   `solix doctor` — 1,200 lines between them — and both were producing this
@@ -220,8 +226,21 @@ it tells you what kind of bugs this codebase produces:
 - **The timeline never fetched its most recent events** in a busy window, so
   scrubbing to the end of a playback showed you the system as it was some
   minutes earlier, under a label saying "last 30 min".
+- **It destroyed your spend history and told you afterwards.** 1.18.3 zeroes
+  every recorded cost and token figure, once, because a restart used to
+  re-count part of each transcript and nothing in the database can tell real
+  spend from spend counted twice. That trade is deliberate. Doing it without
+  a copy was not: the notice printed *after* the writes, with no backup and
+  no way to decline — while the installer, twenty files away, discloses a
+  reversible config change beforehand and backs your settings up first. It
+  now copies the database beside itself, verifies the copy, and says where it
+  is before writing anything.
 
-1050 tests, and each of those fixes was proven by reinstating the bug and
+  **If you have run an older Solix, you will meet this on your first start.**
+  Your previous figures are kept beside the database as
+  `solix.db.pre-cost-reset.bak`.
+
+1057 tests, and each of those fixes was proven by reinstating the bug and
 watching the tests fail. **Nine of those proofs did not work first time** —
 the test had set up a case where the broken and the fixed code agree — and
 were rewritten until they failed for the right reason. That count is in here
