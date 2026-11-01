@@ -6,6 +6,7 @@ import type {
   PlanTaskStatus,
   TaskThreadEntry,
 } from '@solix/shared';
+import { taskEditRefusal } from '@solix/shared';
 import {
   selectPlansArray,
   selectPlanTasks,
@@ -438,6 +439,13 @@ function PlanCard({ plan }: { plan: Plan }): JSX.Element {
             <TaskRow key={t.id} task={t} />
           ))}
         </ol>
+      )}
+
+      {/* Adding a task is offered while the plan can still take one — the
+          same rule the route enforces, asked of the plan rather than of any
+          one task, since a new task has no status yet. */}
+      {plan.status !== 'completed' && plan.status !== 'failed' && (
+        <AddTask planId={plan.id} nextIndex={tasks.length} />
       )}
 
       {plan.status === 'awaiting_approval' && (
@@ -906,16 +914,311 @@ const TASK_STATUS_COLOR: Record<PlanTaskStatus, string> = {
   skipped: 'bg-slate-700',
 };
 
-function TaskRow({ task }: { task: PlanTask }): JSX.Element {
+/**
+ * Models a task can be retargeted to. Same list the New Task modal offers, so
+ * a plan's tasks and a one-off task can reach the same models.
+ */
+const TASK_MODELS: { value: string; label: string }[] = [
+  { value: 'default', label: 'default' },
+  { value: 'opus', label: 'opus' },
+  { value: 'sonnet', label: 'sonnet' },
+  { value: 'haiku', label: 'haiku' },
+  { value: 'claude-opus-5', label: 'Opus 5' },
+  { value: 'claude-sonnet-5', label: 'Sonnet 5' },
+  { value: 'claude-haiku-4-5-20251001', label: 'Haiku 4.5' },
+  { value: 'claude-fable-5-1', label: 'Fable 5.1' },
+];
+
+/**
+ * Editing a drafted task: retitle, re-prompt, change the acceptance criteria,
+ * retarget the model, move it, drop it.
+ *
+ * The brief has disclosed the absence of this for weeks — "the server
+ * endpoints for all of that ship; the frontend calls two of them" — and that
+ * was exactly true.
+ *
+ * Whether a task may be edited comes from `canEditTask` in `@solix/shared`,
+ * the same predicate the route refuses with. That is deliberate: the control
+ * is disabled with the server's own sentence as its tooltip, rather than
+ * looking available and then failing. A button that fails teaches people not
+ * to trust buttons.
+ */
+export function TaskEditor({
+  task,
+  plan,
+  onDone,
+}: {
+  task: PlanTask;
+  plan: Plan | undefined;
+  onDone: () => void;
+}): JSX.Element {
+  const updatePlanTask = useSolixStore((s) => s.updatePlanTask);
+  const [title, setTitle] = useState(task.title);
+  const [prompt, setPrompt] = useState(task.prompt);
+  const [criteria, setCriteria] = useState(task.acceptanceCriteria);
+  const [model, setModel] = useState(task.model ?? 'default');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const dirty =
+    title !== task.title ||
+    prompt !== task.prompt ||
+    criteria !== task.acceptanceCriteria ||
+    (task.model ?? 'default') !== model;
+
+  const onSave = async (): Promise<void> => {
+    setSaving(true);
+    setError(null);
+    // Only what changed, so an edit to the title cannot quietly re-send a
+    // prompt someone else just changed from another tab.
+    const patch: Parameters<typeof updatePlanTask>[2] = {};
+    if (title !== task.title) patch.title = title.trim();
+    if (prompt !== task.prompt) patch.prompt = prompt;
+    if (criteria !== task.acceptanceCriteria) patch.acceptanceCriteria = criteria;
+    if ((task.model ?? 'default') !== model) patch.model = model;
+
+    const res = await updatePlanTask(task.planId, task.id, patch);
+    setSaving(false);
+    if (!res.ok) {
+      setError(res.error ?? 'Could not save that edit.');
+      return;
+    }
+    onDone();
+  };
+
+  const refusal = taskEditRefusal(plan, task);
+  if (refusal) {
+    return (
+      <div className="mt-1 ml-5 text-[10px] text-slate-500">
+        Cannot edit: {refusal}.
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-1 ml-5 space-y-1.5 border-l border-solix-border pl-2">
+      <label className="block">
+        <span className="text-[9px] uppercase tracking-wide text-slate-500">
+          Title
+        </span>
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          className="mt-0.5 w-full rounded border border-solix-border bg-black/30 px-1.5 py-0.5 text-[11px] text-slate-200 focus:border-solix-accent focus:outline-none"
+        />
+      </label>
+      <label className="block">
+        <span className="text-[9px] uppercase tracking-wide text-slate-500">
+          Prompt — what the worker is told
+        </span>
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          rows={3}
+          className="mt-0.5 w-full rounded border border-solix-border bg-black/30 px-1.5 py-0.5 text-[11px] text-slate-200 focus:border-solix-accent focus:outline-none"
+        />
+      </label>
+      <label className="block">
+        <span className="text-[9px] uppercase tracking-wide text-slate-500">
+          Acceptance criteria — what the verifier checks
+        </span>
+        <textarea
+          value={criteria}
+          onChange={(e) => setCriteria(e.target.value)}
+          rows={2}
+          className="mt-0.5 w-full rounded border border-solix-border bg-black/30 px-1.5 py-0.5 text-[11px] text-slate-200 focus:border-solix-accent focus:outline-none"
+        />
+      </label>
+      <label className="flex items-center gap-1.5">
+        <span className="text-[9px] uppercase tracking-wide text-slate-500">
+          Model
+        </span>
+        <select
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+          className="rounded border border-solix-border bg-black/30 px-1 py-0.5 text-[10px] text-slate-200 focus:border-solix-accent focus:outline-none"
+        >
+          {TASK_MODELS.map((m) => (
+            <option key={m.value} value={m.value}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      {error && (
+        <div className="text-[10px] text-solix-danger/90" role="alert">
+          {error}
+        </div>
+      )}
+      <div className="flex items-center gap-2 pt-0.5">
+        <button
+          onClick={() => void onSave()}
+          disabled={saving || !dirty}
+          className="rounded border border-solix-border px-2 py-0.5 text-[10px] text-slate-300 hover:border-solix-accent hover:text-solix-accent disabled:opacity-40"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button
+          onClick={onDone}
+          className="text-[10px] text-slate-500 hover:text-slate-300"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Add a task to an existing plan.
+ *
+ * Collapsed to one line until asked for, because most plans are read rather
+ * than edited and an always-open form would push the task list down.
+ *
+ * A prompt is required as well as a title: a worker is handed the prompt, and
+ * a task with only a title would dispatch an agent with nothing to do. The
+ * acceptance criteria are optional here and default to the title — the
+ * verifier needs something to check, and a blank string would pass anything.
+ */
+export function AddTask({
+  planId,
+  nextIndex,
+}: {
+  planId: string;
+  nextIndex: number;
+}): JSX.Element {
+  const addPlanTask = useSolixStore((s) => s.addPlanTask);
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState('');
+  const [prompt, setPrompt] = useState('');
+  const [criteria, setCriteria] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const ready = title.trim().length > 0 && prompt.trim().length > 0;
+
+  const onAdd = async (): Promise<void> => {
+    setSaving(true);
+    setError(null);
+    const res = await addPlanTask(planId, {
+      title: title.trim(),
+      prompt: prompt.trim(),
+      acceptanceCriteria: criteria.trim() || title.trim(),
+      orderIndex: nextIndex,
+    });
+    setSaving(false);
+    if (!res.ok) {
+      setError(res.error ?? 'Could not add that task.');
+      return;
+    }
+    setTitle('');
+    setPrompt('');
+    setCriteria('');
+    setOpen(false);
+  };
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="mt-1.5 text-[10px] text-slate-500 hover:text-solix-accent"
+      >
+        ＋ Add a task
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-1.5 space-y-1.5 border-l border-solix-border pl-2">
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="Title"
+        aria-label="New task title"
+        className="w-full rounded border border-solix-border bg-black/30 px-1.5 py-0.5 text-[11px] text-slate-200 focus:border-solix-accent focus:outline-none"
+      />
+      <textarea
+        value={prompt}
+        onChange={(e) => setPrompt(e.target.value)}
+        rows={2}
+        placeholder="Prompt — what the worker is told to do"
+        aria-label="New task prompt"
+        className="w-full rounded border border-solix-border bg-black/30 px-1.5 py-0.5 text-[11px] text-slate-200 focus:border-solix-accent focus:outline-none"
+      />
+      <textarea
+        value={criteria}
+        onChange={(e) => setCriteria(e.target.value)}
+        rows={2}
+        placeholder="Acceptance criteria — what the verifier checks (defaults to the title)"
+        aria-label="New task acceptance criteria"
+        className="w-full rounded border border-solix-border bg-black/30 px-1.5 py-0.5 text-[11px] text-slate-200 focus:border-solix-accent focus:outline-none"
+      />
+      {error && (
+        <div className="text-[10px] text-solix-danger/90" role="alert">
+          {error}
+        </div>
+      )}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => void onAdd()}
+          disabled={saving || !ready}
+          title={ready ? 'Add to the plan' : 'A title and a prompt are required'}
+          className="rounded border border-solix-border px-2 py-0.5 text-[10px] text-slate-300 hover:border-solix-accent hover:text-solix-accent disabled:opacity-40"
+        >
+          {saving ? 'Adding…' : 'Add'}
+        </button>
+        <button
+          onClick={() => setOpen(false)}
+          className="text-[10px] text-slate-500 hover:text-slate-300"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+export function TaskRow({ task }: { task: PlanTask }): JSX.Element {
   // Surface the rejection reason once a task needs a human (escalated) or is
   // mid-retry (failed) so the operator sees *why* without opening a session.
   const showError =
     task.lastError && (task.status === 'escalated' || task.status === 'failed');
   const thread = useSolixStore((s) => selectTaskThread(s, task.id));
   const retryPlanTask = useSolixStore((s) => s.retryPlanTask);
+  const plan = useSolixStore((s) => s.plans[task.planId]);
+  const deletePlanTask = useSolixStore((s) => s.deletePlanTask);
+  const movePlanTask = useSolixStore((s) => s.movePlanTask);
+  const siblings = useSolixStore((s) =>
+    Object.values(s.planTasks)
+      .filter((t) => t.planId === task.planId)
+      .sort((a, b) => a.orderIndex - b.orderIndex)
+      .map((t) => t.id),
+  );
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
+  const [rowError, setRowError] = useState<string | null>(null);
+
+  // One predicate, shared with the route that refuses. A disabled control
+  // carrying the reason beats one that looks available and then fails.
+  const editRefusal = taskEditRefusal(plan, task);
+  const editable = editRefusal === null;
+  const at = siblings.indexOf(task.id);
+  const isFirst = at <= 0;
+  const isLast = at < 0 || at === siblings.length - 1;
+
+  const onMove = async (direction: 'up' | 'down'): Promise<void> => {
+    setRowError(null);
+    const res = await movePlanTask(task.planId, task.id, direction);
+    if (!res.ok) setRowError(res.error ?? 'Could not move that task.');
+  };
+
+  const onRemove = async (): Promise<void> => {
+    setRowError(null);
+    const res = await deletePlanTask(task.planId, task.id);
+    if (!res.ok) setRowError(res.error ?? 'Could not remove that task.');
+  };
 
   // A stopped task was a dead end: `resumePlan` refuses a failed plan, so the
   // only route back was a follow-up *goal* — a new plan and new planner
@@ -983,7 +1286,77 @@ function TaskRow({ task }: { task: PlanTask }): JSX.Element {
             ↳{task.dependsOn.length}
           </span>
         )}
+        {/* Edit, move, remove. Always rendered rather than hidden when the
+            plan's state forbids them: a control that vanishes leaves people
+            hunting for a feature, where a disabled one with the reason in its
+            tooltip answers the question. */}
+        <span className="flex items-center gap-0.5 shrink-0">
+          <button
+            onClick={() => void onMove('up')}
+            disabled={!editable || isFirst}
+            title={
+              editRefusal
+                ? `Cannot move: ${editRefusal}`
+                : isFirst
+                  ? 'Already first'
+                  : 'Move earlier'
+            }
+            aria-label="Move task earlier"
+            className="px-0.5 text-slate-600 hover:text-slate-200 disabled:opacity-25 disabled:hover:text-slate-600"
+          >
+            ↑
+          </button>
+          <button
+            onClick={() => void onMove('down')}
+            disabled={!editable || isLast}
+            title={
+              editRefusal
+                ? `Cannot move: ${editRefusal}`
+                : isLast
+                  ? 'Already last'
+                  : 'Move later'
+            }
+            aria-label="Move task later"
+            className="px-0.5 text-slate-600 hover:text-slate-200 disabled:opacity-25 disabled:hover:text-slate-600"
+          >
+            ↓
+          </button>
+          <button
+            onClick={() => setEditing((v) => !v)}
+            disabled={!editable}
+            title={editRefusal ? `Cannot edit: ${editRefusal}` : 'Edit this task'}
+            aria-label="Edit task"
+            className="px-0.5 text-slate-600 hover:text-slate-200 disabled:opacity-25 disabled:hover:text-slate-600"
+          >
+            ✎
+          </button>
+          <button
+            onClick={() => void onRemove()}
+            disabled={!editable}
+            title={
+              editRefusal
+                ? `Cannot remove: ${editRefusal}`
+                : 'Remove this task from the plan'
+            }
+            aria-label="Remove task"
+            className="px-0.5 text-slate-600 hover:text-solix-danger disabled:opacity-25 disabled:hover:text-slate-600"
+          >
+            ×
+          </button>
+        </span>
       </div>
+      {rowError && (
+        <div className="mt-0.5 ml-5 text-[10px] text-solix-danger/90" role="alert">
+          {rowError}
+        </div>
+      )}
+      {editing && (
+        <TaskEditor
+          task={task}
+          plan={plan}
+          onDone={() => setEditing(false)}
+        />
+      )}
       {showError && !open && (
         <div className="mt-0.5 ml-5 text-[10px] text-solix-danger/80 line-clamp-2">
           {task.lastError}
