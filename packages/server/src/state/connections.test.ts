@@ -12,7 +12,7 @@ import {
   setSecret,
 } from './connections.js';
 
-describe('crypto (AES-256-GCM)', () => {
+describe('CLAIM-SECRETS-WRITE-ONLY · crypto (AES-256-GCM)', () => {
   const key = randomBytes(32);
   it('round-trips a secret', () => {
     const packed = encryptSecret('ghp_supersecret', key);

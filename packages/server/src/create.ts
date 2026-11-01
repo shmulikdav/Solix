@@ -204,7 +204,7 @@ export async function createSolixServer(
   const fireScheduleNow = (
     schedule: ScheduledTask,
     trigger: TriggerKind,
-  ): void => {
+  ): { ok: true } | { ok: false; error: string } => {
     if (!schedule.cwd) {
       recordScheduleRun(db, {
         scheduleId: schedule.id,
@@ -212,7 +212,10 @@ export async function createSolixServer(
         status: 'skipped',
         detail: 'no working directory set',
       });
-      return;
+      return {
+        ok: false,
+        error: 'this routine has no working directory, so there is nowhere to run it',
+      };
     }
     try {
       // A routine fires unattended, so it launches as an autonomous session:
@@ -239,6 +242,7 @@ export async function createSolixServer(
           message: `${trigger === 'interval' ? 'Heartbeat' : trigger === 'webhook' ? 'Webhook' : 'Manual run'} fired: ${schedule.name ?? schedule.prompt.slice(0, 32)}`,
         });
       }
+      return { ok: true };
     } catch (err) {
       recordScheduleRun(db, {
         scheduleId: schedule.id,
@@ -246,6 +250,7 @@ export async function createSolixServer(
         status: 'error',
         detail: (err as Error).message,
       });
+      return { ok: false, error: (err as Error).message };
     }
   };
 
