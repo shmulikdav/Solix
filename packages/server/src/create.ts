@@ -1,47 +1,48 @@
-import { serve } from '@hono/node-server';
-import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { join } from 'node:path';
-import { Broadcaster } from './broadcaster.js';
-import { getDb, type DB } from './db.js';
-import { createHttpApp } from './http.js';
-import { Launcher } from './launcher.js';
-import { DB_PATH } from './paths.js';
-import { EventRouter } from './router.js';
-import { attachWs } from './ws.js';
+import { serve } from "@hono/node-server";
+import Database from "better-sqlite3";
+import { copyFileSync, existsSync, readFileSync, rmSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
+import { Broadcaster } from "./broadcaster.js";
+import { getDb, type DB } from "./db.js";
+import { createHttpApp } from "./http.js";
+import { Launcher } from "./launcher.js";
+import { DB_PATH } from "./paths.js";
+import { EventRouter } from "./router.js";
+import { attachWs } from "./ws.js";
 import {
   getAdvisor,
   listAdvisors,
   readAdvisorAgentMd,
   seedAdvisors,
-} from './state/advisors.js';
-import { Orchestrator } from './orchestrator/index.js';
-import { LauncherSessionRunner } from './orchestrator/launcher-runner.js';
-import { discoverSkills } from './state/skills.js';
-import { TranscriptWatcherManager } from './state/transcript.js';
-import { cleanupOrphanedSockets } from './state/wrappers.js';
-import { startAgentViewBridge } from './state/agentview.js';
+} from "./state/advisors.js";
+import { Orchestrator } from "./orchestrator/index.js";
+import { LauncherSessionRunner } from "./orchestrator/launcher-runner.js";
+import { discoverSkills } from "./state/skills.js";
+import { TranscriptWatcherManager } from "./state/transcript.js";
+import { cleanupOrphanedSockets } from "./state/wrappers.js";
+import { startAgentViewBridge } from "./state/agentview.js";
 import {
   listDueSchedules,
   markScheduleRun,
   recordScheduleRun,
-} from './state/schedules.js';
-import type { ScheduledTask, TriggerKind } from '@solix/shared';
-import { startNotificationDispatcher } from './state/notifiers.js';
-import { ensureDefaultOrg, getSetting, setSetting } from './state/orgs.js';
-import { now } from './util.js';
+} from "./state/schedules.js";
+import type { ScheduledTask, TriggerKind } from "@solix/shared";
+import { startNotificationDispatcher } from "./state/notifiers.js";
+import { ensureDefaultOrg, getSetting, setSetting } from "./state/orgs.js";
+import { now } from "./util.js";
 
 // Models a plan task may be dispatched with (mirrors the New Task picker).
 // Used to allowlist the planner's JSON output before it can reach a launch.
 const KNOWN_MODELS = [
-  'default',
-  'opus',
-  'sonnet',
-  'haiku',
-  'claude-opus-5',
-  'claude-sonnet-5',
-  'claude-haiku-4-5-20251001',
-  'claude-fable-5-1',
+  "default",
+  "opus",
+  "sonnet",
+  "haiku",
+  "claude-opus-5",
+  "claude-sonnet-5",
+  "claude-haiku-4-5-20251001",
+  "claude-fable-5-1",
 ];
 
 export interface SolixServerOptions {
@@ -68,7 +69,7 @@ export interface SolixServerHandle {
 }
 
 /** Marks the historical-spend reset as done, so it happens exactly once. */
-const COST_RESET_KEY = 'cost_reset_double_count_v1';
+const COST_RESET_KEY = "cost_reset_double_count_v1";
 
 /**
  * Zero every recorded figure once, because some of them are wrong and there
@@ -90,8 +91,76 @@ const COST_RESET_KEY = 'cost_reset_double_count_v1';
  * It says so on stdout. A product whose front page is "watch the money"
  * should not zero your spend history in silence.
  */
+/**
+ * Copy the database beside itself, before anything destroys what is in it.
+ *
+ * Returns the path written, or null when there was nothing to copy, the copy
+ * failed, or **the copy could not be shown to contain the data**. A failed
+ * backup must not stop a server starting, but it must change what we claim,
+ * which is why the caller prints the path it is given rather than one it
+ * assumed.
+ *
+ * Two things this has to get right, and the first version got neither.
+ *
+ * `DB_PATH`, not `~/.solix`: `SOLIX_DB_PATH` is real — `solix demo` points
+ * the whole server at a sandbox database — and a backup written to the wrong
+ * directory is worse than none.
+ *
+ * And the checkpoint. This database runs in WAL mode (`db.ts`,
+ * `journal_mode = WAL`), so recent transactions live in a `-wal` sidecar
+ * until they are checkpointed. A plain `copyFileSync` of the `.db` therefore
+ * produced a file of exactly the right name, in exactly the right place,
+ * **missing the figures it was taken to preserve** — found by a test that
+ * opened the copy instead of checking it existed. `wal_checkpoint(TRUNCATE)`
+ * folds the sidecar in first, and then the copy is opened and read back,
+ * because the whole value of this file is that someone can trust it later
+ * without being able to check.
+ */
+function backupDbBeside(db: DB, label: string): string | null {
+  const target = `${DB_PATH}.${label}.bak`;
+  try {
+    if (!existsSync(DB_PATH)) return null; // in-memory, or a fresh install
+    db.pragma("wal_checkpoint(TRUNCATE)");
+    copyFileSync(DB_PATH, target);
+
+    // Read it back.
+    //
+    // Depth, not the mechanism: with the checkpoint above the copy is
+    // complete, and removing this changes no test result — proven by
+    // deleting it and watching all seven still pass. It stays because the
+    // checkpoint can be refused when another connection holds the database
+    // busy, and the failure mode then is a file of the right name in the
+    // right place with the wrong contents inside it, which is strictly
+    // worse than no file at all. That is the shape this whole fix exists to
+    // avoid, so the cheap check that would catch it is worth keeping even
+    // unproven.
+    const copy = new Database(target, { readonly: true });
+    try {
+      const { n } = copy
+        .prepare(`SELECT count(*) AS n FROM sessions WHERE cost_usd > 0`)
+        .get() as { n: number };
+      const { live } = db
+        .prepare(`SELECT count(*) AS live FROM sessions WHERE cost_usd > 0`)
+        .get() as { live: number };
+      if (n !== live) throw new Error(`copy has ${n} of ${live} session(s)`);
+    } finally {
+      copy.close();
+    }
+    return target;
+  } catch {
+    // Do not leave a file that failed verification: someone finding it later
+    // would reasonably assume it was good.
+    try {
+      if (existsSync(target)) rmSync(target);
+    } catch {
+      /* ignore */
+    }
+    return null;
+  }
+}
+
 export function resetDoubleCountedSpend(db: DB): void {
-  if (getSetting(db, COST_RESET_KEY) === 'done') return;
+  if (getSetting(db, COST_RESET_KEY) === "done") return;
 
   const sessions = db
     .prepare(`SELECT count(*) AS n FROM sessions WHERE cost_usd > 0`)
@@ -99,6 +168,39 @@ export function resetDoubleCountedSpend(db: DB): void {
   const missions = db
     .prepare(`SELECT count(*) AS n FROM missions WHERE total_tokens > 0`)
     .get() as { n: number };
+
+  // Only the announcement and the copy are conditional. A fresh install has
+  // no history to lose, so it should not meet a paragraph about a reset that
+  // did not apply to it — but the writes below still run, because
+  // `transcript_pos` can hold a position recorded while the counting was
+  // wrong even on a session whose cost happens to be zero. An earlier
+  // version of this returned early here and skipped that, which the existing
+  // CLAIM-COST-COUNTED-ONCE suite caught.
+  const hasHistory = sessions.n > 0 || missions.n > 0;
+
+  // Say it, and make it recoverable, BEFORE doing it.
+  //
+  // This used to print after the UPDATEs had run. The docstring above was
+  // already right that "a product whose front page is 'watch the money'
+  // should not zero your spend history in silence" — but reporting a fait
+  // accompli is not the same as disclosing. Twenty files away, `start`
+  // discloses the hooks it is about to write and backs settings.json up
+  // first, for a change `solix uninstall` can reverse. This one cannot be
+  // reversed, and it had neither.
+  const backup = hasHistory ? backupDbBeside(db, "pre-cost-reset") : null;
+  if (hasHistory) {
+    console.log(
+      `[solix] about to reset spend on ${sessions.n} session(s) and tokens on\n` +
+        `        ${missions.n} mission(s). Until this version a restart re-counted\n` +
+        "        part of each transcript, so those figures are too high and there\n" +
+        "        is no way to tell by how much. They start from zero and are\n" +
+        "        counted once from here. This happens only once.\n" +
+        (backup
+          ? `        Your previous figures are kept at:\n        ${backup}`
+          : "        NOTE: the database could not be copied first, so the old\n" +
+            "        figures are not recoverable."),
+    );
+  }
 
   db.prepare(`UPDATE sessions SET cost_usd = 0 WHERE cost_usd > 0`).run();
   db.prepare(
@@ -108,24 +210,14 @@ export function resetDoubleCountedSpend(db: DB): void {
   // the figures rebuild from zero rather than from a position that was set
   // while the counting was wrong.
   db.prepare(`UPDATE sessions SET transcript_pos = NULL`).run();
-  setSetting(db, COST_RESET_KEY, 'done');
-
-  if (sessions.n > 0 || missions.n > 0) {
-    console.log(
-      `[solix] reset spend on ${sessions.n} session(s) and tokens on ${missions.n} mission(s).\n` +
-        '        Until this version a restart re-counted part of each\n' +
-        '        transcript, so those figures were too high and there is no\n' +
-        '        way to tell by how much. They start from zero and are\n' +
-        '        counted once from here. This happens only once.',
-    );
-  }
+  setSetting(db, COST_RESET_KEY, "done");
 }
 
 export async function createSolixServer(
   opts: SolixServerOptions = {},
 ): Promise<SolixServerHandle> {
   const port = opts.port ?? 4242;
-  const hostname = opts.hostname ?? '127.0.0.1';
+  const hostname = opts.hostname ?? "127.0.0.1";
 
   const db = getDb();
   seedAdvisors(db);
@@ -148,10 +240,10 @@ export async function createSolixServer(
   // and whether it actually has data. Best-effort; never blocks startup.
   try {
     const advisorCount = (
-      db.prepare('SELECT count(*) AS n FROM advisors').get() as { n: number }
+      db.prepare("SELECT count(*) AS n FROM advisors").get() as { n: number }
     ).n;
     const sessionCount = (
-      db.prepare('SELECT count(*) AS n FROM sessions').get() as { n: number }
+      db.prepare("SELECT count(*) AS n FROM sessions").get() as { n: number }
     ).n;
     console.log(
       `[solix] db      -> ${DB_PATH} (advisors=${advisorCount}, sessions=${sessionCount})`,
@@ -171,15 +263,15 @@ export async function createSolixServer(
     broadcast: (msg) => broadcaster.broadcast(msg),
     getKnownAdvisorRoles: () =>
       listAdvisors(db)
-        .filter((a) => a.role !== 'conductor')
+        .filter((a) => a.role !== "conductor")
         .map((a) => a.id),
     knownModels: KNOWN_MODELS,
     getMaestroPrompt: () => {
-      const a = getAdvisor(db, 'maestro');
-      if (!a) return '';
+      const a = getAdvisor(db, "maestro");
+      if (!a) return "";
       // Strip the YAML frontmatter → a clean planner system prompt.
       return readAdvisorAgentMd(a)
-        .replace(/^---\n[\s\S]*?\n---\n/, '')
+        .replace(/^---\n[\s\S]*?\n---\n/, "")
         .trim();
     },
   });
@@ -188,12 +280,12 @@ export async function createSolixServer(
   // requires it on the spoofable /events ingestion surface. Absent (e.g. an
   // older install that predates the token) → no enforcement, same as before.
   const tokenPath = join(
-    process.env.SOLIX_HOME ?? join(homedir(), '.solix'),
-    'token',
+    process.env.SOLIX_HOME ?? join(homedir(), ".solix"),
+    "token",
   );
   let token: string | null = null;
   try {
-    token = readFileSync(tokenPath, 'utf8').trim() || null;
+    token = readFileSync(tokenPath, "utf8").trim() || null;
   } catch {
     token = null;
   }
@@ -209,12 +301,13 @@ export async function createSolixServer(
       recordScheduleRun(db, {
         scheduleId: schedule.id,
         trigger,
-        status: 'skipped',
-        detail: 'no working directory set',
+        status: "skipped",
+        detail: "no working directory set",
       });
       return {
         ok: false,
-        error: 'this routine has no working directory, so there is nowhere to run it',
+        error:
+          "this routine has no working directory, so there is nowhere to run it",
       };
     }
     try {
@@ -225,21 +318,21 @@ export async function createSolixServer(
       launcher.launch({
         cwd: schedule.cwd,
         initialPrompt: schedule.prompt,
-        sessionRole: 'routine',
+        sessionRole: "routine",
       });
       recordScheduleRun(db, {
         scheduleId: schedule.id,
         trigger,
-        status: 'fired',
+        status: "fired",
         detail: schedule.prompt.slice(0, 120),
       });
       const updated = markScheduleRun(db, schedule.id);
       if (updated) {
-        broadcaster.broadcast({ type: 'schedule_upsert', schedule: updated });
+        broadcaster.broadcast({ type: "schedule_upsert", schedule: updated });
         broadcaster.broadcast({
-          type: 'toast',
-          level: 'info',
-          message: `${trigger === 'interval' ? 'Heartbeat' : trigger === 'webhook' ? 'Webhook' : 'Manual run'} fired: ${schedule.name ?? schedule.prompt.slice(0, 32)}`,
+          type: "toast",
+          level: "info",
+          message: `${trigger === "interval" ? "Heartbeat" : trigger === "webhook" ? "Webhook" : "Manual run"} fired: ${schedule.name ?? schedule.prompt.slice(0, 32)}`,
         });
       }
       return { ok: true };
@@ -247,7 +340,7 @@ export async function createSolixServer(
       recordScheduleRun(db, {
         scheduleId: schedule.id,
         trigger,
-        status: 'error',
+        status: "error",
         detail: (err as Error).message,
       });
       return { ok: false, error: (err as Error).message };
@@ -281,7 +374,7 @@ export async function createSolixServer(
       const s = serve({ fetch: app.fetch, port, hostname }, () => {
         resolveServer(s);
       });
-      s.on('error', rejectServer);
+      s.on("error", rejectServer);
     },
   );
 
@@ -289,7 +382,7 @@ export async function createSolixServer(
   // for on close, and `closeAllConnections()` cannot help because Node stops
   // tracking a socket once it has been upgraded. Shutdown has to end these
   // itself — see `close()` below.
-  const wss = attachWs(server as unknown as import('node:http').Server, {
+  const wss = attachWs(server as unknown as import("node:http").Server, {
     db,
     router,
     broadcaster,
@@ -301,7 +394,7 @@ export async function createSolixServer(
   // detached promise reject unhandled.
   void orchestrator
     .reconcile()
-    .catch((err) => console.error('[orchestrator] reconcile failed', err));
+    .catch((err) => console.error("[orchestrator] reconcile failed", err));
 
   // Sprint L: bridge to Anthropic's Agent View. Reads ~/.claude/daemon
   // + ~/.claude/jobs to mirror background sessions managed by the
@@ -324,10 +417,10 @@ export async function createSolixServer(
   const scheduleTimer = setInterval(() => {
     try {
       for (const s of listDueSchedules(db, now())) {
-        fireScheduleNow(s, 'interval');
+        fireScheduleNow(s, "interval");
       }
     } catch (err) {
-      console.warn('[scheduler] tick failed:', (err as Error).message);
+      console.warn("[scheduler] tick failed:", (err as Error).message);
     }
   }, 30_000);
 
@@ -351,7 +444,7 @@ export async function createSolixServer(
         // the agent sat blocked for five minutes. Record them, then drop the
         // sockets so each hook fails closed at once. See `abandonAllPending`.
         const abandoned = router.abandonAllPending(
-          'Solix shut down while this was held',
+          "Solix shut down while this was held",
         );
         if (abandoned > 0) {
           console.log(

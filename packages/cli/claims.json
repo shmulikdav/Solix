@@ -130,6 +130,12 @@
       "heldBy": "packages/server/src/state/connections.test.ts"
     },
     {
+      "id": "CLAIM-RESET-KEEPS-A-COPY",
+      "claim": "Solix never destroys recorded history without copying it beside the database first, verifying the copy, and saying where it is before it writes.",
+      "publishedIn": "1.18.3 release notes, the startup notice",
+      "heldBy": "packages/server/src/costReset.test.ts"
+    },
+    {
       "id": "CLAIM-AGENTVIEW-REPORTS-WHAT-IT-SEES",
       "claim": "The Agent View mirror reports what it read. A state it does not recognise shows as unknown, not idle; a read it could not make never marks a session finished.",
       "publishedIn": "brief, the `agent` badge, Mission Control",

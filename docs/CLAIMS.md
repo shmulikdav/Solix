@@ -5,7 +5,7 @@ being true.
 
 ## Why this exists
 
-Fifteen defects now, and they are all the same shape — not a crash, an
+Sixteen defects now, and they are all the same shape — not a crash, an
 **overclaim**: the product said it did X and did X-minus-something.
 
 | | the claim | where it broke |
@@ -25,6 +25,7 @@ Fifteen defects now, and they are all the same shape — not a crash, an
 | 13 | you can leave it running | every context update leaked a compiled shader, and re-rendered every planet |
 | 14 | the mirror shows your background agents | a failed directory read marked every one of them finished |
 | 15 | a routine you switched off is off | the fire route never checked, and said "fired" either way |
+| 16 | your spend history is yours | the one-time reset destroyed it with no copy, and said so afterwards |
 
 Every one of them was invisible to a passing unit-test suite, because the
 code was right *somewhere* and wrong at the surface a reader meets. Numbers
@@ -73,6 +74,7 @@ If you cannot write step 2, you cannot make the claim.
 | `CLAIM-DISABLED-MEANS-DISABLED` | A routine switched off does not run, from any surface, and "fired" is only reported when it actually started. | Routines tab, `solix schedules`, the webhook URL | `packages/server/src/http.schedules.test.ts` |
 | `CLAIM-BUDGET-PAUSES-BEFORE-THE-CAP` | A plan pauses at or over its budget, not after it. | site, Maestro, brief | `packages/server/src/orchestrator/scheduler.test.ts` |
 | `CLAIM-SECRETS-WRITE-ONLY` | Connection secrets are encrypted at rest and never read back out. | Connections tab, site ("100% local") | `packages/server/src/state/connections.test.ts` |
+| `CLAIM-RESET-KEEPS-A-COPY` | Solix never destroys recorded history without copying it beside the database first, verifying the copy, and saying where it is before it writes. | 1.18.3 release notes, the startup notice | `packages/server/src/costReset.test.ts` |
 | `CLAIM-AGENTVIEW-REPORTS-WHAT-IT-SEES` | The Agent View mirror reports what it read. A state it does not recognise shows as unknown, not idle; a read it could not make never marks a session finished. | brief, the `agent` badge, Mission Control | `packages/server/src/state/agentview.test.ts` |
 | `CLAIM-RENDERER-RELEASES-GPU` | The galaxy can be left running. It builds one shader material per planet and disposes it, and a store event only re-renders the parts whose data changed. | brief ("would you leave it running?"), site (the galaxy itself) | `packages/web/src/scene/atmosphereRim.test.tsx` |
 | `CLAIM-LEDGER-COUNTS-EVERYTHING` | `solix ledger`, its exports and the signed fleet report count every decision in the window, and say so plainly when they are listing fewer than they counted. | `solix ledger`, `--md`/`--csv` exports, the fleet report | `packages/server/src/state/ledger.test.ts` |
