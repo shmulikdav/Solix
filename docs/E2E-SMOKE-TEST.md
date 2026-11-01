@@ -7,7 +7,41 @@
 
 ## Last run
 
-**2026-11-01, against a packed 1.18.3 tarball** — installed with
+**2026-11-01, against `@shmulikdav/solix@1.18.3` installed from npm** — the
+published artefact, not a local build, into an isolated `HOME`, against a
+real `claude` 2.1.316, on port 41950.
+
+| | Result |
+|---|---|
+| installs from the registry | **PASS** — `1.18.3`, and `claims.json` ships 26 claims at 1.18.3 |
+| first run wires cleanly | **PASS** — discloses the nine hooks and fifteen agent files before writing, backs up first |
+| **E2** · a sensitive call is held | **PASS** — `Bash {"command":"rm canary/keep.txt"}`, canary intact while held |
+| **E3** · deny prevents it | **PASS** — `permission_resolved outcome: denied`, canary survived |
+| **E6** · killed mid-hold | **PASS** — `2 held request(s) refused on the way out`, both recorded in the audit, canary survived. **1,956ms** with two holds queued |
+| port already in use | **PASS** — a second `solix start` refused with "port 41950 is already in use — nothing was started", rather than printing "listening" over someone else's server |
+| `solix doctor --port` | **PASS** — *All checks passed. Solix is healthy.* |
+| the figures | **PASS** — `contextUsagePct: 19.66`, `costUsd: 0.4435` on a real session; `solix ledger` reports 1 decision |
+
+**A correction to the E6 timing claimed earlier today.** The 24ms figure from
+the morning's run against a locally packed tarball was real but is not the
+general case: it was one held request. With two queued, the published build
+took **1,956ms**. Both are far inside the 300s the gate would otherwise wait,
+and both end with the holds refused — but "about 200ms" in the partner brief
+describes the single-hold case and should not be read as a bound.
+
+**And a correction to my method, the second today.** The first E6 attempt
+here reported a 25ms exit, a surviving canary, and *no shutdown lines in the
+log and no audit row*. I had killed the wrong pid — a `ps` pattern that
+matched something other than the node process — so the server never received
+the signal at all. The canary survived because nothing had been decided, not
+because anything was refused. The giveaway was the missing audit row, and it
+is the same lesson as the `permission_decision` mix-up recorded below: **a
+surviving canary proves only that nothing ran.** What the hold was told is a
+separate fact, and the audit is where it lives.
+
+---
+
+## 2026-11-01, against a packed 1.18.3 tarball — installed with
 `npm i -g ./shmulikdav-solix-1.18.3.tgz` into an isolated `HOME`, driven
 against a real `claude` 2.1.316, on a non-default port (41901). Ten commits
 had landed since the previous walk, touching the `SOLIX_PORT` parser,
