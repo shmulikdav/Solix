@@ -11,6 +11,7 @@ import {
   SOLIX_INSTALL_STAMP,
   SOLIX_SKILLS_DIR,
 } from './paths.js';
+import { resolvePort } from '@solix/shared';
 
 // Injected at build time by tsup, same define as index.ts.
 declare const __SOLIX_VERSION__: string;
@@ -35,7 +36,10 @@ async function probeHealth(port: number): Promise<CheckResult> {
     return {
       ok: false,
       label: 'Server reachable',
-      detail: `not running on ${url}`,
+      // Naming the port is not enough: `solix start --port 5000` and this
+      // reported a healthy server down, then advised `solix start` — which
+      // would have hit a port conflict. Say where to point it.
+      detail: `not running on ${url} — pass --port if Solix is on another one`,
     };
   }
 }
@@ -122,8 +126,13 @@ async function probeAgentView(port: number): Promise<CheckResult> {
   }
 }
 
-export async function doctor(): Promise<void> {
-  const port = Number(process.env.SOLIX_PORT ?? 4242);
+export interface DoctorOptions {
+  /** Where to look. Falls back to $SOLIX_PORT, then 4242. */
+  port?: number;
+}
+
+export async function doctor(opts: DoctorOptions = {}): Promise<void> {
+  const port = opts.port ?? resolvePort();
   const checks: CheckResult[] = [];
 
   const nodeVersion = process.versions.node;

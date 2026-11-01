@@ -44,6 +44,29 @@ describe('CLAIM-GATE-ANY-PORT · resolveAndPublishPort', () => {
     expect(process.env.SOLIX_PORT).toBe('4555');
   });
 
+  /**
+   * The same claim, reached by a different road.
+   *
+   * `opts.port ?? Number(process.env.SOLIX_PORT ?? 4242)` reads `SOLIX_PORT=`
+   * — set but empty — as port **0**, because `??` only fires on null and
+   * undefined. `solix start` then binds a random free port and publishes "0",
+   * so every spawned agent's hook calls port 0, finds nothing, and fail-closes
+   * on every tool call: the original defect exactly, from an empty variable
+   * instead of a flag. A conditional CI step or a half-filled .env is enough.
+   */
+  it('ignores a SOLIX_PORT that is set but empty, rather than binding port 0', () => {
+    process.env.SOLIX_PORT = '';
+    expect(resolveAndPublishPort({})).toBe(4242);
+    expect(process.env.SOLIX_PORT).toBe('4242');
+  });
+
+  it('ignores a SOLIX_PORT that is not a port', () => {
+    for (const raw of ['auto', '0', '-1', '99999']) {
+      process.env.SOLIX_PORT = raw;
+      expect(resolveAndPublishPort({}), raw).toBe(4242);
+    }
+  });
+
   /** The flag is the more specific instruction, so it wins — and republishes. */
   it('lets the flag beat the variable, and republishes the winner', () => {
     process.env.SOLIX_PORT = '4555';

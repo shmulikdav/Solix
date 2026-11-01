@@ -5,7 +5,7 @@ being true.
 
 ## Why this exists
 
-Six defects in six days, and they were all the same shape — not a crash, an
+Nine defects now, and they are all the same shape — not a crash, an
 **overclaim**: the product said it did X and did X-minus-something.
 
 | | the claim | where it broke |
@@ -16,6 +16,9 @@ Six defects in six days, and they were all the same shape — not a crash, an
 | 4 | fail-closed refuses the agent | the refusal never reached it for 300 seconds |
 | 5 | the denylist is scoped honestly | the corrected copy never reached the live site |
 | 6 | `solix run` is governed | it never was, and two documents said it is |
+| 7 | results are verified against their criteria | the criteria could be rewritten afterwards |
+| 8 | `solix demo` seeded a galaxy | "seed complete: 30 sessions" printed over writes that were rejected |
+| 9 | `solix doctor` tells you if it is running | it looked on 4242 whatever port you started on, and called a healthy server down |
 
 Every one of them was invisible to a passing unit-test suite, because the
 code was right *somewhere* and wrong at the surface a reader meets. Numbers
@@ -59,6 +62,8 @@ If you cannot write step 2, you cannot make the claim.
 | `CLAIM-UNINSTALL-RESTORES` | `solix uninstall` leaves your Claude config exactly as it found it. | brief, site, install guide | `packages/cli/src/uninstall.test.ts` |
 | `CLAIM-INSTALL-NEVER-CLOBBERS` | Install refuses to write a `settings.json` it could not read. | CHANGELOG 1.18.0, release notes | `packages/cli/src/install.test.ts` |
 | `CLAIM-TEAMS-IDEMPOTENT` | Installing a team twice does not create its routines twice. | CHANGELOG 1.18.0, release notes | `packages/server/src/teams.idempotent.test.ts` |
+| `CLAIM-DEMO-SEEDS-OR-SAYS` | `solix demo` seeds a real galaxy into its own sandbox database and cleans up after itself — and when a seed write is rejected it says how many, instead of printing a summary over them. | brief, README, `docs/CAPTURE.md` | `packages/cli/src/demo.test.ts` |
+| `CLAIM-DOCTOR-REPORTS-REAL-STATE` | Every `solix doctor` check can both pass and fail, looks where Solix actually is, and degrades to "unknown" rather than to a verdict when it cannot reach the server. | brief, install guide, three error messages | `packages/cli/src/doctor.test.ts` |
 
 ## The matrix
 
@@ -100,13 +105,15 @@ pinned by `CLAIM-NO-TELEMETRY`.
 Honest gaps, so this file does not read as more complete than it is. These
 are published promises with no row yet:
 
-- cost and context figures are real and never invented (`transcript.ts`,
-  386 lines, has no direct test)
-- `solix demo` seeds a sandbox and cleans up after itself (`demo.ts`, 913
-  lines, no test)
-- `solix doctor` reports real state (`doctor.ts`, 288 lines, no test)
+- context percentages are real and never invented (the cost half is held by
+  `CLAIM-COST-COUNTED-ONCE`; the context view has no test of its own)
 - budgets pause a plan before it crosses its cap — tested, not yet bound
 - secrets are write-only and encrypted at rest — tested, not yet bound
+- the Agent View mirror reports real sessions (`agentview.ts`, 328 lines, no
+  test)
+- `solix gain` and `solix ledger` arithmetic (`gain.ts`, 152 lines, no test —
+  it reads the figures `CLAIM-COST-COUNTED-ONCE` pins, but its own sums are
+  unchecked)
 
 ## The one this cannot reach
 

@@ -156,7 +156,32 @@ it tells you what kind of bugs this codebase produces:
   exits in about 200ms. If you are on 1.18.0, this is the one thing in here
   you will see misbehave.
 
-909 tests, and each of those fixes was proven by reinstating the bug and
+- **The two commands you meet first had no tests at all.** `solix demo` and
+  `solix doctor` — 1,200 lines between them — and both were producing this
+  release's recurring defect, a sentence with nothing behind it. The demo
+  checked one preflight event and discarded every write after it, so "seed
+  complete: 30 sessions across 8 projects" could print over a seed that had
+  mostly failed; the status mix it printed was a hardcoded sentence rather
+  than the plan it actually ran; and `--no-ticker`, documented as "seed once
+  and exit" and used for screenshots, never exited — it hung, and Ctrl+C
+  killed the sandbox you were about to capture. Fixed, with 32 tests — and
+  then by running the command, which showed the first fix was incomplete and
+  that the demo had been seeding one planet more than it claimed.
+- **`solix doctor` looked on the wrong port.** It had no `--port` of its own,
+  so after `solix start --port 5000` the one command you run to find out what
+  is wrong reported your running server as down and told you to start it.
+  Worth knowing because it changes what a red line there means: if you are on
+  a non-default port, pass `--port` to `doctor` too.
+- **An empty `SOLIX_PORT` could turn the gate off.** Thirteen places read that
+  variable and all of them mishandled it being *set but empty* — `??` fires
+  only on null and undefined, so `SOLIX_PORT=` read as port **0**. `solix
+  start` would bind a random free port and publish "0" to the hooks, which
+  would call port 0, find nothing, and fail-closed on every tool call: safe,
+  and useless, with no decision card ever appearing. Same class as the
+  `--port` defect found in 1.15, by a different road. One parser now, in one
+  place.
+
+948 tests, and each of those fixes was proven by reinstating the bug and
 watching the tests fail.
 
 ---

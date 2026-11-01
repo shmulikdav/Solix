@@ -47,9 +47,72 @@ the second is refused, or two tasks would share an order; and a new task's
 acceptance criteria default to its title rather than the empty string, which
 would pass anything.
 
-909 tests. 50 of them are new here, across the shared rule, the route, the
-store and the rendered controls, each proven by reinstating its own bug —
-including one that caught a weakness in its own assertions.
+**The two untested commands on the first-impression path.**
+
+`demo.ts` (913 lines) and `doctor.ts` (288) had no tests between them, and
+they are what a new reader runs first — one to have anything to look at, the
+other to find out why they do not. Both were producing the defect this
+release keeps finding: a sentence printed with nothing behind it.
+
+- **`solix demo` could report a galaxy it had not seeded.** The fix for the
+  original seeded-nothing bug added *one* preflight event to `demoCmd` and
+  left the seeder discarding every result after it, though `postEvent`'s own
+  comment claimed "the ticker ignores it; the seeder does not". A server that
+  accepted the first event and then stopped still printed "seed complete: 30
+  sessions across 8 projects". Rejected writes are now counted and named, the
+  dollar total sums only what the server accepted, and the header says
+  "finished with gaps" when there were any.
+- **The status mix it printed was a string literal.** "5 active, 18 idle, 3
+  awaiting_permission…" was typed out, not derived, so editing the seed plan
+  made the summary quietly false. It is derived now — and the first test of it
+  passed with the literal reinstated, because the literal happened to agree
+  with today's plan; the test now moves the plan.
+- **`solix demo --no-ticker` never exited**, though the flag is documented as
+  "seed once and exit" and `docs/CAPTURE.md` tells you to use it for
+  screenshots. A live child keeps the parent's event loop open, so it printed
+  "Exiting." and hung — and the only way out, Ctrl+C, reached the child
+  through the shared process group and killed the sandbox you were about to
+  capture. The child is released now and the command says how to stop it.
+- **The stale-sandbox reaper ran after the port was chosen**, which defeated
+  most of it: one orphan and the demo stepped aside to the next port to avoid
+  a server it was about to kill; two orphans and it gave up with "both ports
+  are in use. Stop one of them or pass --port" — the exact stuck state the
+  reaper exists to prevent, printed as advice to go do its job by hand.
+- **The preflight event left a stray planet.** It posted a `demo-preflight`
+  session under the demo root, which landed as a 31st session in a 9th project
+  of its own while the summary beneath it said "30 sessions across 8
+  projects". The preflight is now the first session of the plan, so the galaxy
+  is exactly the one described. Caught by running the command and counting the
+  projects the server actually returned.
+- **`solix doctor` looked on the wrong port.** It read `SOLIX_PORT` and
+  defaulted to 4242 with no flag of its own, so after `solix start --port
+  5000` the one command you run to find out what is wrong reported a healthy
+  server down and advised `solix start`, which would have hit a port
+  conflict. It takes `--port` now, and says so when it finds nothing.
+
+And a thirteenth place with the same loose parse, found while fixing the
+twelfth. Every package read `SOLIX_PORT` for itself, in three different
+ways, and all three mishandle it being **set but empty** — which a
+conditional CI step, a half-filled `.env` or `SOLIX_PORT= solix doctor` all
+produce, because `??` fires only on null and undefined. The string form built
+`http://127.0.0.1:/api/…`; `Number('')` is **0**, so `solix start` would bind
+port 0 — a random free port — and publish "0" to the hooks, which would then
+call port 0, find nothing, and fail-closed on every tool call. That is the
+defect `CLAIM-GATE-ANY-PORT` exists to prevent, reached from an empty
+variable instead of a flag, and its test now covers this road too. One
+`resolvePort` in `@solix/shared`, strict decimal, used in all thirteen.
+
+Both commands are now in the ledger — `CLAIM-DEMO-SEEDS-OR-SAYS` and
+`CLAIM-DOCTOR-REPORTS-REAL-STATE` — where they had been listed as gaps. The
+doctor set includes one test whose only job is to confirm a healthy machine
+passes *everything*, because the two defects that file has already shipped
+were a check that could not fail and a check that was permanently red on a
+healthy machine, and only that test can catch the second kind.
+
+948 tests. 89 of them are new here, across the shared rule, the route, the
+store, the rendered controls and the two commands — each proven by
+reinstating its own bug, including two that did not bind on the first attempt
+and had to be rewritten before they would fail for the right reason.
 
 ## [1.18.2] — 2026-10-31
 

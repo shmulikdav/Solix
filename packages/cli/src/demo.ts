@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
+  openSync,
   readFileSync,
   unlinkSync,
   writeFileSync,
@@ -123,24 +124,24 @@ async function postEvent(base: string, payload: object): Promise<boolean> {
   }
 }
 
-async function postJson<T = unknown>(
-  base: string,
-  path: string,
-  body?: object,
-): Promise<T | null> {
+/**
+ * False when the write did not land.
+ *
+ * This returned the parsed body or null, and `null` meant both "rejected" and
+ * "accepted, with nothing JSON to say about it" — so no caller could tell the
+ * two apart, and none tried. A boolean can carry the only question anyone
+ * asks of it.
+ */
+async function postOk(base: string, path: string, body?: object): Promise<boolean> {
   try {
     const res = await fetch(`${base}${path}`, {
       method: 'POST',
       headers: body ? { 'Content-Type': 'application/json' } : {},
       body: body ? JSON.stringify(body) : undefined,
     });
-    if (!res.ok) return null;
-    if (res.headers.get('content-type')?.includes('json')) {
-      return (await res.json()) as T;
-    }
-    return null;
+    return res.ok;
   } catch {
-    return null;
+    return false;
   }
 }
 
@@ -166,6 +167,8 @@ interface BootResult {
   child: ChildProcess | null;
   port: number;
   base: string;
+  /** Where the sandbox's output went, when it was not the terminal. */
+  logPath: string | null;
 }
 
 /**
@@ -175,7 +178,18 @@ interface BootResult {
  * orphan that squats on the port and the sandbox DB — which is what made
  * repeated `solix demo` runs get "stuck". Escalating to SIGKILL prevents that.
  */
-async function killChildHard(child: ChildProcess): Promise<void> {
+/**
+ * What killing a child actually needs of it.
+ *
+ * Narrower than `ChildProcess` on purpose: the full interface carries three
+ * streams and twenty-odd other members, so a test that wants to observe a
+ * kill would either have to boot a real process or cast a fake through
+ * `unknown`. Naming the three properties this code touches makes the
+ * dependency legible and the fake honest.
+ */
+export type KillableChild = Pick<ChildProcess, 'kill' | 'exitCode' | 'signalCode'>;
+
+async function killChildHard(child: KillableChild): Promise<void> {
   if (child.exitCode != null || child.signalCode != null) return; // already dead
   try {
     child.kill('SIGTERM');
@@ -254,11 +268,26 @@ async function reapStaleDemoServers(): Promise<void> {
   }
 }
 
-async function bootSandbox(preferredPort: number): Promise<BootResult | null> {
-  // If someone is already listening on the preferred port AND it's our own
-  // sandbox DB, reuse it. We can't introspect their DB path remotely, so we
-  // pick a different port instead — simpler and avoids the demo writing into a
-  // user-launched real server.
+/**
+ * Which port the sandbox should bind, or null if there is nowhere to go.
+ *
+ * Exported for the test: this is the decision that made repeated `solix demo`
+ * runs "stuck", so it is worth being able to assert directly.
+ */
+export async function chooseSandboxPort(
+  preferredPort: number,
+): Promise<number | null> {
+  // Reap first. This used to run *after* the port was chosen, which defeated
+  // most of the point of having a reaper: one orphan and the demo politely
+  // stepped aside to the next port to avoid a server it was about to kill,
+  // abandoning the default; two orphans and it gave up with "both ports are
+  // in use. Stop one of them or pass --port" — the exact stuck state the
+  // reaper exists to prevent, printed as advice to go do its job by hand.
+  await reapStaleDemoServers();
+
+  // Whatever still holds the port after that is not ours to touch: a real
+  // `solix start` the user is working in. We can't introspect its DB path
+  // remotely, so we move rather than risk the demo seeding into it.
   let port = preferredPort;
   if (!(await isPortFree(port))) {
     console.log(
@@ -273,9 +302,28 @@ async function bootSandbox(preferredPort: number): Promise<BootResult | null> {
     }
   }
 
-  // Reap every stale demo server left by previous runs (not just the last
-  // one) before we spawn a fresh one.
-  await reapStaleDemoServers();
+  return port;
+}
+
+/**
+ * Boot the sandbox.
+ *
+ * `detach` is the difference between the two things `solix demo` is for. With
+ * the ticker, the demo owns the server: same process group, output straight to
+ * the terminal, torn down on Ctrl+C. With `--no-ticker` the server has to
+ * outlive the command, so it must not be holding anything of the command's —
+ * including its stdout. Inheriting the terminal and merely unref-ing the child
+ * releases the event loop but not the file descriptor, so `solix demo
+ * --no-ticker | tee shot.log` still never finishes: the shell waits on a pipe
+ * an orphaned server is still holding open. Found by running it, after the
+ * unref alone had been declared the fix.
+ */
+async function bootSandbox(
+  preferredPort: number,
+  { detach }: { detach: boolean },
+): Promise<BootResult | null> {
+  const port = await chooseSandboxPort(preferredPort);
+  if (port == null) return null;
 
   mkdirSync(SOLIX_HOME, { recursive: true });
 
@@ -283,6 +331,23 @@ async function bootSandbox(preferredPort: number): Promise<BootResult | null> {
   // packages/cli/dist/index.js after build, which is also the binary the user
   // ran — same code path either way.
   const selfScript = fileURLToPath(import.meta.url);
+  let logPath: string | null = null;
+  let stdio: ['ignore', 'inherit' | number, 'inherit' | number] = [
+    'ignore',
+    'inherit',
+    'inherit',
+  ];
+  if (detach) {
+    logPath = join(SOLIX_HOME, 'demo-server.log');
+    try {
+      const fd = openSync(logPath, 'a');
+      stdio = ['ignore', fd, fd];
+    } catch {
+      // No log file available: fall back to inheriting, which is noisier than
+      // ideal but never worse than losing the server's own error output.
+      logPath = null;
+    }
+  }
   const child = spawn(
     process.execPath,
     [selfScript, 'start', '--port', String(port), '--no-open'],
@@ -300,8 +365,8 @@ async function bootSandbox(preferredPort: number): Promise<BootResult | null> {
         // cost governance, with nothing on screen marking it as invented.
         SOLIX_DEMO: '1',
       },
-      stdio: ['ignore', 'inherit', 'inherit'],
-      detached: false,
+      stdio,
+      detached: detach,
     },
   );
 
@@ -325,7 +390,9 @@ async function bootSandbox(preferredPort: number): Promise<BootResult | null> {
     const secs = Math.round(SERVER_BOOT_TIMEOUT_MS / 1000);
     if (child.exitCode != null || child.signalCode != null) {
       console.error(
-        `[solix demo] the sandbox server exited during startup (see the error above).`,
+        `[solix demo] the sandbox server exited during startup (${
+          logPath ? `see ${logPath}` : 'see the error above'
+        }).`,
       );
     } else {
       console.error(
@@ -343,7 +410,7 @@ async function bootSandbox(preferredPort: number): Promise<BootResult | null> {
     return null;
   }
 
-  return { child, port, base: baseUrl(port) };
+  return { child, port, base: baseUrl(port), logPath };
 }
 
 // ---------------------------------------------------------------------------
@@ -415,7 +482,7 @@ const TOOL_COMMANDS = [
 // Status distribution — hits every branch so the orbit-compression visuals
 // pop, the Decision Queue surfaces a card, and the Audit / Mission views
 // have something to show.
-const STATUS_PLAN: SeededSession['status'][] = [
+export const STATUS_PLAN: SeededSession['status'][] = [
   ...Array<'active'>(5).fill('active'),
   ...Array<'awaiting_permission'>(3).fill('awaiting_permission'),
   ...Array<'awaiting_input'>(2).fill('awaiting_input'),
@@ -449,8 +516,62 @@ function usageForSession(s: SeededSession): TokenUsage {
   };
 }
 
+/**
+ * The galaxy the demo intends to create, decided before anything is sent.
+ *
+ * Pulled out so the preflight event can be the *first of these* rather than a
+ * synthetic extra. It used to post a `demo-preflight` session under the demo
+ * root itself, which landed as a 31st planet in a 9th project of its own —
+ * while the summary underneath said "30 sessions across 8 projects". Small,
+ * and on the one screen a stranger looks at first.
+ *
+ * Deterministic: same root, same galaxy, so screenshots are reproducible.
+ */
+export function planSessions(demoRootCwd: string): SeededSession[] {
+  const sessions: SeededSession[] = [];
+  for (let i = 0; i < STATUS_PLAN.length; i++) {
+    const projectName = PROJECTS[i % PROJECTS.length]!;
+    sessions.push({
+      id: `demo-${String(i).padStart(2, '0')}-${projectName}`,
+      pid: 90_000 + i,
+      cwd: join(demoRootCwd, projectName),
+      projectName,
+      model: MODELS[i % MODELS.length]!,
+      status: STATUS_PLAN[i]!,
+    });
+  }
+  return sessions;
+}
+
 async function richSeed(base: string, demoRootCwd: string): Promise<SeedState> {
   console.log(`[solix demo] seeding ${STATUS_PLAN.length} sessions across ${PROJECTS.length} projects…`);
+
+  /**
+   * Every write, counted — because the summary at the bottom is a claim.
+   *
+   * `postEvent`'s comment has said "the ticker ignores it; the seeder does
+   * not" since the seeded-nothing bug was fixed, and the seeder did ignore
+   * it: all that fix added was one preflight event in `demoCmd`. A server
+   * that accepts the first event and then stops — restarted mid-seed, out of
+   * disk, token rotated — still printed "seed complete: 30 sessions across 8
+   * projects" over a galaxy that was mostly empty. On the one path where a
+   * stranger is watching, that is the same defect as a gate reporting a hold
+   * it never made.
+   */
+  let attempted = 0;
+  let rejected = 0;
+  const event = async (b: string, payload: object): Promise<boolean> => {
+    attempted += 1;
+    const ok = await postEvent(b, payload);
+    if (!ok) rejected += 1;
+    return ok;
+  };
+  const write = async (b: string, path: string, body?: object): Promise<boolean> => {
+    attempted += 1;
+    const ok = await postOk(b, path, body);
+    if (!ok) rejected += 1;
+    return ok;
+  };
 
   // 1) Enable every advisor so the Crew roster shows the full lineup.
   interface AdvisorRow {
@@ -460,30 +581,22 @@ async function richSeed(base: string, demoRootCwd: string): Promise<SeedState> {
   const advisors =
     (await getJson<AdvisorRow[]>(base, '/api/advisors')) ?? [];
   for (const a of advisors) {
-    await postJson(base, `/api/advisors/${encodeURIComponent(a.id)}/enable`);
+    await write(base, `/api/advisors/${encodeURIComponent(a.id)}/enable`);
   }
   console.log(`[solix demo] enabled ${advisors.length} advisors`);
 
-  // 2) Create the sessions. We round-robin across projects so each project
-  //    gets a meaningful share, and we vary models so the planet colors mix.
-  const sessions: SeededSession[] = [];
-  let pid = 90_000;
-  for (let i = 0; i < STATUS_PLAN.length; i++) {
-    const projectName = PROJECTS[i % PROJECTS.length]!;
-    const cwd = join(demoRootCwd, projectName);
-    const status = STATUS_PLAN[i]!;
-    const id = `demo-${String(i).padStart(2, '0')}-${projectName}`;
-    const model = MODELS[i % MODELS.length]!;
-    sessions.push({ id, pid, cwd, projectName, model, status });
-
-    await postEvent(base, {
+  // 2) Create the sessions, round-robin across projects so each gets a
+  //    meaningful share, with the models varied so the planet colors mix.
+  const sessions = planSessions(demoRootCwd);
+  for (const s of sessions) {
+    const { id, pid, cwd, model } = s;
+    await event(base, {
       event: 'session_start',
       pid,
       cwd,
       ts: ts(),
       payload: { session_id: id, model },
     });
-    pid += 1;
   }
   await sleep(120);
 
@@ -497,7 +610,7 @@ async function richSeed(base: string, demoRootCwd: string): Promise<SeedState> {
     // mid-mission by definition. It also matters for the numbers: tokens
     // attribute to a session's current mission, so a session with no mission
     // silently drops its share of the token count.
-    await postEvent(base, {
+    await event(base, {
       event: 'user_prompt_submit',
       pid: s.pid,
       cwd: s.cwd,
@@ -510,15 +623,21 @@ async function richSeed(base: string, demoRootCwd: string): Promise<SeedState> {
     // completes, so seeding after the stop would bank the dollars and lose
     // every token.
     const usage = usageForSession(s);
-    await postJson(base, `/api/sessions/${s.id}/usage`, {
-      costUsd: costForUsage(s.model, usage),
-      tokens: totalTokens(usage),
-    });
-    seededSpendUsd += costForUsage(s.model, usage);
-    seededTokens += totalTokens(usage);
+    // Only bank it if the server took it. The printed dollar total used to be
+    // the sum of what the demo *intended* to seed, which in a product that
+    // sells cost governance is the worst possible number to invent.
+    if (
+      await write(base, `/api/sessions/${s.id}/usage`, {
+        costUsd: costForUsage(s.model, usage),
+        tokens: totalTokens(usage),
+      })
+    ) {
+      seededSpendUsd += costForUsage(s.model, usage);
+      seededTokens += totalTokens(usage);
+    }
 
     if (s.status === 'idle') {
-      await postEvent(base, {
+      await event(base, {
         event: 'stop',
         pid: s.pid,
         cwd: s.cwd,
@@ -527,7 +646,7 @@ async function richSeed(base: string, demoRootCwd: string): Promise<SeedState> {
       });
     }
     if (s.status === 'awaiting_permission') {
-      await postEvent(base, {
+      await event(base, {
         event: 'notification',
         pid: s.pid,
         cwd: s.cwd,
@@ -547,7 +666,7 @@ async function richSeed(base: string, demoRootCwd: string): Promise<SeedState> {
   //    first ticker beat).
   const active = sessions.filter((s) => s.status === 'active');
   for (const s of active) {
-    await postEvent(base, {
+    await event(base, {
       event: 'pre_tool_file',
       pid: s.pid,
       cwd: s.cwd,
@@ -562,50 +681,82 @@ async function richSeed(base: string, demoRootCwd: string): Promise<SeedState> {
   }
 
   // 5) Spawn two subagent moons on two distinct active sessions.
+  let moons = 0;
   for (const s of active.slice(0, 2)) {
-    await postEvent(base, {
-      event: 'pre_tool_task',
-      pid: s.pid,
-      cwd: s.cwd,
-      ts: ts(),
-      payload: { session_id: s.id },
-    });
+    if (
+      await event(base, {
+        event: 'pre_tool_task',
+        pid: s.pid,
+        cwd: s.cwd,
+        ts: ts(),
+        payload: { session_id: s.id },
+      })
+    ) {
+      moons += 1;
+    }
   }
 
   // 6) Realistic context-usage pressure on a couple of planets so the orange/
   //    red flares show up.
-  if (active[0]) {
-    await postJson(base, `/api/sessions/${active[0].id}/context`, { pct: 62 });
+  let flares = 0;
+  if (active[0] && (await write(base, `/api/sessions/${active[0].id}/context`, { pct: 62 }))) {
+    flares += 1;
   }
-  if (active[1]) {
-    await postJson(base, `/api/sessions/${active[1].id}/context`, { pct: 89 });
+  if (active[1] && (await write(base, `/api/sessions/${active[1].id}/context`, { pct: 89 }))) {
+    flares += 1;
   }
 
   // 7) Budget caps on two planets, placed relative to what they have already
   //    spent so the rings are actually in the states they illustrate: one
   //    comfortably under, one past its ceiling. A cap nobody is near renders
   //    the same as no cap at all.
-  if (active[0]) {
-    const spent = costForUsage(active[0].model, usageForSession(active[0]));
-    await postJson(base, `/api/sessions/${active[0].id}/usage`, {
-      budgetUsd: Number((spent * 2.5).toFixed(2)),
-    });
-  }
-  if (active[2]) {
-    const spent = costForUsage(active[2].model, usageForSession(active[2]));
-    await postJson(base, `/api/sessions/${active[2].id}/usage`, {
-      budgetUsd: Number((spent * 0.8).toFixed(2)),
-    });
+  let caps = 0;
+  for (const [i, factor] of [
+    [0, 2.5],
+    [2, 0.8],
+  ] as const) {
+    const target = active[i];
+    if (!target) continue;
+    const spent = costForUsage(target.model, usageForSession(target));
+    if (
+      await write(base, `/api/sessions/${target.id}/usage`, {
+        budgetUsd: Number((spent * factor).toFixed(2)),
+      })
+    ) {
+      caps += 1;
+    }
   }
 
-  console.log(`[solix demo] seed complete:`);
+  // Derived, not asserted. This was a string literal — "5 active, 18 idle, 3
+  // awaiting_permission, 2 awaiting_input, 1 error, 1 plan_review" — printed
+  // whatever STATUS_PLAN actually held, so editing the plan made the summary
+  // quietly false. A sentence with nothing behind it is the defect this
+  // codebase keeps producing; it does not get a pass for being cosmetic.
+  const mix = new Map<SeededSession['status'], number>();
+  for (const status of STATUS_PLAN) mix.set(status, (mix.get(status) ?? 0) + 1);
+
+  console.log(
+    rejected === 0
+      ? `[solix demo] seed complete:`
+      : `[solix demo] seed finished with gaps:`,
+  );
   console.log(`  • ${sessions.length} sessions across ${PROJECTS.length} projects`);
   console.log(`  • ${advisors.length} advisors enabled`);
-  console.log(`  • status mix: 5 active, 18 idle, 3 awaiting_permission, 2 awaiting_input, 1 error, 1 plan_review`);
-  console.log(`  • 2 subagent moons, 1 high-context flare`);
   console.log(
-    `  • $${seededSpendUsd.toFixed(2)} spent across ${(seededTokens / 1_000_000).toFixed(1)}M tokens, 2 budget caps`,
+    `  • status mix: ${[...mix].map(([status, n]) => `${n} ${status}`).join(', ')}`,
   );
+  console.log(`  • ${moons} subagent moons, ${flares} high-context flares`);
+  console.log(
+    `  • $${seededSpendUsd.toFixed(2)} spent across ${(seededTokens / 1_000_000).toFixed(1)}M tokens, ${caps} budget caps`,
+  );
+  if (rejected > 0) {
+    console.error(
+      `[solix demo] ${rejected} of ${attempted} seed writes were rejected — what\n` +
+        '            you are looking at is incomplete. `solix doctor` will say\n' +
+        '            whether the sandbox server is still answering.',
+    );
+    process.exitCode = 1;
+  }
 
   return { sessions, advisorIds: advisors.map((a) => a.id) };
 }
@@ -660,7 +811,7 @@ function startTicker(base: string, state: SeedState): Disposer {
         cache_creation_input_tokens: Math.floor(Math.random() * 500),
         output_tokens: 300 + Math.floor(Math.random() * 800),
       };
-      void postJson(base, `/api/sessions/${s.id}/usage`, {
+      void postOk(base, `/api/sessions/${s.id}/usage`, {
         costUsd: costForUsage(s.model, turn),
         tokens: totalTokens(turn),
       });
@@ -755,7 +906,7 @@ function startTicker(base: string, state: SeedState): Disposer {
       if (state.advisorIds.length === 0 || activeIds.size === 0) return;
       const advisorId = randomChoice(state.advisorIds);
       const targetSessionId = randomChoice([...activeIds]);
-      void postJson(
+      void postOk(
         base,
         `/api/advisors/${encodeURIComponent(advisorId)}/invoke`,
         {
@@ -775,32 +926,45 @@ function startTicker(base: string, state: SeedState): Disposer {
 // Phase D — teardown
 // ---------------------------------------------------------------------------
 
-function registerTeardown(opts: {
-  child: ChildProcess | null;
+interface TeardownOptions {
+  child: KillableChild | null;
   stopTicker: Disposer | null;
   keep: boolean;
-}): void {
+}
+
+/**
+ * Stop the ticker, kill the sandbox, remove its database.
+ *
+ * Separated from the signal plumbing so that "`solix demo` cleans up after
+ * itself" is a sentence something can check. It was one of two published
+ * promises about this command with no test behind it.
+ */
+export async function tearDownSandbox(opts: TeardownOptions): Promise<void> {
+  if (opts.stopTicker) opts.stopTicker();
+  // Kill the child reliably (SIGTERM → SIGKILL) and wait for it to exit, so
+  // Ctrl+C never leaves an orphaned server squatting on the port/DB.
+  if (opts.child) await killChildHard(opts.child);
+  if (!opts.keep) {
+    for (const p of [DEMO_DB_PATH, `${DEMO_DB_PATH}-shm`, `${DEMO_DB_PATH}-wal`, DEMO_PID_PATH]) {
+      try {
+        if (existsSync(p)) unlinkSync(p);
+      } catch {
+        /* ignore */
+      }
+    }
+    console.log(`[solix demo] sandbox cleaned up.`);
+  } else {
+    console.log(`[solix demo] --keep set; ${DEMO_DB_PATH} preserved.`);
+  }
+}
+
+function registerTeardown(opts: TeardownOptions): void {
   let torn = false;
   const onSignal = async (sig: NodeJS.Signals): Promise<void> => {
     if (torn) return;
     torn = true;
     console.log(`\n[solix demo] received ${sig} — tearing down…`);
-    if (opts.stopTicker) opts.stopTicker();
-    // Kill the child reliably (SIGTERM → SIGKILL) and wait for it to exit, so
-    // Ctrl+C never leaves an orphaned server squatting on the port/DB.
-    if (opts.child) await killChildHard(opts.child);
-    if (!opts.keep) {
-      for (const p of [DEMO_DB_PATH, `${DEMO_DB_PATH}-shm`, `${DEMO_DB_PATH}-wal`, DEMO_PID_PATH]) {
-        try {
-          if (existsSync(p)) unlinkSync(p);
-        } catch {
-          /* ignore */
-        }
-      }
-      console.log(`[solix demo] sandbox cleaned up.`);
-    } else {
-      console.log(`[solix demo] --keep set; ${DEMO_DB_PATH} preserved.`);
-    }
+    await tearDownSandbox(opts);
     process.exit(0);
   };
   process.on('SIGINT', () => void onSignal('SIGINT'));
@@ -846,9 +1010,14 @@ export async function demoCmd(opts: DemoOptions = {}): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    boot = { child: null, port: preferredPort, base: baseUrl(preferredPort) };
+    boot = {
+      child: null,
+      port: preferredPort,
+      base: baseUrl(preferredPort),
+      logPath: null,
+    };
   } else {
-    boot = await bootSandbox(preferredPort);
+    boot = await bootSandbox(preferredPort, { detach: opts.noTicker === true });
     if (!boot) {
       process.exitCode = 1;
       return;
@@ -865,12 +1034,17 @@ export async function demoCmd(opts: DemoOptions = {}): Promise<void> {
   // seed will fail the same way and printing a success summary over it is
   // how `solix demo` came to report "30 sessions across 8 projects" while
   // seeding nothing at all.
+  //
+  // It is the first session of the plan, not a probe of its own: the seeder
+  // sends the same `session_start` again a moment later, which the server
+  // treats as the same session, so the galaxy is exactly the planned one.
+  const first = planSessions(demoRootCwd)[0]!;
   const reachable = await postEvent(boot.base, {
     event: 'session_start',
-    pid: 1,
-    cwd: demoRootCwd,
+    pid: first.pid,
+    cwd: first.cwd,
     ts: Date.now(),
-    payload: { session_id: 'demo-preflight', model: 'sonnet' },
+    payload: { session_id: first.id, model: first.model },
   });
   if (!reachable) {
     console.error(
@@ -888,11 +1062,24 @@ export async function demoCmd(opts: DemoOptions = {}): Promise<void> {
   void tryOpenBrowser(boot.base);
 
   if (opts.noTicker) {
-    console.log(
-      `[solix demo] --no-ticker set; static snapshot only. Exiting.`,
-    );
-    // Don't kill the spawned server — user explicitly opted into a static
-    // snapshot they presumably want to look at.
+    // Don't kill the spawned server — the flag is documented as "seed once and
+    // exit (static snapshot for screenshots)" and docs/CAPTURE.md tells you to
+    // use it, so the galaxy has to still be there when you point a camera at
+    // it. But it has to be released, too: a live child keeps the parent's
+    // event loop open, so this printed "Exiting." and then hung forever — and
+    // the only way out, Ctrl+C, reached the child through the shared process
+    // group and killed the very sandbox you were about to capture.
+    if (boot.child) {
+      boot.child.unref();
+      console.log(
+        `[solix demo] --no-ticker set; static snapshot only.\n` +
+          `             the sandbox server is left running (pid ${boot.child.pid})\n` +
+          (boot.logPath ? `             logging to ${boot.logPath}\n` : '') +
+          `             stop it with \`kill ${boot.child.pid}\`, or just run \`solix demo\` again.`,
+      );
+    } else {
+      console.log(`[solix demo] --no-ticker set; static snapshot only.`);
+    }
     return;
   }
 

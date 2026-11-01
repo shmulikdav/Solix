@@ -1,3 +1,4 @@
+import { resolvePort } from '@solix/shared';
 import { createSolixServer } from '@solix/server/create';
 import { getDb } from '@solix/server/db';
 import {
@@ -161,7 +162,7 @@ function ensureWired(noWire = false): void {
  * workaround.
  */
 export function resolveAndPublishPort(opts: StartOptions = {}): number {
-  const port = opts.port ?? Number(process.env.SOLIX_PORT ?? 4242);
+  const port = opts.port ?? resolvePort();
   process.env.SOLIX_PORT = String(port);
   return port;
 }
