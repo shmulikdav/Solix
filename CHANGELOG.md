@@ -5,6 +5,52 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.18.3] — 2026-11-01
+
+**Plan editing, and the hole that was under it.**
+
+Maestro's task routes have shipped since it landed and the frontend called
+two of them, so the brief has been disclosing for weeks that you cannot
+reorder, retitle, retarget a model, drop a task or add one. You can now:
+each task row carries ↑ ↓ ✎ ×, and the editor exposes the title, the
+worker's prompt, the verifier's acceptance criteria and the model — labelled
+by who reads them, because swapping the prompt and the criteria is the
+mistake this newly makes possible.
+
+Building it found the route underneath was not safe to point a button at.
+`PATCH /api/plans/:planId/tasks/:taskId` passed its whole body to the
+database, `status` included, with no regard for what the plan was doing. The
+plan's own PATCH has stripped `status` since 1.17 — "a generic PATCH must
+not flip a plan to running behind the orchestrator's back" — and the task
+route never got the same treatment. So it could mark a task `completed`
+without it ever running, rewrite the prompt of a task a worker was already
+executing, or **rewrite the acceptance criteria of a task already
+verified**, which retroactively changes what "verified against its
+acceptance criteria" meant. That is Maestro's central claim.
+
+Only something already on your loopback interface could reach the route, so
+nothing was exploitable from outside. But it was one text field away from
+being a feature.
+
+Three refusals now, stated once in `@solix/shared` so the route and the panel
+read the same predicate: a finished plan is a record, a task an agent is
+running belongs to the orchestrator, and a verified task's terms do not
+change after the fact. Everything else is editable — including a `pending`
+task inside a `running` plan, which is exactly what you want to fix when you
+spot a mistake mid-plan. The controls stay visible and go grey with the
+reason in the tooltip, so a refusal reads as a refusal rather than a bug.
+
+Smaller decisions, each with a test: a save sends only the fields that
+changed, so renaming a task cannot re-send a prompt someone else just edited
+in another tab; a move is two index writes and the first is rolled back if
+the second is refused, or two tasks would share an order; and a new task's
+acceptance criteria default to its title rather than the empty string, which
+would pass anything.
+
+909 tests. 50 of them are new here, across the shared rule, the route, the
+store and the rendered controls, each proven by reinstating its own bug —
+including one that caught a weakness in its own assertions.
+
 ## [1.18.2] — 2026-10-31
 
 **Your spend was counted again every time Solix restarted.**

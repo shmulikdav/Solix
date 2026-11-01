@@ -34,7 +34,7 @@ const TASK_STATES: PlanTaskStatus[] = [
   'skipped',
 ];
 
-describe('taskEditRefusal', () => {
+describe('CLAIM-VERIFIED-TERMS-FIXED · taskEditRefusal', () => {
   it('allows editing a task in a plan that has not started', () => {
     expect(
       taskEditRefusal({ status: 'awaiting_approval' }, { status: 'pending' }),
