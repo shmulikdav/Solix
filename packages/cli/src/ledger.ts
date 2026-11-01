@@ -2,6 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { getDb } from '@solix/server/db';
 import {
+  countLedgerDecisions,
   ledgerPatterns,
   ledgerToCsv,
   ledgerToMarkdown,
@@ -38,6 +39,11 @@ export function ledger(opts: {
   const since = until - (opts.days ?? 30) * 24 * 60 * 60 * 1000;
 
   const entries = listLedger(db, { since, until });
+  // What the window holds, which is not the same as what the query returned.
+  // `entries.length` was printed as the total while the query underneath
+  // capped at 1000 rows of every audit kind, so the record under-reported
+  // itself by an unknowable amount and said nothing.
+  const total = countLedgerDecisions(db, { since, until });
   const patterns = ledgerPatterns(entries);
 
   if (opts.md || opts.csv) {
@@ -48,7 +54,9 @@ export function ledger(opts: {
     );
     writeFileSync(
       file,
-      isCsv ? ledgerToCsv(entries) : ledgerToMarkdown(entries, patterns, { since, until }),
+      isCsv
+        ? ledgerToCsv(entries)
+        : ledgerToMarkdown(entries, patterns, { since, until }, total),
     );
     console.log(`[solix] wrote ${entries.length} decisions to ${file}`);
     console.log(
@@ -95,7 +103,10 @@ export function ledger(opts: {
   }
 
   console.log(
-    `\n${DIM}  ${entries.length} decision${entries.length === 1 ? '' : 's'} in the window.` +
+    `\n${DIM}  ${total} decision${total === 1 ? '' : 's'} in the window.` +
+      (total > entries.length
+        ? ` Showing the most recent ${entries.length}.`
+        : '') +
       ` Export with --md or --csv.${RESET}\n`,
   );
 }

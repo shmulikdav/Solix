@@ -1,5 +1,6 @@
 import type { DB } from '../db.js';
-import { listAudit } from './audit.js';
+import { countAudit, listAudit } from './audit.js';
+import type { AuditKind } from '@solix/shared';
 import { getSession } from './sessions.js';
 
 /**
@@ -34,6 +35,34 @@ const KIND_TO_DECISION: Record<string, LedgerDecision> = {
   command_blocked: 'blocked',
 };
 
+/** The same three, as a SQL filter. */
+export const DECISION_KINDS = Object.keys(KIND_TO_DECISION) as AuditKind[];
+
+/**
+ * How many decisions the window actually holds.
+ *
+ * The ledger's own count used to be `entries.length`, and `entries` came out
+ * of a query that asked for 5000 rows and was given 1000 — `listAudit`
+ * clamped it — of *every* audit kind, with the non-decisions discarded
+ * afterwards in JS. So the printed total was "decisions among the newest
+ * 1000 events of any sort", and on a busy install that is a fraction of
+ * 1000. Nothing said truncated.
+ *
+ * Three surfaces printed it as the whole record, including
+ * `**Decisions:** N` inside the signed fleet report. `countAudit` exists
+ * because this same defect was found in Mission Control's Interventions
+ * tile: "it stopped at 600 and stayed there forever, with nothing saying
+ * so." This is that fix, arriving at the ledger.
+ */
+export function countLedgerDecisions(
+  db: DB,
+  opts: { since?: number; until?: number } = {},
+): number {
+  const until = opts.until ?? Date.now();
+  const since = opts.since ?? until - 30 * 24 * 60 * 60 * 1000;
+  return countAudit(db, { kinds: DECISION_KINDS, since, until });
+}
+
 function detailOf(payload: Record<string, unknown> | undefined): string {
   if (!payload) return '';
   if (typeof payload.command === 'string') return payload.command;
@@ -64,14 +93,17 @@ export function listLedger(
 ): LedgerEntry[] {
   const until = opts.until ?? Date.now();
   const since = opts.since ?? until - 30 * 24 * 60 * 60 * 1000;
-  // One pass over the window, filtered to the three decision kinds. Session
-  // names are looked up once per id rather than per row.
+  // One pass over the window, filtered to the three decision kinds **in
+  // SQL**. This comment claimed as much while the filter ran in JS over
+  // whatever the unfiltered query returned, which is what made the limit
+  // apply to the wrong set. Session names are looked up once per id.
   const names = new Map<string, string | undefined>();
   const entries: LedgerEntry[] = [];
 
   for (const e of listAudit(db, {
     since,
     until,
+    kinds: DECISION_KINDS,
     limit: opts.limit ?? 5000,
     ...(opts.oldestFirst ? { order: 'asc' as const } : {}),
   })) {
@@ -179,13 +211,23 @@ export function ledgerToMarkdown(
   entries: LedgerEntry[],
   patterns: LedgerPattern[],
   window: { since: number; until: number },
+  /** How many decisions the window holds, when that is more than are listed. */
+  total = entries.length,
 ): string {
   const iso = (ts: number): string => new Date(ts).toISOString().replace('T', ' ').slice(0, 19);
+  const complete = total <= entries.length;
   const lines: string[] = [
     '# Solix approval ledger',
     '',
-    `${iso(window.since)} — ${iso(window.until)} · ${entries.length} decision${entries.length === 1 ? '' : 's'}`,
+    `${iso(window.since)} — ${iso(window.until)} · ${total} decision${total === 1 ? '' : 's'}`,
     '',
+    ...(complete
+      ? []
+      : [
+          `> **This export is incomplete.** It lists ${entries.length} of ${total}` +
+            ' decisions. Narrow the window to export the rest.',
+          '',
+        ]),
     '> This file contains the actual commands and file paths your agents asked',
     '> to run. Treat it like a shell history: fine for your team, not for a',
     '> public issue.',

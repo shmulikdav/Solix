@@ -694,7 +694,10 @@ export function createHttpApp(opts: {
         kind: kindStr ? (kindStr as AuditKind) : undefined,
         since: sinceStr ? parseInt(sinceStr, 10) : undefined,
         until: untilStr ? parseInt(untilStr, 10) : undefined,
-        limit: limitStr ? parseInt(limitStr, 10) : undefined,
+        // Clamped here rather than inside listAudit. The cap exists to stop
+        // a caller-supplied `limit` dragging the whole table through this
+        // route — it was never meant to silently truncate an export.
+        limit: limitStr ? Math.min(parseInt(limitStr, 10) || 200, 1000) : undefined,
       }),
     );
   });

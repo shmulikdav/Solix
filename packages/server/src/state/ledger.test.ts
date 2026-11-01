@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { resetDbForTests, type DB } from '../db.js';
 import { recordAudit } from './audit.js';
 import {
+  countLedgerDecisions,
   ledgerPatterns,
   ledgerToCsv,
   ledgerToMarkdown,
@@ -189,5 +190,113 @@ describe('export', () => {
       { since: 0, until: 1 },
     );
     expect(md.indexOf('Worth a look')).toBeLessThan(md.indexOf('## Decisions'));
+  });
+});
+
+/**
+ * CLAIM-LEDGER-COUNTS-EVERYTHING · the record says how much there is.
+ *
+ * `listLedger` asked `listAudit` for 5000 rows and `listAudit` clamped to
+ * `Math.min(opts.limit ?? 200, 1000)` — so every window, however busy, came
+ * back with at most 1000. Worse, no `kind` was passed, so the query took the
+ * newest 1000 rows of **every** audit kind (`advisor_invoked`,
+ * `session_terminated`, `skill_installed`, `galaxy_*`, `budget_paused`…) and
+ * threw the non-decisions away in JS afterwards. The real ceiling was
+ * "decisions among the newest 1000 events of any sort", which on an install
+ * with active advisors is a small fraction of 1000.
+ *
+ * Three surfaces printed that as the total and none of them said truncated:
+ * `solix ledger`'s footer, the markdown export's header, and — worst —
+ * `**Decisions:** N` inside the signed fleet report, an artifact whose
+ * entire purpose is being a fixed, verifiable record of a window.
+ *
+ * `countAudit` exists because this same defect was found in Mission
+ * Control's Interventions tile: *"it stopped at 600 and stayed there
+ * forever, with nothing saying so."* This is that fix arriving at the
+ * ledger.
+ */
+describe('CLAIM-LEDGER-COUNTS-EVERYTHING', () => {
+  let db: DB;
+
+  /** `n` approvals, plus `noise` unrelated audit rows interleaved. */
+  function seed(n: number, noise = 0): void {
+    for (let i = 0; i < n; i++) {
+      recordAudit(db, {
+        kind: 'permission_approved',
+        summary: `approved ${i}`,
+        payload: { tool: 'Bash', command: `echo ${i}` },
+      });
+    }
+    for (let i = 0; i < noise; i++) {
+      recordAudit(db, {
+        kind: 'advisor_invoked',
+        summary: `advisor ${i}`,
+        payload: {},
+      });
+    }
+  }
+
+  beforeEach(() => {
+    db = resetDbForTests();
+  });
+
+  it('counts every decision in the window, past the old 1000 ceiling', () => {
+    seed(1_200);
+    expect(countLedgerDecisions(db)).toBe(1_200);
+    // And the entries themselves are no longer capped at 1000 either.
+    expect(listLedger(db).length).toBe(1_200);
+  });
+
+  it('is not diluted by audit rows that are not decisions', () => {
+    // The sharp edge, and it only shows when the row limit is the binding
+    // constraint — which is why the first version of this test proved
+    // nothing: it seeded 1,800 rows under a 5,000-row fetch, so the JS
+    // filter still found every decision and removing the SQL filter changed
+    // the answer not at all.
+    //
+    // 900 decisions, then 900 advisor invocations on top. Filtered in SQL,
+    // a 1,000-row budget holds all 900 decisions. Filtered afterwards in
+    // JS, the newest 1,000 rows are the 900 invocations plus the 100 newest
+    // decisions — and 100 was what got printed as the total.
+    seed(900, 900);
+    expect(listLedger(db, { limit: 1_000 }).length).toBe(900);
+    expect(countLedgerDecisions(db)).toBe(900);
+  });
+
+  it('counts only the decision kinds, not every audit row', () => {
+    seed(5, 50);
+    expect(countLedgerDecisions(db)).toBe(5);
+  });
+
+  it('respects the window it was given', () => {
+    seed(10);
+    const until = Date.now();
+    expect(countLedgerDecisions(db, { since: until + 1_000, until: until + 2_000 }))
+      .toBe(0);
+  });
+
+  it('an export that cannot carry everything says so', () => {
+    seed(50);
+    const shown = listLedger(db, { limit: 10 });
+    const md = ledgerToMarkdown(shown, [], { since: 0, until: Date.now() }, 50);
+    expect(md).toContain('50 decisions');
+    expect(md).toMatch(/This export is incomplete/);
+    expect(md).toContain('10 of 50');
+  });
+
+  it('counts the window independently of how much was fetched', () => {
+    // The count must not be `entries.length` of a limited read — that is
+    // precisely what every surface was printing.
+    seed(50);
+    expect(listLedger(db, { limit: 10 })).toHaveLength(10);
+    expect(countLedgerDecisions(db)).toBe(50);
+  });
+
+  it('a complete export makes no such claim', () => {
+    seed(5);
+    const all = listLedger(db);
+    const md = ledgerToMarkdown(all, [], { since: 0, until: Date.now() }, 5);
+    expect(md).toContain('5 decisions');
+    expect(md).not.toMatch(/incomplete/);
   });
 });
