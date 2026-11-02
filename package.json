@@ -26,7 +26,8 @@
     "rehearse": "cd packages/cli && npm pack --silent >/dev/null && cd ../.. && node scripts/rehearse-install.mjs",
     "claims": "node scripts/emit-claims.mjs",
     "claims:check": "node scripts/emit-claims.mjs --check",
-    "release:tag": "node scripts/release-tag.mjs"
+    "release:tag": "node scripts/release-tag.mjs",
+    "release:notes": "node scripts/publish-release-notes.mjs"
   },
   "devDependencies": {
     "@testing-library/dom": "10.4.0",
