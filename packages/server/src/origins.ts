@@ -63,3 +63,44 @@ export function isSafeFetchUrl(raw: string): boolean {
   }
   return true;
 }
+
+/**
+ * Is this `Host` header one this instance may be addressed by?
+ *
+ * Solix binds to loopback and used to trust any request that arrived there —
+ * including one a browser sent to `attacker.example` after a DNS-rebinding
+ * page pointed that name at 127.0.0.1. Such a request is *same-origin* from
+ * the browser's point of view: no `Origin` header, no CORS, and the response
+ * is readable. Measured on 1.18.3: `GET /api/plans`, `/api/missions` and
+ * `/api/system/governance` answered 200 with data under a foreign `Host`.
+ * Mutations were already refused by the Origin gate; reads were not.
+ *
+ * So the name in `Host` must be a loopback name, a `*.localhost` name, or one
+ * the operator listed in `SOLIX_ALLOWED_HOSTS` (comma-separated, for a LAN or
+ * tailnet address). The port is ignored. A *missing* `Host` is allowed: every
+ * browser sends one, so its absence means a non-browser caller.
+ */
+export function isAllowedHost(
+  host: string | undefined | null,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (host === undefined || host === null) return true;
+  let name = host.trim().toLowerCase();
+  if (name.startsWith('[')) {
+    const end = name.indexOf(']');
+    if (end === -1) return false;
+    name = name.slice(1, end);
+  } else {
+    const colon = name.indexOf(':');
+    if (colon !== -1) name = name.slice(0, colon);
+  }
+  if (!name) return false;
+  if (name === '127.0.0.1' || name === 'localhost' || name === '::1') return true;
+  if (name.endsWith('.localhost')) return true;
+  if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(name)) return true;
+  const extra = (env.SOLIX_ALLOWED_HOSTS ?? '')
+    .split(',')
+    .map((h) => h.trim().toLowerCase())
+    .filter(Boolean);
+  return extra.includes(name);
+}

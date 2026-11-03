@@ -25,6 +25,7 @@ import {
 } from './reporting.js';
 import { importCmd } from './import.js';
 import { level } from './level.js';
+import { rulesAdd, rulesDefaults, rulesList, rulesRemove, rulesSetEnabled } from './rules.js';
 import { ledger } from './ledger.js';
 import {
   exportGalaxyCmd,
@@ -140,6 +141,55 @@ program
   .description('Show or set how much Solix holds for you (observe|standard|strict)')
   .action((name?: string) => {
     level(name);
+  });
+
+const rules = program
+  .command('rules')
+  .description('Standing decisions at the gate — what is allowed without asking you');
+rules
+  .command('list', { isDefault: true })
+  .description('List the rules in force')
+  .option('--project <dir>', 'include the rules of this project')
+  .action((opts: { project?: string }) => {
+    rulesList(opts);
+  });
+rules
+  .command('defaults')
+  .description('Install the opt-in defaults: read-only tools, in-project writes, a short benign shell list')
+  .option('--project <dir>', 'scope them to this project instead of everywhere')
+  .action((opts: { project?: string }) => {
+    rulesDefaults(opts);
+  });
+rules
+  .command('add')
+  .description('Add a rule: --prefix "git status" | --regex "^npm test" | --readonly | --writes-inside-root')
+  .option('--prefix <text>', 'allow shell commands starting with this (every segment must match)')
+  .option('--regex <pattern>', 'allow shell commands matching this')
+  .option('--readonly', 'allow Read, Glob and Grep')
+  .option('--writes-inside-root', 'allow Write and Edit inside the project')
+  .option('--deny', 'refuse instead of allow')
+  .option('--tool <name>', 'limit to one tool (default: Bash for shell rules, any otherwise)')
+  .option('--project <dir>', 'scope the rule to this project')
+  .action((opts: { prefix?: string; regex?: string; readonly?: boolean; writesInsideRoot?: boolean; deny?: boolean; tool?: string; project?: string }) => {
+    rulesAdd(opts);
+  });
+rules
+  .command('enable <id>')
+  .description('Put a rule back in force')
+  .action((id: string) => {
+    rulesSetEnabled(id, true);
+  });
+rules
+  .command('disable <id>')
+  .description('Keep a rule but stop consulting it')
+  .action((id: string) => {
+    rulesSetEnabled(id, false);
+  });
+rules
+  .command('remove <id>')
+  .description('Delete a rule')
+  .action((id: string) => {
+    rulesRemove(id);
   });
 
 program

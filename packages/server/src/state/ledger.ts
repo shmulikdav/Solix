@@ -276,3 +276,18 @@ export function ledgerToCsv(entries: LedgerEntry[]): string {
   }
   return `${rows.join('\n')}\n`;
 }
+
+/**
+ * Decisions a rule made, counted apart from a person's. `DECISION_KINDS`
+ * deliberately excludes these: the signed report's "Decisions: N" counts what
+ * people decided, and a rule firing a hundred times is not a hundred people.
+ * (`CLAIM-AUTO-DECISIONS-LABELLED`)
+ */
+export const RULE_KINDS: AuditKind[] = ['permission_auto_approved', 'permission_auto_denied'];
+
+export function countRuleDecisions(
+  db: DB,
+  opts: { since?: number; until?: number } = {},
+): number {
+  return countAudit(db, { kinds: RULE_KINDS, since: opts.since, until: opts.until });
+}

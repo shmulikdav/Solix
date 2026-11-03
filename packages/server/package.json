@@ -24,6 +24,14 @@
       "types": "./src/state/governance.ts",
       "import": "./src/state/governance.ts"
     },
+    "./rules": {
+      "types": "./src/state/rules.ts",
+      "import": "./src/state/rules.ts"
+    },
+    "./projects": {
+      "types": "./src/state/projects.ts",
+      "import": "./src/state/projects.ts"
+    },
     "./ledger": {
       "types": "./src/state/ledger.ts",
       "import": "./src/state/ledger.ts"

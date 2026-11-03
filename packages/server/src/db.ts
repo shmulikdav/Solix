@@ -290,6 +290,20 @@ CREATE TABLE IF NOT EXISTS notifiers (
   enabled INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS approval_rules (
+  id TEXT PRIMARY KEY,
+  scope TEXT NOT NULL,
+  project_id TEXT,
+  tool TEXT NOT NULL,
+  match TEXT NOT NULL,
+  value TEXT,
+  decision TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  hits INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  created_by TEXT
+);
 `;
 
 export type DB = Database.Database;

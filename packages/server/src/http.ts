@@ -163,7 +163,15 @@ import {
 } from './state/galaxy.js';
 import { diffManifests, taskEditRefusal } from '@solix/shared';
 import { RegistryClient } from './cloud.js';
-import { isAllowedOrigin, isSafeFetchUrl } from './origins.js';
+import { isAllowedHost, isAllowedOrigin, isSafeFetchUrl } from './origins.js';
+import {
+  createRule,
+  deleteRule,
+  installDefaultRules,
+  listRules,
+  parseRuleInput,
+  setRuleEnabled,
+} from './state/rules.js';
 import type { GalaxyManifest } from '@solix/shared';
 
 export function createHttpApp(opts: {
@@ -217,6 +225,22 @@ export function createHttpApp(opts: {
     }),
   );
 
+  // DNS-rebinding defense. A page at attacker.example can point that name at
+  // 127.0.0.1 and then read this API as if it were same-origin — no Origin
+  // header, no CORS. The Origin gate below never sees such a request. The
+  // name the request was addressed to has to be one of ours.
+  app.use('*', async (c, next) => {
+    if (!isAllowedHost(c.req.header('host'))) {
+      return c.json(
+        {
+          error:
+            'This hostname is not one Solix answers to. Use 127.0.0.1 or localhost, or list the name in SOLIX_ALLOWED_HOSTS.',
+        },
+        403,
+      );
+    }
+    await next();
+  });
   // CSRF / cross-origin control-plane defense. CORS stops a malicious page
   // from *reading* our responses, but browsers can still *send* cross-origin
   // state-changing requests (a "simple" POST needs no preflight) — which is
@@ -345,7 +369,9 @@ export function createHttpApp(opts: {
       : result.approved
         ? 'allow'
         : 'deny';
-    return c.json({ decision });
+    // A rule's refusal carries its own reason, so the agent is told a standing
+    // decision applies rather than that a person just reviewed this call.
+    return c.json(result.reason ? { decision, reason: result.reason } : { decision });
   });
 
   // The one governance dial. GET reads it, POST sets it.
@@ -1236,6 +1262,59 @@ export function createHttpApp(opts: {
   app.get('/api/system/storage', (c) => c.json(describeStorage()));
 
   // ──── Sprint M: goals (constellations) ──────────────────────
+  // Approval rules — a person's standing decisions at the gate. Consulted
+  // after the containment floor and before anyone is asked (state/rules.ts).
+  app.get('/api/rules', (c) =>
+    c.json(listRules(opts.db, { projectId: c.req.query('projectId') || undefined })),
+  );
+  app.post('/api/rules', async (c) => {
+    const parsed = parseRuleInput(await c.req.json().catch(() => null));
+    if (!parsed.ok) return c.json({ error: parsed.error }, 400);
+    const rule = createRule(opts.db, {
+      ...parsed.input,
+      createdBy: parsed.input.createdBy ?? 'ui',
+    });
+    opts.router.broadcastRuleUpsert(rule);
+    return c.json(rule);
+  });
+  app.post('/api/rules/defaults', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { projectId?: unknown };
+    const projectId =
+      typeof body.projectId === 'string' && body.projectId ? body.projectId : undefined;
+    const res = installDefaultRules(opts.db, projectId);
+    for (const r of res.installed) opts.router.broadcastRuleUpsert(r);
+    return c.json({ installed: res.installed.length, skipped: res.skipped, rules: res.installed });
+  });
+  app.patch('/api/rules/:id', async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { enabled?: unknown };
+    if (typeof body.enabled !== 'boolean') {
+      return c.json({ error: 'enabled must be a boolean' }, 400);
+    }
+    const rule = setRuleEnabled(opts.db, c.req.param('id'), body.enabled);
+    if (!rule) return c.json({ error: 'not found' }, 404);
+    opts.router.broadcastRuleUpsert(rule);
+    return c.json(rule);
+  });
+  app.delete('/api/rules/:id', (c) => {
+    const id = c.req.param('id');
+    const ok = deleteRule(opts.db, id);
+    if (ok) opts.router.broadcastRuleRemove(id);
+    return c.json({ ok });
+  });
+  // What is waiting on a person right now — the websocket tells the UI; this
+  // is the same answer for scripts and anyone not holding a socket open.
+  app.get('/api/decisions/pending', (c) =>
+    c.json(
+      opts.router.pendingPermissions().map((p) => ({
+        requestId: p.requestId,
+        sessionId: p.sessionId,
+        tool: p.tool,
+        args: p.args,
+        createdAt: p.createdAt,
+      })),
+    ),
+  );
+
   app.get('/api/goals', (c) => c.json(listGoals(opts.db)));
 
   app.post('/api/goals', async (c) => {

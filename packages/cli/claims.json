@@ -164,6 +164,24 @@
       "claim": "Editing a routine keeps its run history and its webhook URL. A routine's cadence can be corrected; its trigger cannot be changed, and a generic edit cannot enable it.",
       "publishedIn": "brief, Routines tab, CHANGELOG 1.18.3",
       "heldBy": "packages/server/src/http.routineedit.test.ts"
+    },
+    {
+      "id": "CLAIM-RULES-NEVER-OVERRIDE-FLOOR",
+      "claim": "An approval rule is consulted only after the containment floor. No rule, however broad, lets a denylisted command through.",
+      "publishedIn": "README, `solix rules`, Fleet → Rules",
+      "heldBy": "packages/server/src/router.rules.test.ts"
+    },
+    {
+      "id": "CLAIM-AUTO-DECISIONS-LABELLED",
+      "claim": "A decision made by a rule is recorded as the rule's, never as a person's: the ledger's decision count excludes it and counts it separately.",
+      "publishedIn": "`solix ledger`, the signed report",
+      "heldBy": "packages/server/src/router.rules.test.ts"
+    },
+    {
+      "id": "CLAIM-HOST-IS-OURS",
+      "claim": "The API and the websocket answer only to a loopback name, a `*.localhost` name, or a name listed in `SOLIX_ALLOWED_HOSTS` — so a DNS-rebinding page cannot read local state as if it were same-origin.",
+      "publishedIn": "README (security), smoke suite H",
+      "heldBy": "packages/server/src/host.guard.test.ts"
     }
   ]
 }

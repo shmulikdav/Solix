@@ -639,6 +639,10 @@ export interface TimelineEvent {
 export type AuditKind =
   | 'permission_approved'
   | 'permission_denied'
+  // Decided by an approval rule, not a person. Kept distinct from the two
+  // above so the signed ledger never counts a rule as a human decision.
+  | 'permission_auto_approved'
+  | 'permission_auto_denied'
   // Refused by containment before any human saw it. Distinct from
   // `permission_denied`, which means a person looked at it and said no —
   // conflating the two makes it impossible to say how much the denylist
@@ -705,3 +709,34 @@ export interface GalaxyManifestDiff {
     removed: string[];
   };
 }
+
+// ---------------------------------------------------------------------------
+// Approval rules — a person's standing decision at the gate (state/rules.ts)
+// ---------------------------------------------------------------------------
+
+export type ApprovalRuleScope = 'global' | 'project';
+export type ApprovalRuleMatch =
+  | 'readonly_tool'
+  | 'write_inside_root'
+  | 'command_prefix'
+  | 'command_regex';
+export type ApprovalRuleDecision = 'allow' | 'deny';
+
+export interface ApprovalRule {
+  id: string;
+  scope: ApprovalRuleScope;
+  projectId?: string;
+  /** Tool name, or `*` for any tool the matcher applies to. */
+  tool: string;
+  match: ApprovalRuleMatch;
+  /** The prefix or regular expression for the command matchers. */
+  value?: string;
+  decision: ApprovalRuleDecision;
+  enabled: boolean;
+  /** How many calls this rule has decided. */
+  hits: number;
+  createdAt: number;
+  createdBy?: string;
+}
+
+export type ApprovalRuleInput = Omit<ApprovalRule, 'id' | 'enabled' | 'hits' | 'createdAt'>;

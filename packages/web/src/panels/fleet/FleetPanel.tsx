@@ -5,6 +5,7 @@ import { Surface } from '../../shell/Surface.js';
 import { ConnectionsTab } from './ConnectionsTab.js';
 import { CrewTab } from './CrewTab.js';
 import { OrgsTab } from './OrgsTab.js';
+import { RulesTab } from './RulesTab.js';
 import { RoutinesTab } from './RoutinesTab.js';
 import { SkillsTab } from './SkillsTab.js';
 import { TeamsTab } from './TeamsTab.js';
@@ -38,6 +39,7 @@ const SECTION_TITLES: Record<FleetTabId, string> = {
   routines: 'Routines',
   connections: 'Connections',
   orgs: 'Orgs',
+  rules: 'Rules',
 };
 
 const SECTION_BLURBS: Record<FleetTabId, string> = {
@@ -47,6 +49,8 @@ const SECTION_BLURBS: Record<FleetTabId, string> = {
   routines: 'Recurring agent runs. Each one starts a real session and costs money until you disable it.',
   connections: 'API keys and secrets, write-only and encrypted, granted to the agents you choose.',
   orgs: 'Keep separate work separate. Orgs scope which plans you see, and stay on this machine.',
+  rules:
+    'Standing decisions at the gate. A rule answers a call so you are not asked; the denylist still runs first and no rule can override it.',
 };
 
 const DEFAULT_TAB: FleetTabId = 'crew';
@@ -79,6 +83,7 @@ export function FleetPanel({ open }: { open: boolean }): JSX.Element | null {
       {tab === 'routines' && <RoutinesTab open />}
       {tab === 'skills' && <SkillsTab />}
       {tab === 'orgs' && <OrgsTab />}
+      {tab === 'rules' && <RulesTab />}
     </Surface>
   );
 }
