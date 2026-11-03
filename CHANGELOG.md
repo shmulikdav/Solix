@@ -5,7 +5,7 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.20.1] — 2026-11-03
 
 ### Security: a redirect could write outside the project under an allow rule
 
@@ -25,6 +25,12 @@ were never reachable this way; but any other file outside the project was.
   while `cat x >/dev/null` passed. Discarding output and the standard streams
   (`/dev/null`, `/dev/stdout`, `/dev/stderr`, `/dev/stdin`) are not paths
   outside the project, spaced or not. `CLAIM-RULES-SEE-REDIRECTS`.
+
+### Fixed
+
+- `npm publish` warned that it auto-corrected the `solix` bin path
+  (`./dist/index.js` → `dist/index.js`). The package now says it that way
+  itself. Behaviour is unchanged.
 
 ## [1.20.0] — 2026-11-03
 

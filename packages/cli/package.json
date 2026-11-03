@@ -1,11 +1,11 @@
 {
   "name": "@shmulikdav/solix",
-  "version": "1.20.0",
+  "version": "1.20.1",
   "description": "Solix — the control layer for your coding agents",
   "license": "MIT",
   "type": "module",
   "bin": {
-    "solix": "./dist/index.js"
+    "solix": "dist/index.js"
   },
   "main": "./dist/index.js",
   "files": [
