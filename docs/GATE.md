@@ -1,5 +1,20 @@
 # `solix gate` — the gate with nobody at it
 
+> **Unreleased.** `solix gate` is on `main` and ships in the next release. On
+> `@shmulikdav/solix` 1.18.3 from npm it is not a command (that version answers
+> `error: unknown option '--rules'`). To try it now, build from `main` and run
+> the built CLI directly, which leaves your installed `solix` alone:
+>
+> ```sh
+> git checkout main && git pull
+> pnpm install && pnpm -r build
+> node packages/cli/dist/index.js gate --rules defaults -- \
+>   claude -p "list the files here, then try to npm publish"
+> ```
+>
+> You should see the listing allowed, the publish refused, exit 3, and a
+> `solix-gate/` folder.
+
 Run an agent in CI, or anywhere unattended, under the same approval rules your
 team uses at the desk.
 

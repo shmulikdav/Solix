@@ -58,6 +58,18 @@ Also closed: an unreadable permission payload was answered `allow`. With a
 person watching that was tolerable; under a headless gate it now fails closed.
 `CLAIM-HEADLESS-FAILS-CLOSED`. See `docs/GATE.md`.
 
+### A typo no longer starts Solix
+
+Reported from a real machine: `solix gate --rules defaults -- …` against the
+published 1.18.3 answered `error: unknown option '--rules'`. `gate` is not in
+1.18.3, and `start` is the default command, so commander handed it the unknown
+word and `start` rejected the option. Without options it was worse — commander
+12 ignores excess arguments, so `solix gaet` **started the server, wired
+`~/.claude`, and opened the browser**. An unknown first word is now refused
+before anything runs: `error: unknown command 'gaet' — did you mean 'gate'?`,
+with the running version and a note that newer docs may need a newer release.
+`start` also refuses excess arguments. `CLAIM-TYPO-NEVER-STARTS`.
+
 ## [1.19.0] — Unreleased
 
 ### A hold is the exception now

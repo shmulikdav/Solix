@@ -242,6 +242,12 @@
       "claim": "Under `solix gate` (a headless server), a call a rule allows proceeds and a call no rule covers is refused immediately — never held — recorded as an automatic decision, not a person's. The denylist still runs first, the level dial cannot wave a call through, and a run with any refusal exits non-zero unless `--allow-denials`.",
       "publishedIn": "`solix gate`, docs/GATE.md, CHANGELOG 1.20.0",
       "heldBy": "packages/server/src/router.headless.test.ts"
+    },
+    {
+      "id": "CLAIM-TYPO-NEVER-STARTS",
+      "claim": "A first word that is not a `solix` command is refused with a clear error naming it (and the closest command, if near) before anything runs — it never falls through to `start`, so a typo never starts the server or touches `~/.claude`.",
+      "publishedIn": "`solix --help`, CHANGELOG 1.20.0",
+      "heldBy": "packages/cli/src/commandGuard.test.ts"
     }
   ]
 }

@@ -26,6 +26,7 @@ import {
 import { importCmd } from './import.js';
 import { level } from './level.js';
 import { gate } from './gate.js';
+import { unknownCommand, unknownCommandMessage } from './commandGuard.js';
 import { rulesAdd, rulesDefaults, rulesList, rulesRemove, rulesSetEnabled } from './rules.js';
 import { ledger } from './ledger.js';
 import {
@@ -67,6 +68,7 @@ program
 
 program
   .command('start', { isDefault: true })
+  .allowExcessArguments(false)
   .description('Start the Solix server and open the browser')
   // No commander default: it would always beat SOLIX_PORT, which is
   // documented and was therefore dead. start() applies the fallback.
@@ -605,6 +607,17 @@ program
       await connectCmd(name, opts);
     },
   );
+
+// Refuse an unknown first word before commander routes it to the default
+// `start` — which would otherwise start the server on a typo. See commandGuard.
+{
+  const known = program.commands.flatMap((c) => [c.name(), ...c.aliases()]);
+  const unknown = unknownCommand(process.argv, known);
+  if (unknown) {
+    console.error(unknownCommandMessage(unknown, __SOLIX_VERSION__));
+    process.exit(1);
+  }
+}
 
 program.parseAsync(process.argv).catch((err) => {
   // A stack trace is the right output for a bug and the wrong output for a
