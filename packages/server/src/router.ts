@@ -45,6 +45,7 @@ import {
 } from './state/wrappers.js';
 import type { Launcher } from './launcher.js';
 import type { TranscriptWatcherManager } from './state/transcript.js';
+import { scratchpadDirFor } from './state/transcript.js';
 import type { ApprovalRule } from '@solix/shared';
 import { applyRules, describeRule } from './state/rules.js';
 import {
@@ -665,6 +666,10 @@ export class EventRouter {
         tool,
         args,
         root: session.cwd,
+        // The session's own scratchpad counts as inside its confinement, so an
+        // agent's scratch commands are decided by rule rather than held one by
+        // one. See scratchpadDirFor and CLAIM-SCRATCHPAD-COVERED.
+        scratchpad: scratchpadDirFor(session.cwd, session.id),
         projectId: session.projectId,
       });
       if (verdict) {

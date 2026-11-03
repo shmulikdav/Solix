@@ -90,6 +90,7 @@ If you cannot write step 2, you cannot make the claim.
 | `CLAIM-DOWNGRADE-NEEDS-FORCE` | Lowering the governance dial while contained sessions are in flight is refused without `--force`, so a running worker's rules are not changed mid-task by accident. | `solix level`, Fleet → Governance, CHANGELOG 1.19.0 | `packages/server/src/governance.downgrade.test.ts` |
 | `CLAIM-PARALLEL-LIMIT-ENFORCED` | A plan dispatches at most `parallelLimit` tasks at once (default 1, serial). Above 1, only isolated tasks — each in its own working directory — are co-dispatched; tasks sharing the plan's checkout stay serial. | Maestro, CHANGELOG 1.19.0 | `packages/server/src/orchestrator/parallel.test.ts` |
 | `CLAIM-HOOK-OVERHEAD-BOUNDED` | Every shipped hook time-caps its network call and fails open, so a hook can never hold a tool call beyond its cap (one second for telemetry, the gate timeout for a held decision) nor fail one. | install banner, brief, CHANGELOG 1.19.0 | `packages/cli/src/hookOverhead.test.ts` |
+| `CLAIM-SCRATCHPAD-COVERED` | A worker's own session scratchpad is treated as inside its confinement for rule coverage, so default rules decide its scratch commands rather than holding each one. Every other path outside the project root stays held, and the command denylist is untouched. | `solix rules`, CHANGELOG 1.19.0 | `packages/server/src/state/rules.test.ts` |
 
 ## The matrix
 

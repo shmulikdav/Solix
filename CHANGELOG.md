@@ -45,11 +45,16 @@ hundred people.
   the agent a standing decision applies rather than that a person just
   reviewed this call.
 
-Re-run of the same plan with the defaults: **holds 30 → 4** (a project binary
-run directly, two writes to a scratchpad outside the project, a `find`), 27
-calls decided by rules, **4m00s against 8m58s**, $5.45, 33/33 tests,
-committed. Two of the four are holds a person should see; the other two are a
-rule away.
+Re-run of the same plan with the defaults: **holds 30 → 4**, 27 calls decided
+by rules, **4m00s against 8m58s**, $5.45, 33/33 tests. Of the four residual
+holds, most were the worker touching its own session scratchpad — an isolated,
+per-session working area that happens to live outside the project root, so a
+prefix rule refused to cover it. The scratchpad is now treated as inside the
+worker's confinement for rule coverage (the containment denylist is untouched,
+and every other outside-root path still holds), so those stop reaching a
+person. `cd` and benign `VAR=value` assignments are covered too.
+`CLAIM-SCRATCHPAD-COVERED`. The new live hold count is re-measured on a real
+machine (this is proven at the unit level; see `docs/EVAL.md`).
 
 ### One set of hooks, whichever home you started from
 

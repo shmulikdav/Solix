@@ -7,7 +7,7 @@ import {
   watch,
   type FSWatcher,
 } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { costForUsage, totalTokens } from '@solix/shared';
 import type { Broadcaster } from '../broadcaster.js';
@@ -58,12 +58,29 @@ export function contextPct(totalTokens: number): number | null {
 // older falls off — the chat UI is for live conversation, not deep history.
 const REPLAY_TAIL_BYTES = 64 * 1024;
 
-function encodeProjectPath(cwd: string): string {
+export function encodeProjectPath(cwd: string): string {
   return cwd.replace(/[/\\]/g, '-');
 }
 
 export function transcriptPathFor(cwd: string, sessionId: string): string {
   return join(TRANSCRIPT_BASE, encodeProjectPath(cwd), `${sessionId}.jsonl`);
+}
+
+/**
+ * Where Claude Code puts a session's scratchpad — the isolated, per-session
+ * working area it tells agents they can use freely. Derived the same way as the
+ * transcript path, from data Solix already has (the session's cwd and id, and
+ * the launching user's uid, which the worker shares because Solix spawned it):
+ * `<tmp>/claude-<uid>/<cwd-slug>/<session-id>/scratchpad`. Verified against a
+ * live layout on 2026-11-03.
+ *
+ * Fail-safe by construction: the path includes the session's own id, so if the
+ * scheme ever changes this derivation only ever points at nothing — a command
+ * touching the real scratchpad then simply stays held, never wrongly allowed.
+ */
+export function scratchpadDirFor(cwd: string, sessionId: string): string {
+  const uid = typeof process.getuid === 'function' ? process.getuid() : 0;
+  return join(tmpdir(), `claude-${uid}`, encodeProjectPath(cwd), sessionId, 'scratchpad');
 }
 
 interface AssistantContentBlock {

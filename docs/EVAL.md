@@ -63,22 +63,33 @@ What this says plainly:
 
 - **The gate's cost is attention, and 1.19 is where that stopped being
   absurd.** Thirty holds for thirty tool calls — `Read SPEC.md` included — was
-  the finding that blocked adoption. Default rules take that to four, and two
-  of the four are a rule away.
+  the finding that blocked adoption. Default rules take that to four. Most of
+  the four were the worker touching its own session scratchpad, which lives
+  outside the project root; that is now covered (`CLAIM-SCRATCHPAD-COVERED`),
+  proven at the unit level. The live hold count after that change has not yet
+  been re-measured here — see the note under the targets.
 - **Solix costs more than plain Claude Code**, because it runs a verifier after
   every worker and sometimes retries. That is the trade: a second model checks
   the work, and nothing destructive runs unseen. On this task the multiple is
   about 3×.
-- **Against the targets below, 1.19 is close but not clean.** Holds landed at 4
-  (target ≤3) and cost at ~$5.45 (target ≤$4). The holds gap is rule coverage;
-  the cost gap is the verifier pass, which 1.20's cheaper-model routing is meant
-  to narrow. Stated here rather than rounded away.
+- **Against the targets below, 1.19 is close.** The last measured run landed at
+  4 holds (target ≤3) and ~$5.45 (target ≤$4). The scratchpad fix after that run
+  addresses the holds gap but has not been re-measured live; the cost gap is the
+  verifier pass, which 1.20's cheaper-model routing is meant to narrow. Stated
+  here rather than rounded away.
 
 ## 1.19 targets
 
 On this spec, at `standard` with default rules: **holds ≤3, cost ≤$4, wall ≤7
-min, 0 unplanned interventions, tests passing and committed.** The last run met
-wall, interventions and result; it missed holds (4) and cost (~$5.45).
+min, 0 unplanned interventions, tests passing and committed.** The last full run
+met wall, interventions and result, and missed holds (4) and cost (~$5.45).
+
+**Pending re-measure.** The scratchpad-coverage change
+(`CLAIM-SCRATCHPAD-COVERED`) lands after that run and should take the holds
+under target, but this repo's container cannot launch a real agent, so it is
+proven only at the unit level. The number here is not updated to a passing
+figure until a live `scripts/eval/run.sh` on the branch build confirms it — no
+unverified "≤3" is published.
 
 ## Running it
 

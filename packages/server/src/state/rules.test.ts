@@ -240,3 +240,57 @@ describe('describeRule', () => {
     expect(describeRule({ tool: '*', match: 'readonly_tool', decision: 'deny', scope: 'global' })).toBe('refuse read-only tools');
   });
 });
+
+/**
+ * CLAIM-SCRATCHPAD-COVERED. A worker's own session scratchpad is inside its
+ * confinement for coverage, so the default rules decide its scratch commands
+ * rather than holding each one — the residual holds the 1.19 eval still had.
+ * Every other outside-root path stays held, and nothing destructive is covered.
+ */
+const SCRATCH = '/tmp/claude-0/-home-me-project/sess-123/scratchpad';
+const cmdScratch = (command: string) => ({ tool: 'Bash', args: { command }, root: ROOT, scratchpad: SCRATCH });
+
+describe('the session scratchpad is inside confinement', () => {
+  it('covers a prefixed command that touches the scratchpad, once the scratchpad is known', () => {
+    expect(evaluateRules([prefix('mkdir -p')], cmdScratch(`mkdir -p ${SCRATCH}/ex`))?.decision).toBe('allow');
+    expect(evaluateRules([prefix('cat')], cmdScratch(`cat ${SCRATCH}/notes.txt`))?.decision).toBe('allow');
+    // Without the scratchpad, the same command is held — that absolute path is
+    // outside the project root. This is the bug the claim guards.
+    expect(evaluateRules([prefix('mkdir -p')], cmd(`mkdir -p ${SCRATCH}/ex`))).toBeNull();
+  });
+
+  it('still holds a path that is neither the project nor the scratchpad', () => {
+    expect(evaluateRules([prefix('cat')], cmdScratch('cat /etc/hostname'))).toBeNull();
+    expect(evaluateRules([prefix('mkdir -p')], cmdScratch('mkdir -p /other/dir'))).toBeNull();
+    expect(evaluateRules([prefix('cat')], cmdScratch('cat ~/.ssh/id_rsa'))).toBeNull();
+  });
+
+  it('never covers a destructive command, scratchpad or not', () => {
+    // `rm` is not a prefix, so even inside the scratchpad it is held — and the
+    // containment denylist refuses it outright before rules in the real router.
+    expect(evaluateRules([prefix('mkdir -p')], cmdScratch(`rm -rf ${SCRATCH}`))).toBeNull();
+  });
+
+  it('allows `cd` into the scratchpad and the command after it', () => {
+    const rules = [prefix('cd'), prefix('node')];
+    expect(evaluateRules(rules, cmdScratch(`cd ${SCRATCH} && node ${SCRATCH}/s.js`))?.decision).toBe('allow');
+    // `cd` into an outside path stays held.
+    expect(evaluateRules([prefix('cd')], cmdScratch('cd /etc'))).toBeNull();
+  });
+
+  it('treats a leading variable assignment as covering nothing, not as a block', () => {
+    const rules = [prefix('mkdir -p')];
+    // `S=<scratchpad>; mkdir -p $S` — the assignment is benign (its path is in
+    // confinement) and `$S` is not an absolute token, so the whole thing covers.
+    expect(evaluateRules(rules, cmdScratch(`S=${SCRATCH}; mkdir -p $S/ex`))?.decision).toBe('allow');
+    // An assignment to an outside path is not benign — still held.
+    expect(evaluateRules(rules, cmdScratch('S=/etc; mkdir -p $S/ex'))).toBeNull();
+    // Only assignments, no command: nothing runs, but nothing names a rule, so
+    // it falls through to a person rather than being silently allowed.
+    expect(evaluateRules(rules, cmdScratch(`S=${SCRATCH}`))).toBeNull();
+  });
+
+  it('ships `cd` in the default prefixes', () => {
+    expect(DEFAULT_ALLOW_PREFIXES).toContain('cd');
+  });
+});

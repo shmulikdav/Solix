@@ -224,6 +224,12 @@
       "claim": "Every shipped hook time-caps its network call and fails open, so a hook can never hold a tool call beyond its cap (one second for telemetry, the gate timeout for a held decision) nor fail one.",
       "publishedIn": "install banner, brief, CHANGELOG 1.19.0",
       "heldBy": "packages/cli/src/hookOverhead.test.ts"
+    },
+    {
+      "id": "CLAIM-SCRATCHPAD-COVERED",
+      "claim": "A worker's own session scratchpad is treated as inside its confinement for rule coverage, so default rules decide its scratch commands rather than holding each one. Every other path outside the project root stays held, and the command denylist is untouched.",
+      "publishedIn": "`solix rules`, CHANGELOG 1.19.0",
+      "heldBy": "packages/server/src/state/rules.test.ts"
     }
   ]
 }
