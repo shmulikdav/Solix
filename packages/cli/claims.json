@@ -238,6 +238,18 @@
       "heldBy": "packages/server/src/state/rules.test.ts"
     },
     {
+      "id": "CLAIM-RULES-SEE-EVERY-PATH",
+      "claim": "No allow rule covers a command that reaches outside the project however the path is spelled: through `$HOME`/`${HOME}` or a variable the command cannot know, through `..` (resolved from the call's own directory), as an option value (`--output=/x`, `-o/x`, `key=../x`), through a symlink inside the project, or inside a process substitution `<( … )`.",
+      "publishedIn": "`solix rules`, `solix gate`, `docs/THREAT-MODEL.md`",
+      "heldBy": "packages/server/src/state/rules.test.ts"
+    },
+    {
+      "id": "CLAIM-READS-CONFINED",
+      "claim": "The read-only rule allows `Read`, `Grep` and `Glob` only inside the project and the session scratchpad: a `file_path`, a `path`, or a `Glob` pattern that leaves the directory is outside. File writes allowed by `write_inside_root` follow symlinks out of the project.",
+      "publishedIn": "`solix rules`, `solix gate`, `docs/THREAT-MODEL.md`",
+      "heldBy": "packages/server/src/state/rules.test.ts"
+    },
+    {
       "id": "CLAIM-ALLOW-RULES-CONFINED",
       "claim": "An allow rule, prefix or regex, matches the command itself rather than how its output is plumbed (`^npm test$` covers `npm test 2>&1`), and never covers a segment that names a path outside the project. Deny rules match wherever they apply.",
       "publishedIn": "`solix rules`, `solix gate`",

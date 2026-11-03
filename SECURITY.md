@@ -1,18 +1,21 @@
 # Security model
 
-This document describes Solix's trust model honestly — what it does and
-does **not** protect against — and how to turn on the optional hardening.
+This document covers the mechanics: the hooks, the fail policy, sandboxing
+and the local API. **For what the gate does and does not guarantee — and why
+approval rules are not a sandbox — read [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md)
+first.**
 
 ## TL;DR
 
-By default, Solix is a **visibility + human-in-the-loop oversight surface** on
-top of Claude Code's own permission system. Out of the box it does **not** add
-sandboxing or block tools — it observes and audits. As of this version you can
-opt into three hardening features:
+Solix is a **human-in-the-loop gate** on top of Claude Code's own permission
+system. Whether it enforces depends on who started the agent: the agents Solix
+launches (Maestro, New task, routines) and `solix gate` runs are gated
+**fail-closed**; a `claude` you start yourself is observed and costed, not
+gated, unless you opt in. It does **not** sandbox anything by itself.
 
 | Feature | Default | Turn on with |
 |---|---|---|
-| Enforcing approval gate (Deny actually blocks the tool) | **off** | `SOLIX_GATE_ENABLED=1` |
+| Enforcing approval gate (Deny actually blocks the tool) | **on, fail-closed** for agents Solix launches and `solix gate`; **off** for a `claude` you start yourself | automatic; `SOLIX_GATE_ENABLED=1` for your own sessions |
 | Sandbox/env isolation for Solix-launched agents | **off** | `SOLIX_ENV_SCRUB=1` and/or `SOLIX_SANDBOX_CMD=…` |
 | Shared-secret auth on the local ingestion API | **on after `solix install`** | automatic (`~/.solix/token`) |
 

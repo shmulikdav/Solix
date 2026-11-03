@@ -169,3 +169,41 @@ describe('CLAIM-AUTO-DECISIONS-LABELLED — a rule is never counted as a person'
     expect(countLedgerDecisions(db)).toBe(1);
   });
 });
+
+/**
+ * CLAIM-RULES-SEE-EVERY-PATH, through the router: a relative path resolves
+ * from the directory the call runs in, which Claude Code reports as `cwd` in
+ * the hook input. From `packages/cli`, `../server/x` is inside the project;
+ * from the root it is not.
+ */
+describe('the call directory reaches the rules', () => {
+  it('resolves ../ from the call’s cwd, not the project root', async () => {
+    const db = resetDbForTests();
+    const broadcaster = new Broadcaster();
+    const sent: ServerMessage[] = [];
+    vi.spyOn(broadcaster, 'broadcast').mockImplementation((m: ServerMessage) => void sent.push(m));
+    const router = new EventRouter(db, broadcaster);
+    setGovernanceLevel(db, 'standard');
+    const projectId = ensureProject(db, CWD).id;
+    upsertSession(db, { id: 'w1', pid: 4242, projectId, cwd: CWD, origin: 'internal', sessionRole: 'worker' });
+    installDefaultRules(db, projectId);
+
+    const ev = (cwd?: string) =>
+      ({
+        event: 'pre_tool_bash',
+        pid: 4242,
+        cwd: CWD,
+        ts: Date.now(),
+        payload: { session_id: 'w1', tool_name: 'Bash', tool_input: { command: 'cat ../server/src/a.ts' }, ...(cwd ? { cwd } : {}) },
+      }) as HookEvent;
+
+    await expect(router.requestPermission(ev(`${CWD}/packages/cli`))).resolves.toMatchObject({ approved: true });
+    expect(sent.filter((m) => m.type === 'permission_request')).toHaveLength(0);
+
+    const held = router.requestPermission(ev());
+    const req = sent.filter((m) => m.type === 'permission_request');
+    expect(req).toHaveLength(1);
+    router.resolvePermission((req[0] as { requestId: string }).requestId, false);
+    await held;
+  });
+});

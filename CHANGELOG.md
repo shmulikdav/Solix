@@ -5,6 +5,44 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security: the default rules allowed reaching outside the project
+
+A probe of the default rules on 2026-11-03, after two fixes the same day,
+found every one of these **auto-allowed** — at the desk without asking, and
+under `solix gate` despite the policy:
+
+- **Reads of any file:** `Read ~/.ssh/id_ed25519`, `Read /etc/passwd`. The
+  read-only rule never looked at a path. A Solix allow answers the hook, so
+  Claude Code did not ask either.
+- **Paths through a variable:** `cat $HOME/.ssh/id_ed25519`,
+  `cat ${HOME}/.aws/credentials`.
+- **Paths through `..`:** `cat ../../.ssh/id_ed25519`, `echo x > ../../.bashrc`,
+  `mkdir -p ../../x`.
+- **Option values:** `git log --output=/etc/x`, `sort -o/etc/x`.
+- **Process substitution:** `cat <(rm -rf ./src)` was "a `cat`".
+
+The denylist ran first throughout, so `rm -rf /`, SSH-key writes, `curl | sh`
+and `sudo` were never reachable this way.
+
+Fixed: every path is now resolved — `~`, `$HOME`/`${HOME}`/`$PWD`, variables
+assigned in the same command (any other variable counts as outside), `..`
+from the directory the call runs in, redirect targets, option and `key=value`
+values, and symlinks — and an allow rule never covers one outside the project
+or the session scratchpad. `<( … )` and `>( … )` are judged as their own
+commands. `Read`, `Grep` and `Glob` are allowed inside only; `Write`/`Edit`
+follow symlinks. `CLAIM-RULES-SEE-EVERY-PATH`, `CLAIM-READS-CONFINED`.
+
+### The threat model, written down
+
+[`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md): which agents are gated, the
+layers in order, what a rule can and cannot see, and where the real boundary
+is. Rules are standing decisions, not a sandbox — allowing `npm test` allows
+whatever the tests do, and only `Bash`, `Read`, `Write`, `Edit`, `MultiEdit`
+and `Task` pass through Solix's gate. `SECURITY.md` now says the gate is on,
+fail-closed, for the agents Solix launches (it said "off").
+
 ## [1.20.2] — 2026-11-03
 
 ### Writing a gate policy without running an agent to find out

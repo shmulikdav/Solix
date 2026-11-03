@@ -54,6 +54,12 @@ hand. `solix rules add --prefix "git push"` or **Always allow** on a
 Decisions card adds one. Measured on the same five-task plan: 30 holds
 without rules, 4 with the defaults.
 
+Rules are standing decisions, not a sandbox: an allow rule never covers a
+path outside the project however it is spelled, but allowing a program
+(`npm test`, `node build.js`) allows everything that program does.
+[`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md) says exactly what the gate
+guarantees and where the real boundary is.
+
 In CI, or anywhere nobody is watching, `solix gate --rules policy.json --
 claude -p "…"` runs the agent under the same rules with nobody at the gate:
 allowed calls proceed, anything uncovered is refused at once, and the audit and

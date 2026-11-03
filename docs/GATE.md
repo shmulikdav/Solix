@@ -143,3 +143,10 @@ if the gate is unreachable a call is refused, not waved through. When the agent
 exits, the server is stopped and the artifact is read from its database.
 
 The guarantee is `CLAIM-HEADLESS-FAILS-CLOSED` in [`CLAIMS.md`](./CLAIMS.md).
+
+**A policy is not a sandbox.** It decides which commands the agent may ask to
+run; it cannot see what an allowed program does once it runs (`npm test` runs
+the project's code), and it does not control the network. In CI, run the gate
+inside the job's container with only what the job needs — the gate is the
+layer that refuses the risky step and keeps the record.
+[`THREAT-MODEL.md`](./THREAT-MODEL.md) has the full picture.

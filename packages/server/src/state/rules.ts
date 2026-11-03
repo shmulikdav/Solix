@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid';
-import { homedir } from 'node:os';
-import { resolve } from 'node:path';
+import { realpathSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
+import { basename, dirname, join, resolve } from 'node:path';
 import type {
   ApprovalRule,
   ApprovalRuleDecision,
@@ -17,6 +18,7 @@ import {
   describeRule,
   shellSegments,
   suggestRuleFor,
+  SUBSTITUTION_PLACEHOLDER,
 } from '@solix/shared';
 
 // Re-exported so callers and tests keep one import.
@@ -129,6 +131,11 @@ export interface RuleSubject {
    * `scratchpadDirFor`. (`CLAIM-SCRATCHPAD-COVERED`)
    */
   scratchpad?: string;
+  /**
+   * The directory the call runs in, when the hook reports it. Relative paths
+   * (`../../x`) resolve against it; it defaults to `root`.
+   */
+  cwd?: string;
 }
 
 export interface RuleVerdict {
@@ -150,29 +157,129 @@ const REDIRECT = /(?:\d*|&)?(?:>>|>\||<<<|>|<)&?/;
  */
 const HARMLESS_DEVICES = new Set(['/dev/null', '/dev/stdout', '/dev/stderr', '/dev/stdin']);
 
+/** What `shellSegments` leaves where a `$( … )` or `<( … )` was lifted out. */
+const SUBST_TOKEN = SUBSTITUTION_PLACEHOLDER;
+
+/** What a path check needs to know about the call. */
+interface PathCtx {
+  root: string;
+  scratchpad?: string;
+  /** Where relative paths resolve from. */
+  cwd: string;
+  /** Variables assigned in this same command: name → value, or null when unknowable. */
+  vars: Map<string, string | null>;
+}
+
+function pathCtx(subject: RuleSubject): PathCtx {
+  const command = typeof subject.args.command === 'string' ? subject.args.command : '';
+  const cwd = subject.cwd ?? subject.root;
+  return { root: subject.root, scratchpad: subject.scratchpad, cwd, vars: assignmentsIn(command, subject.root, cwd) };
+}
+
 /**
- * Absolute or home-relative path tokens in a segment, with `~` expanded —
- * `isWriteOutsideRoot` would otherwise resolve `~/.ssh/x` *under* the
- * project root and call it inside.
- *
- * Redirect targets count. Measured on 2026-11-03: a path was only found when
- * a whitespace-separated word *began* with `/` or `~`, so `echo hi >/etc/x`,
- * `echo hi >>~/.bashrc` and `echo x>/etc/y` were auto-allowed by the default
- * `echo` rule — a write outside the project, decided by a rule meant for
- * printing. The same blind spot held `cat x > /dev/null` (spaced, so
- * `/dev/null` was seen) while passing `cat x >/dev/null`. Now every word is
- * split on redirection operators, each piece is checked, and the
- * standard-stream devices are not paths outside the project.
- * (`CLAIM-RULES-SEE-REDIRECTS`)
+ * The value of `$NAME`, as far as a static reading of one command can know it.
+ * `null` means unknowable, and an unknowable path counts as outside the
+ * project: a rule cannot vouch for a path it cannot read.
  */
-function absolutePathTokens(segment: string): string[] {
-  return segment
-    .split(/\s+/)
-    .flatMap((word) => word.split(REDIRECT))
-    .map((t) => t.replace(/^['"]+|['"]+$/g, ''))
-    .filter((t) => t.startsWith('/') || t.startsWith('~'))
-    .filter((t) => !HARMLESS_DEVICES.has(t))
-    .map((t) => (t.startsWith('~') ? resolve(homedir(), t.slice(1).replace(/^\//, '')) : t));
+function expandVar(name: string, ctx: Pick<PathCtx, 'cwd' | 'vars'>): string | null {
+  if (ctx.vars.has(name)) return ctx.vars.get(name) ?? null;
+  if (name === 'HOME' || name === 'USERPROFILE') return homedir();
+  if (name === 'PWD') return ctx.cwd;
+  if (name === 'TMPDIR') return tmpdir();
+  return null;
+}
+
+/** `S=/x`, `F="$HOME/a"` … assigned anywhere in the command, in order. */
+function assignmentsIn(command: string, root: string, cwd: string): Map<string, string | null> {
+  const vars = new Map<string, string | null>();
+  const re = /(?:^|[\s;&|(])(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=("[^"]*"|'[^']*'|[^\s;&|)]*)/g;
+  for (const m of command.matchAll(re)) {
+    const name = m[1]!;
+    const raw = m[2] ?? '';
+    if (/\$\(|`|<\(/.test(raw)) {
+      vars.set(name, null); // a substitution's output cannot be known here
+      continue;
+    }
+    const value = raw.replace(/^['"]|['"]$/g, '');
+    vars.set(name, value === '' ? '' : resolvePiece(value, { root, cwd, vars } as PathCtx));
+  }
+  return vars;
+}
+
+/** One word-piece as an absolute path, or null when it cannot be known. */
+function resolvePiece(piece: string, ctx: Pick<PathCtx, 'cwd' | 'vars'>): string | null {
+  if (piece.startsWith('~')) return resolve(homedir(), piece.slice(1).replace(/^\//, ''));
+  if (piece.startsWith('$')) {
+    const m = /^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?(.*)$/.exec(piece);
+    if (!m) return resolve(ctx.cwd, piece); // `$1`, `$?` … not a path root
+    const base = expandVar(m[1]!, ctx);
+    if (base === null) return null;
+    return resolve(ctx.cwd, base, (m[2] ?? '').replace(/^\//, ''));
+  }
+  return resolve(ctx.cwd, piece);
+}
+
+/**
+ * Every word-piece in a segment that could name a file, resolved to an
+ * absolute path (or null when unknowable), with the text it came from.
+ *
+ * Measured on 2026-11-03 against 1.20.1's default rules: a path was only
+ * recognised when a word began with `/` or `~`, so all of these were
+ * auto-allowed: `cat $HOME/.ssh/id_ed25519`, `cat ${HOME}/.aws/credentials`,
+ * `cat ../../.ssh/id_ed25519`, `echo x > ../../.bashrc`,
+ * `git log --output=/etc/x`. Now:
+ *
+ * - every piece is resolved against the call's directory, so `..` that leaves
+ *   the project is outside it;
+ * - `$HOME`, `${HOME}`, `$PWD`, `$TMPDIR` and variables assigned earlier in
+ *   the same command are expanded; any other variable is unknowable, and an
+ *   unknowable path is outside;
+ * - redirect targets (`>/x`, `2>/x`), option values (`--output=/x`, `-o/x`)
+ *   and assignment values (`F=/x`) are pieces of their own.
+ *
+ * Arguments to `echo` and `printf` are printed, never opened, so only their
+ * redirect targets are paths. (`CLAIM-RULES-SEE-REDIRECTS`,
+ * `CLAIM-RULES-SEE-EVERY-PATH`)
+ */
+function pathCandidates(segment: string, ctx: PathCtx): Array<{ token: string; path: string | null }> {
+  const printsOnly = /^(echo|printf)(\s|$)/.test(segment);
+  const out: Array<{ token: string; path: string | null }> = [];
+  // `> ../../x` → `>../../x`: a spaced redirect target stays attached to its
+  // operator, so it is judged as a target even after `echo`.
+  const glued = segment.replace(/((?:\d*|&)?(?:>>|>\||<<<|>|<)&?)\s+/g, '$1');
+  for (const word of glued.split(/\s+/)) {
+    const parts = word.replace(/['"]/g, '').split(REDIRECT);
+    parts.forEach((part, i) => {
+      if (printsOnly && i === 0) return; // an argument to echo/printf, not a redirect target
+      for (let piece of part.split('=')) {
+        if (piece.startsWith('-')) {
+          // `-o/etc/x`, `--log-file=~/x` (after the `=` split): the path part.
+          const at = /[/~$.]/.exec(piece);
+          if (!at) continue;
+          piece = piece.slice(at.index);
+        }
+        if (!piece || HARMLESS_DEVICES.has(piece) || piece === SUBST_TOKEN) continue;
+        out.push({ token: piece, path: resolvePiece(piece, ctx) });
+      }
+    });
+  }
+  return out;
+}
+
+/** The nearest existing ancestor's real path, with the rest appended. */
+function realPathOf(p: string): string {
+  let dir = p;
+  const rest: string[] = [];
+  for (;;) {
+    try {
+      return rest.length ? join(realpathSync(dir), ...rest.reverse()) : realpathSync(dir);
+    } catch {
+      const parent = dirname(dir);
+      if (parent === dir) return p;
+      rest.push(basename(dir));
+      dir = parent;
+    }
+  }
 }
 
 function segmentHasPrefix(segment: string, prefix: string): boolean {
@@ -189,15 +296,23 @@ function toolMatches(rule: ApprovalRule, tool: string): boolean {
 }
 
 /**
- * Is this absolute path token outside the worker's confinement — outside the
- * project root AND outside the session scratchpad? That is the boundary a
- * prefix rule refuses to cross: an allowed `cat` is not an allowed
- * `cat /etc/hostname`, but it *is* an allowed `cat <scratchpad>/notes`.
+ * Is this path outside the worker's confinement — outside the project root
+ * AND outside the session scratchpad? That is the boundary an allow rule
+ * refuses to cross: an allowed `cat` is not an allowed `cat /etc/hostname`,
+ * but it *is* an allowed `cat <scratchpad>/notes`.
+ *
+ * Checked twice: as written, and with symlinks resolved, so a link inside the
+ * project that points out of it (`ln -s ~/.ssh keys`, then `cat keys/id`) is
+ * outside too. An unknowable path (`null`) is outside.
  */
-function isOutsideConfinement(token: string, root: string, scratchpad?: string): boolean {
-  if (!isWriteOutsideRoot(token, root)) return false;
-  if (scratchpad && !isWriteOutsideRoot(token, scratchpad)) return false;
-  return true;
+function isOutsideConfinement(path: string | null, root: string, scratchpad?: string): boolean {
+  if (path === null) return true;
+  const inside = (p: string, r: string, s?: string) =>
+    !isWriteOutsideRoot(p, r) || (s !== undefined && !isWriteOutsideRoot(p, s));
+  if (!inside(path, root, scratchpad)) return true;
+  const real = realPathOf(path);
+  if (real === path) return false;
+  return !inside(real, realPathOf(root), scratchpad === undefined ? undefined : realPathOf(scratchpad));
 }
 
 /**
@@ -209,20 +324,15 @@ function isOutsideConfinement(token: string, root: string, scratchpad?: string):
  * as its own segment, which must be covered on its own (and the floor
  * denylists it).
  */
-function isBenignAssignment(segment: string, root: string, scratchpad?: string): boolean {
+function isBenignAssignment(segment: string, ctx: PathCtx): boolean {
   const toks = segment.trim().split(/\s+/);
   if (toks.length === 0) return false;
   for (const tok of toks) {
-    const m = /^[A-Za-z_][A-Za-z0-9_]*=(.*)$/.exec(tok);
-    if (!m) return false; // a command followed the assignment — not a pure assignment
-    const value = (m[1] ?? '').replace(/^['"]|['"]$/g, '');
-    if (value.startsWith('/') || value.startsWith('~')) {
-      const resolved = value.startsWith('~') ? resolve(homedir(), value.slice(1).replace(/^\//, '')) : value;
-      if (isOutsideConfinement(resolved, root, scratchpad)) return false;
-    }
+    if (!/^[A-Za-z_][A-Za-z0-9_]*=/.test(tok)) return false; // a command followed — not a pure assignment
   }
-  // `S=x>/etc/y` assigns *and* writes the file; its redirect target counts.
-  return absolutePathTokens(segment).every((t) => !isOutsideConfinement(t, root, scratchpad));
+  // Values (`S=/etc/x`) and redirect targets (`S=x>/etc/y`) are pieces of
+  // their own, so both are judged as paths here.
+  return outsidePaths(segment, ctx).length === 0;
 }
 
 /**
@@ -243,9 +353,11 @@ export function withoutOutputRedirects(segment: string): string {
   return segment.replace(OUTPUT_ONLY_REDIRECT, '').replace(/\s+/g, ' ').trim();
 }
 
-/** Paths in a segment that are outside the worker's confinement. */
-function outsidePaths(segment: string, root: string, scratchpad?: string): string[] {
-  return absolutePathTokens(segment).filter((t) => isOutsideConfinement(t, root, scratchpad));
+/** The pieces of a segment that name a path outside the worker's confinement. */
+function outsidePaths(segment: string, ctx: PathCtx): string[] {
+  return pathCandidates(segment, ctx)
+    .filter((c) => isOutsideConfinement(c.path, ctx.root, ctx.scratchpad))
+    .map((c) => c.token);
 }
 
 /** Does this rule's pattern match the segment, ignoring output-only redirects? */
@@ -267,6 +379,33 @@ function patternMatches(rule: ApprovalRule, segment: string): boolean {
 }
 
 /**
+ * The places a read-only tool call reads: `Read`'s `file_path`, `Grep`'s and
+ * `Glob`'s `path`, and the fixed part of a `Glob` pattern that leaves the
+ * directory (`/Users/x/.aws/*`, `../../**`). With none of them, the call
+ * reads where it runs.
+ *
+ * Measured on 2026-11-03: the default read-only rule allowed
+ * `Read ~/.ssh/id_ed25519`, `Read /etc/passwd`, `Grep` over the whole home
+ * directory and `Glob /Users/x/.aws/*` — it never looked at a path. A Solix
+ * allow is a real allow: it answers the hook, so Claude Code does not ask.
+ * (`CLAIM-READS-CONFINED`)
+ */
+function readTargets(subject: RuleSubject): Array<string | null> {
+  const ctx = pathCtx(subject);
+  const targets: Array<string | null> = [];
+  for (const key of ['file_path', 'path', 'notebook_path']) {
+    const v = subject.args[key];
+    if (typeof v === 'string' && v.trim()) targets.push(resolvePiece(v.trim(), ctx));
+  }
+  const pattern = subject.args.pattern;
+  if (subject.tool.toLowerCase() === 'glob' && typeof pattern === 'string') {
+    const fixed = pattern.split(/[*?[{]/)[0] ?? '';
+    if (/^[/~$]|(^|\/)\.\.(\/|$)/.test(fixed)) targets.push(resolvePiece(fixed || '.', ctx));
+  }
+  return targets.length > 0 ? targets : [ctx.cwd];
+}
+
+/**
  * Does this rule speak to this segment of a shell command?
  *
  * An **allow** rule — prefix or regex — never covers a segment that names a
@@ -276,10 +415,10 @@ function patternMatches(rule: ApprovalRule, segment: string): boolean {
  * and `^echo` covered `echo x >/etc/y`. (`CLAIM-ALLOW-RULES-CONFINED`)
  * A **deny** rule matches wherever it applies.
  */
-function coversSegment(rule: ApprovalRule, segment: string, root: string, scratchpad?: string): boolean {
+function coversSegment(rule: ApprovalRule, segment: string, ctx: PathCtx): boolean {
   if (rule.match !== 'command_prefix' && rule.match !== 'command_regex') return false;
   if (!patternMatches(rule, segment)) return false;
-  return rule.decision === 'deny' || outsidePaths(segment, root, scratchpad).length === 0;
+  return rule.decision === 'deny' || outsidePaths(segment, ctx).length === 0;
 }
 
 function matchesOne(rule: ApprovalRule, subject: RuleSubject): boolean {
@@ -287,12 +426,16 @@ function matchesOne(rule: ApprovalRule, subject: RuleSubject): boolean {
   if (!toolMatches(rule, subject.tool)) return false;
   switch (rule.match) {
     case 'readonly_tool':
-      return READONLY_TOOLS.has(tool);
+      if (!READONLY_TOOLS.has(tool)) return false;
+      // A deny rule refuses every read; an allow rule only reads inside.
+      return rule.decision === 'deny' || readTargets(subject).every((p) => !isOutsideConfinement(p, subject.root, subject.scratchpad));
     case 'write_inside_root': {
       if (!WRITE_TOOLS.has(tool)) return false;
       const p = subject.args.file_path;
       if (typeof p !== 'string' || !p) return false;
-      return !isWriteOutsideRoot(p, subject.root);
+      // Resolved from the call's directory and through symlinks, like a
+      // shell path; the scratchpad is not "inside the root" for this rule.
+      return !isOutsideConfinement(resolvePiece(p, pathCtx(subject)), subject.root);
     }
     case 'command_prefix':
     case 'command_regex': {
@@ -300,7 +443,8 @@ function matchesOne(rule: ApprovalRule, subject: RuleSubject): boolean {
       const command = subject.args.command;
       if (typeof command !== 'string' || !command.trim()) return false;
       // Used for deny rules: one segment is enough.
-      return shellSegments(command).some((seg) => coversSegment(rule, seg, subject.root, subject.scratchpad));
+      const ctx = pathCtx(subject);
+      return shellSegments(command).some((seg) => coversSegment(rule, seg, ctx));
     }
   }
 }
@@ -324,9 +468,10 @@ export function evaluateRules(rules: readonly ApprovalRule[], subject: RuleSubje
     if (typeof command !== 'string' || !command.trim()) return null;
     const segments = shellSegments(command);
     if (segments.length === 0) return null;
+    const ctx = pathCtx(subject);
     let first: ApprovalRule | null = null;
     for (const seg of segments) {
-      const covering = allows.find((r) => coversSegment(r, seg, subject.root, subject.scratchpad));
+      const covering = allows.find((r) => coversSegment(r, seg, ctx));
       if (covering) {
         first ??= covering;
         continue;
@@ -334,7 +479,7 @@ export function evaluateRules(rules: readonly ApprovalRule[], subject: RuleSubje
       // A pure variable assignment runs nothing, so it does not block an
       // otherwise-covered command (but it names no rule, so a command that is
       // ONLY assignments still falls through to a person).
-      if (isBenignAssignment(seg, subject.root, subject.scratchpad)) continue;
+      if (isBenignAssignment(seg, ctx)) continue;
       return null;
     }
     return first ? { decision: 'allow', rule: first } : null;
@@ -420,15 +565,16 @@ export function explainRules(rules: readonly ApprovalRule[], subject: RuleSubjec
   const segments: SegmentExplanation[] = [];
   if (command && SHELL_TOOLS.has(tool)) {
     const allows = rules.filter((r) => r.enabled && r.decision === 'allow' && toolMatches(r, subject.tool));
+    const ctx = pathCtx(subject);
     for (const segment of shellSegments(command)) {
-      const outside = outsidePaths(segment, subject.root, subject.scratchpad);
-      const coveredBy = allows.find((r) => coversSegment(r, segment, subject.root, subject.scratchpad));
+      const outside = outsidePaths(segment, ctx);
+      const coveredBy = allows.find((r) => coversSegment(r, segment, ctx));
       const matchedButOutside = coveredBy
         ? []
         : allows.filter(
             (r) => (r.match === 'command_prefix' || r.match === 'command_regex') && patternMatches(r, segment),
           );
-      const assignment = !coveredBy && isBenignAssignment(segment, subject.root, subject.scratchpad);
+      const assignment = !coveredBy && isBenignAssignment(segment, ctx);
       segments.push({ segment, coveredBy, assignment: assignment || undefined, outside, matchedButOutside });
     }
   }
