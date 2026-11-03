@@ -17,6 +17,7 @@ import {
   hooksSupported,
   hooksUpToDate,
   install,
+  installGateRuntime,
   installedVersion,
 } from './install.js';
 import {
@@ -35,6 +36,12 @@ export interface StartOptions {
   noOpen?: boolean;
   /** Skip wiring Claude Code. Real sessions will not appear. */
   noWire?: boolean;
+  /**
+   * Nobody is at the gate (the server half of `solix gate`): uncovered calls
+   * are refused, not held. Implies not wiring `~/.claude` and not opening a
+   * browser; installs only the token and hook scripts under SOLIX_HOME.
+   */
+  headless?: boolean;
 }
 
 // Standard FIGlet font, S O L I X. The previous banner accidentally
@@ -178,12 +185,17 @@ export function resolveAndPublishPort(opts: StartOptions = {}): number {
 
 export async function start(opts: StartOptions = {}): Promise<void> {
   const port = resolveAndPublishPort(opts);
-  console.log(BANNER);
-  ensureWired(opts.noWire);
+  if (opts.headless) {
+    installGateRuntime();
+  } else {
+    console.log(BANNER);
+    ensureWired(opts.noWire);
+  }
   let handle: Awaited<ReturnType<typeof createSolixServer>>;
   try {
     handle = await createSolixServer({
       port,
+      headless: opts.headless,
     version: __SOLIX_VERSION__,
     // The CLI owns the install, so it is the only thing that can honestly
     // answer "are the hooks wired, and are they this version's". Without it
@@ -218,6 +230,17 @@ export async function start(opts: StartOptions = {}): Promise<void> {
   }
 
   const url = `http://${handle.hostname}:${handle.port}`;
+  if (opts.headless) {
+    // Quiet: this is a child of `solix gate`, and its stdout is a CI log.
+    console.log(`[solix] headless gate server on ${url} — uncovered calls are refused`);
+    const stop = async (): Promise<void> => {
+      await handle.close();
+      process.exit(0);
+    };
+    process.on('SIGINT', () => void stop());
+    process.on('SIGTERM', () => void stop());
+    return;
+  }
   console.log(`[solix] server listening on ${url}`);
 
   // Said BEFORE the browser takes focus. These two lines are the only

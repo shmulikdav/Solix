@@ -108,11 +108,14 @@ function readSettings(): SettingsRead {
   return { ok: true, settings: parsed as ClaudeSettings };
 }
 
-function hookCommand(name: string): string {
-  return `${HOOKS_DIR}/${name}.sh`;
-}
-
-function buildSolixHooks(): Record<string, HookEntry[]> {
+/**
+ * The hook block Solix wires into Claude Code's settings. Exported so
+ * `solix gate` can hand the same hooks to a single run via `--settings`,
+ * pointing at the gate's own isolated hooks directory, without ever touching
+ * `~/.claude/settings.json`.
+ */
+export function buildSolixHooks(hooksDir: string = HOOKS_DIR): Record<string, HookEntry[]> {
+  const hookCommand = (name: string) => `${hooksDir}/${name}.sh`;
   return {
     SessionStart: [
       { matcher: '*', hooks: [{ type: 'command', command: hookCommand('session-start') }] },
@@ -206,6 +209,18 @@ function installHookScripts(): void {
     copyFileSync(from, to);
     chmodSync(to, 0o755);
   }
+}
+
+/**
+ * Just what a Solix server needs to receive gated hooks — the token and the
+ * hook scripts under `SOLIX_HOME` — and nothing that touches Claude Code's own
+ * config or agents. `solix start --headless` (the server half of `solix gate`)
+ * uses it, so a CI run never edits `~/.claude`.
+ */
+export function installGateRuntime(): void {
+  mkdirSync(SOLIX_HOME, { recursive: true });
+  ensureToken();
+  installHookScripts();
 }
 
 interface ManifestAdvisor {

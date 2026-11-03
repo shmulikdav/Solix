@@ -35,6 +35,29 @@ depends on in-progress work (its worktree would need seeding with the plan's
 dirty state) and auto-resolving an integration conflict are both deferred — a
 conflict escalates, which is the safe default.
 
+### `solix gate` — the gate with nobody at it
+
+The gate assumed a person: an uncovered call was held until someone answered,
+or denied when the five-minute timeout ran out. In CI nobody is there, so a run
+either stalled per call or had to run ungated. `solix gate --rules policy.json
+-- claude -p "…"` runs any agent under a rules policy with nobody at the gate:
+
+- a call a rule allows proceeds; a call nothing covers is **refused at once**
+  and recorded as the policy's decision (`permission_auto_denied`,
+  `headless: true`), not a person's; the containment denylist runs first; the
+  level dial cannot wave anything through (headless acts as `strict`);
+- it starts a private server on a fresh temp `SOLIX_HOME` (`solix start
+  --headless`), hands the hooks to Claude Code for that one run via
+  `--settings`, and never touches `~/.claude`;
+- afterwards it writes `audit.json`, a signed `report.json` and `report.md` to
+  `--out`, and prints what was allowed, refused and blocked;
+- exit code: the agent's if it failed, **3 if any call was refused** (unless
+  `--allow-denials`), 2 if the policy was bad or the gate would not start.
+
+Also closed: an unreadable permission payload was answered `allow`. With a
+person watching that was tolerable; under a headless gate it now fails closed.
+`CLAIM-HEADLESS-FAILS-CLOSED`. See `docs/GATE.md`.
+
 ## [1.19.0] — Unreleased
 
 ### A hold is the exception now
