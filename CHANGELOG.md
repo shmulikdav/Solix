@@ -5,6 +5,36 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.0] — Unreleased
+
+### Parallel Maestro, for the fan-out case
+
+1.19 wired a per-plan `parallelLimit` but nothing ran concurrently — no task had
+its own checkout, so Maestro still did one thing at a time. It now parallelizes
+the common shape: independent tasks the planner marks **isolated** run at the
+same time, each in its own git worktree off the plan's baseRef.
+
+- The planner may set `isolated: true` on a task with no dependencies that
+  touches files disjoint from its siblings (default false, so a plan is serial
+  until the planner opts in). `parallelLimit` now defaults to **2**; it only
+  bites when a plan has two or more independent isolated tasks ready at once.
+- Each isolated task's changes are **integrated** back into the plan's checkout
+  — the one place the review surface diffs — one at a time, under a per-plan
+  lock so two completions never race. A task whose changes conflict with
+  another's (the planner's "disjoint" was wrong) is **escalated to a person**,
+  with the plan checkout left untouched and the worktree kept for inspection.
+  Nothing is ever silently merged over. `CLAIM-PARALLEL-INTEGRATES`.
+- Worktrees are tracked on their worker's session row and torn down on success,
+  abort, restart recovery, and retry — `removeWorktree`, the cleanup the
+  worktree helper never had (worktrees used to leak one per branch forever).
+- `ensureWorktree` moved out of the launcher into `state/worktrees.ts` so the
+  orchestrator shares it; the launcher's `solix run` worktree path is unchanged.
+
+Deliberately scoped to **independent** isolated tasks. Parallelizing a task that
+depends on in-progress work (its worktree would need seeding with the plan's
+dirty state) and auto-resolving an integration conflict are both deferred — a
+conflict escalates, which is the safe default.
+
 ## [1.19.0] — Unreleased
 
 ### A hold is the exception now

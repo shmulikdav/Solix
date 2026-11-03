@@ -21,6 +21,7 @@ export interface ParsedTask {
   assignedAdvisorRole?: string;
   model?: string;
   runtime?: 'claude' | 'codex';
+  isolated?: boolean;
 }
 
 export interface ParsedPlan {
@@ -142,6 +143,9 @@ export function parsePlannerOutput(
       if (modelSet.has(m)) model = m;
       else warnings.push(`task "${id || i}": dropped unknown model "${m}"`);
     }
+    // A task may declare itself isolated (run concurrently in its own worktree).
+    // Only a literal `true` counts; anything else is the safe default, serial.
+    const isolated = t.isolated === true;
     // Allowlist runtime — only the known agent runtimes.
     let runtime: 'claude' | 'codex' | undefined;
     if (isNonEmptyString(t.runtime)) {
@@ -161,6 +165,7 @@ export function parsePlannerOutput(
         assignedAdvisorRole,
         model,
         runtime,
+        isolated,
       });
     }
   });

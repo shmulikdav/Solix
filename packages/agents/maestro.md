@@ -47,7 +47,8 @@ markdown code fences. It must parse with `JSON.parse`. Shape:
       "prompt": "the complete, self-contained instruction handed to the worker agent",
       "acceptanceCriteria": "concrete, checkable criteria for the verifier",
       "dependsOn": [],
-      "assignedAdvisorRole": "forge"
+      "assignedAdvisorRole": "forge",
+      "isolated": false
     }
   ]
 }
@@ -58,3 +59,10 @@ Rules for the JSON:
 - No trailing commas. Use double quotes. Escape newlines inside strings.
 - Keep it to a focused plan — typically 3–8 tasks. If the goal is trivial
   enough for one task, return one task.
+- `isolated` (optional, default false) lets a task run **concurrently** with its
+  siblings in its own git worktree. Set it `true` ONLY when the task has an empty
+  `dependsOn` AND touches a set of files disjoint from every other task — e.g.
+  three independent modules built in parallel. If two tasks might write the same
+  file, leave them not isolated; a wrong guess is caught at integration and the
+  task is sent back to a person, which is slower than running it in order. When in
+  doubt, omit it.

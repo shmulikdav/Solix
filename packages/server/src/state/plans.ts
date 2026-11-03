@@ -78,7 +78,7 @@ export function createPlan(
     input.goalId ?? null,
     input.cwd,
     input.budgetUsd ?? null,
-    Math.max(1, Math.floor(input.parallelLimit ?? 1)),
+    Math.max(1, Math.floor(input.parallelLimit ?? 2)),
     orgId,
     ts,
     ts,
@@ -227,6 +227,7 @@ interface PlanTaskRow {
   result_summary: string | null;
   order_index: number;
   delegation_depth: number | null;
+  isolated: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -260,6 +261,7 @@ function rowToPlanTask(row: PlanTaskRow): PlanTask {
     resultSummary: row.result_summary ?? undefined,
     orderIndex: row.order_index,
     delegationDepth: row.delegation_depth ?? 0,
+    isolated: row.isolated === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -282,6 +284,7 @@ export function createPlanTask(
     maxAttempts?: number;
     orderIndex?: number;
     delegationDepth?: number;
+    isolated?: boolean;
   },
 ): PlanTask {
   const id = nanoid(8);
@@ -291,8 +294,8 @@ export function createPlanTask(
        (id, plan_id, title, prompt, acceptance_criteria, status, depends_on_json,
         assigned_advisor_role, cwd, model, runtime, budget_usd, session_id, mission_id,
         verifier_session_id, attempts, max_attempts, order_index, delegation_depth,
-        created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 0, ?, ?, ?, ?, ?)`,
+        isolated, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 0, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     input.planId,
@@ -309,6 +312,7 @@ export function createPlanTask(
     input.maxAttempts ?? 3,
     input.orderIndex ?? 0,
     input.delegationDepth ?? 0,
+    input.isolated ? 1 : 0,
     ts,
     ts,
   );

@@ -1,8 +1,7 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync } from 'node:fs';
-import { homedir } from 'node:os';
-import { basename, join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { nanoid } from 'nanoid';
 import { costForUsage, type Model } from '@solix/shared';
 import type { DB } from './db.js';
@@ -20,6 +19,7 @@ import {
   getAdvisor,
   setAdvisorPinned,
 } from './state/advisors.js';
+import { ensureWorktree } from './state/worktrees.js';
 
 interface PinnedProcess {
   advisorId: string;
@@ -51,71 +51,6 @@ interface InternalTaskRecord {
   child?: ChildProcess;
 }
 
-interface WorktreeResult {
-  path: string;
-  created: boolean;
-}
-
-/**
- * Resolve (or create) a git worktree for `branch` rooted at the repo
- * containing `repoCwd`. Returns the worktree path so the launcher can use
- * it as the spawn cwd. Reuses an existing worktree if one is already
- * registered at the same path. New branches are created from `baseRef`
- * (default 'HEAD').
- */
-function ensureWorktree(opts: {
-  repoCwd: string;
-  branch: string;
-  baseRef?: string;
-}): WorktreeResult {
-  const repoRoot = (() => {
-    const r = spawnSync('git', ['rev-parse', '--show-toplevel'], {
-      cwd: opts.repoCwd,
-      encoding: 'utf8',
-    });
-    if (r.status !== 0) {
-      throw new Error(`not a git repository: ${opts.repoCwd}`);
-    }
-    return (r.stdout ?? '').trim();
-  })();
-
-  const repoName = basename(repoRoot);
-  const safeBranch = opts.branch.replace(/[^a-zA-Z0-9._-]+/g, '-');
-  const worktreesDir = join(homedir(), '.solix', 'worktrees');
-  const path = join(worktreesDir, `${repoName}-${safeBranch}`);
-
-  // Already registered? Reuse.
-  const list = spawnSync('git', ['worktree', 'list', '--porcelain'], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-  });
-  if (list.status === 0 && (list.stdout ?? '').includes(`worktree ${path}`)) {
-    return { path, created: false };
-  }
-
-  mkdirSync(worktreesDir, { recursive: true });
-
-  // Branch exists locally? Use it; otherwise create from baseRef.
-  const branchProbe = spawnSync(
-    'git',
-    ['rev-parse', '--verify', '--quiet', `refs/heads/${opts.branch}`],
-    { cwd: repoRoot, encoding: 'utf8' },
-  );
-  const args =
-    branchProbe.status === 0
-      ? ['worktree', 'add', path, opts.branch]
-      : ['worktree', 'add', path, '-b', opts.branch, opts.baseRef ?? 'HEAD'];
-  const add = spawnSync('git', args, {
-    cwd: repoRoot,
-    encoding: 'utf8',
-  });
-  if (add.status !== 0) {
-    throw new Error(
-      `git worktree add failed: ${(add.stderr ?? '').slice(0, 280)}`,
-    );
-  }
-  return { path, created: true };
-}
 
 const FAKE_CLAUDE = process.env.SOLIX_FAKE_CLAUDE === '1';
 

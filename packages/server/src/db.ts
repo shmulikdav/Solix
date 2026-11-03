@@ -491,6 +491,8 @@ function applySchema(db: DB): void {
   // P2 #8 — delegation depth (0 for original plan tasks; worker-proposed
   // subtasks inherit parent depth + 1, capped by the orchestrator).
   ensureColumn(db, 'plan_tasks', 'delegation_depth', 'delegation_depth INTEGER NOT NULL DEFAULT 0');
+  // 1.20 — a task the planner marks safe to run concurrently in its own worktree.
+  ensureColumn(db, 'plan_tasks', 'isolated', 'isolated INTEGER NOT NULL DEFAULT 0');
   // Build-studio (Phase 5): user-created projects are durable + owned by Solix,
   // distinct from auto-observed ones; `template` records how to scaffold/preview.
   ensureColumn(db, 'projects', 'managed', 'managed INTEGER NOT NULL DEFAULT 0');
@@ -502,7 +504,10 @@ function applySchema(db: DB): void {
   ensureColumn(db, 'plans', 'budget_warned', 'budget_warned INTEGER NOT NULL DEFAULT 0');
   // Per-plan parallel dispatch cap. Default 1 keeps the serial behaviour; a
   // higher value co-dispatches only isolated tasks (own worktree). (1.19 §4)
-  ensureColumn(db, 'plans', 'parallel_limit', 'parallel_limit INTEGER NOT NULL DEFAULT 1');
+  // 1.20 turns parallel Maestro on: new plans default to 2, so independent
+  // isolated tasks run concurrently. Still serial unless the planner marks
+  // tasks isolated, so plans without them are unchanged.
+  ensureColumn(db, 'plans', 'parallel_limit', 'parallel_limit INTEGER NOT NULL DEFAULT 2');
   // P3 #10 — multi-org: tag plans + goals with their owning org (nullable →
   // treated as the default org for pre-existing rows).
   ensureColumn(db, 'plans', 'org_id', 'org_id TEXT');
