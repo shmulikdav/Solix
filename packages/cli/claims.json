@@ -248,6 +248,12 @@
       "claim": "A first word that is not a `solix` command is refused with a clear error naming it (and the closest command, if near) before anything runs — it never falls through to `start`, so a typo never starts the server or touches `~/.claude`.",
       "publishedIn": "`solix --help`, CHANGELOG 1.20.0",
       "heldBy": "packages/cli/src/commandGuard.test.ts"
+    },
+    {
+      "id": "CLAIM-GATE-ONE-HOOK-SET",
+      "claim": "Under `solix gate`, only the gate's own hooks reach the gate: for `claude` its port, token and fail-closed policy are set on its hook commands and removed from the agent's environment, so Solix hooks installed globally on the machine cannot also report to it, and each call is decided and counted once.",
+      "publishedIn": "docs/GATE.md, CHANGELOG 1.20.0",
+      "heldBy": "packages/cli/src/gate.test.ts"
     }
   ]
 }

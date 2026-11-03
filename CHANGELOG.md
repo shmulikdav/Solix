@@ -58,6 +58,19 @@ Also closed: an unreadable permission payload was answered `allow`. With a
 person watching that was tolerable; under a headless gate it now fails closed.
 `CLAIM-HEADLESS-FAILS-CLOSED`. See `docs/GATE.md`.
 
+### The gate counts each call once on a machine that also has Solix installed
+
+First real-machine run of `solix gate` with a real `claude`: the gate held —
+the refusal reached the agent word for word, the agent stopped instead of
+rephrasing, and the run failed because a call was refused. But the summary read
+"2 allowed · 2 refused" for one of each. The gate exported its port and token
+into claude's environment, so the Solix hooks installed globally in
+`~/.claude/settings.json` read the same values and reported to the gate too. For
+`claude` those values now ride on the gate's own hook commands
+(`SOLIX_PORT=… script.sh`) and are removed from the agent's environment; a
+global hook sees an ordinary session. A CI machine with no global install was
+never affected. `CLAIM-GATE-ONE-HOOK-SET`.
+
 ### A typo no longer starts Solix
 
 Reported from a real machine: `solix gate --rules defaults -- …` against the
