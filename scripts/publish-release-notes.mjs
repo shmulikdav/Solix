@@ -43,7 +43,7 @@
  * from a machine with the GitHub CLI authenticated.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -107,6 +107,73 @@ function load(tag) {
   return { path, meta, body };
 }
 
+const TAG_SHAPE = /^v\d+\.\d+\.\d+$/;
+const FLAGS = new Set(['--dry-run', '--all']);
+
+/**
+ * Read the arguments and refuse the whole run if any of them is wrong —
+ * before a single request is sent.
+ *
+ * Measured on 2026-11-03: `pnpm release:notes v1.20.0 # creates the release`
+ * was pasted into zsh, which does not treat `#` as a comment interactively.
+ * The script created the v1.20.0 release, then crashed on the argument `#`.
+ * Each argument was only looked at when its turn came, so the good one acted
+ * before the bad one was noticed. Now every argument is checked first: a tag
+ * is `vX.Y.Z` with a notes file in docs/releases/, a flag is one this script
+ * knows, and anything else stops the run with nothing sent.
+ */
+export function readArgs(argv, notesDir = NOTES_DIR) {
+  const bad = [];
+  for (const a of argv) {
+    if (a.startsWith('--')) {
+      if (!FLAGS.has(a)) bad.push(`${a} is not an option (--dry-run, --all)`);
+    } else if (!TAG_SHAPE.test(a)) {
+      bad.push(`${JSON.stringify(a)} is not a release tag (vX.Y.Z)`);
+    } else if (!existsSync(join(notesDir, `${a}.md`))) {
+      bad.push(`${a} has no notes file at docs/releases/${a}.md`);
+    }
+  }
+  const dryRun = argv.includes('--dry-run');
+  const all = argv.includes('--all');
+  const named = argv.filter((a) => !a.startsWith('--'));
+  if (all && named.length > 0) bad.push('--all takes no tags');
+  if (bad.length > 0) return { ok: false, errors: bad };
+  const tags = all
+    ? readdirSync(notesDir)
+        .filter((f) => f.endsWith('.md'))
+        .map((f) => f.replace(/\.md$/, ''))
+        .sort()
+    : named;
+  if (tags.length === 0) return { ok: false, errors: ['no tag given'] };
+  return { ok: true, dryRun, tags };
+}
+
+/**
+ * The `gh release create` arguments.
+ *
+ * `--verify-tag` is the point. Without it, `gh release create` for a tag that
+ * does not exist yet creates the tag at the default branch — and pushing a
+ * `v*` tag runs the npm publish workflow. That is how v1.20.0 was published on
+ * 2026-11-03: by this script, not by `pnpm release:tag`, whose checks and
+ * confirmation it skipped. Writing a release body must never publish a
+ * package, so a release is only ever created for a tag that already exists.
+ */
+export function createArgs(tag, meta, file) {
+  return [
+    'release',
+    'create',
+    tag,
+    '--repo',
+    REPO,
+    '--verify-tag',
+    '--title',
+    meta.title,
+    '--notes-file',
+    file,
+    `--latest=${meta.latest}`,
+  ];
+}
+
 function releaseExists(tag) {
   try {
     execFileSync('gh', ['release', 'view', tag, '--repo', REPO, '--json', 'tagName'], {
@@ -119,20 +186,17 @@ function releaseExists(tag) {
 }
 
 function main() {
-  const argv = process.argv.slice(2);
-  const dryRun = argv.includes('--dry-run');
-  const all = argv.includes('--all');
-  const tags = all
-    ? readdirSync(NOTES_DIR)
-        .filter((f) => f.endsWith('.md'))
-        .map((f) => f.replace(/\.md$/, ''))
-        .sort()
-    : argv.filter((a) => !a.startsWith('--'));
-
-  if (tags.length === 0) {
+  const args = readArgs(process.argv.slice(2));
+  if (!args.ok) {
+    for (const e of args.errors) console.error(`release:notes: ${e}`);
     console.error('usage: pnpm release:notes [--dry-run] <tag>… | --all');
+    console.error('nothing was sent.');
     process.exit(2);
   }
+  const { dryRun, tags } = args;
+
+  // Every file parses before anything is sent, for the same reason.
+  for (const tag of tags) load(tag);
 
   const scratch = dryRun ? null : mkdtempSync(join(tmpdir(), 'solix-notes-'));
 
@@ -161,22 +225,15 @@ function main() {
       });
       console.log(`edited  ${tag}  ${shape}`);
     } else {
-      execFileSync(
-        'gh',
-        [
-          'release',
-          'create',
-          tag,
-          '--repo',
-          REPO,
-          '--title',
-          meta.title,
-          '--notes-file',
-          file,
-          `--latest=${meta.latest}`,
-        ],
-        { stdio: 'inherit' },
-      );
+      try {
+        execFileSync('gh', createArgs(tag, meta, file), { stdio: 'inherit' });
+      } catch {
+        console.error(
+          `release:notes: could not create ${tag}. If the tag does not exist yet, run \`pnpm release:tag\` first —` +
+            ' this script writes release notes and never creates a tag.',
+        );
+        process.exit(1);
+      }
       console.log(`created ${tag}  ${shape}`);
     }
   }

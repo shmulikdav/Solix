@@ -3,7 +3,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 // @ts-expect-error — a plain .mjs script, imported for its pure predicates.
-import { markers, parseNotes } from '../../../scripts/publish-release-notes.mjs';
+import { createArgs, markers, parseNotes, readArgs } from '../../../scripts/publish-release-notes.mjs';
 
 /**
  * v1.17.0, v1.18.0 and v1.18.3 were all published with their markdown
@@ -111,5 +111,55 @@ describe('docs/releases', () => {
       (f) => parseNotes(readFileSync(resolve(NOTES_DIR, f), 'utf8')).meta.latest === 'true',
     );
     expect(latest).toEqual(['v1.20.0.md']);
+  });
+});
+
+/**
+ * 2026-11-03: `pnpm release:notes v1.20.0 # creates the release` was pasted
+ * into zsh, which passes `#` and the words after it as arguments. The script
+ * created the v1.20.0 release — and with it the tag, which ran the npm publish
+ * workflow — and only then crashed on `#`. Two guards, so writing notes can
+ * never publish a package again.
+ */
+describe('release:notes arguments are all checked before anything is sent', () => {
+  it.each([['#'], ['creates'], ['1.20.0'], ['v1.20'], ['--force']])('refuses %j', (arg) => {
+    const r = readArgs(['v1.20.0', arg], NOTES_DIR);
+    expect(r.ok).toBe(false);
+  });
+
+  it('refuses the exact paste that published v1.20.0, naming every bad word', () => {
+    const r = readArgs(['v1.20.0', '#', 'creates', 'the', 'release'], NOTES_DIR);
+    expect(r.ok).toBe(false);
+    expect(r.errors).toHaveLength(4);
+  });
+
+  it('refuses a well-formed tag that has no notes file', () => {
+    const r = readArgs(['v9.9.9'], NOTES_DIR);
+    expect(r).toMatchObject({ ok: false });
+    expect(r.errors[0]).toMatch(/no notes file/);
+  });
+
+  it('accepts a tag with notes, --dry-run, and --all', () => {
+    expect(readArgs(['v1.20.0'], NOTES_DIR)).toEqual({ ok: true, dryRun: false, tags: ['v1.20.0'] });
+    expect(readArgs(['--dry-run', 'v1.20.0'], NOTES_DIR)).toEqual({ ok: true, dryRun: true, tags: ['v1.20.0'] });
+    const all = readArgs(['--all'], NOTES_DIR);
+    expect(all.ok && all.tags).toContain('v1.20.0');
+  });
+
+  it('refuses no tag at all', () => {
+    expect(readArgs([], NOTES_DIR).ok).toBe(false);
+  });
+});
+
+describe('release:notes never creates a tag', () => {
+  /**
+   * Without `--verify-tag`, `gh release create` makes a missing tag at the
+   * default branch, and a `v*` tag push is the npm publish.
+   */
+  it('creates a release only for a tag that already exists (--verify-tag)', () => {
+    const args = createArgs('v1.2.3', { title: 'v1.2.3 — x', latest: 'false' }, '/tmp/n.md');
+    expect(args.slice(0, 3)).toEqual(['release', 'create', 'v1.2.3']);
+    expect(args).toContain('--verify-tag');
+    expect(args).toContain('--notes-file');
   });
 });
