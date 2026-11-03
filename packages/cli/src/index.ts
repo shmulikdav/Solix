@@ -25,6 +25,7 @@ import {
 } from './reporting.js';
 import { importCmd } from './import.js';
 import { level } from './level.js';
+import { gate } from './gate.js';
 import { rulesAdd, rulesDefaults, rulesList, rulesRemove, rulesSetEnabled } from './rules.js';
 import { ledger } from './ledger.js';
 import {
@@ -72,8 +73,14 @@ program
   .option('-p, --port <port>', 'port to listen on', (v) => parseInt(v, 10))
   .option('--no-open', 'do not open browser automatically')
   .option('--no-wire', 'do not touch ~/.claude — real sessions will not appear')
-  .action(async (opts: { port?: number; open: boolean; wire: boolean }) => {
-    await start({ port: opts.port, noOpen: !opts.open, noWire: !opts.wire });
+  .option('--headless', 'nobody is at the gate: refuse uncovered calls instead of holding (used by `solix gate`)')
+  .action(async (opts: { port?: number; open: boolean; wire: boolean; headless?: boolean }) => {
+    await start({
+      port: opts.port,
+      noOpen: !opts.open || Boolean(opts.headless),
+      noWire: !opts.wire,
+      headless: Boolean(opts.headless),
+    });
   });
 
 program
@@ -115,6 +122,33 @@ program
   .action(async (_opts, cmd: Command) => {
     await runWrapped(cmd.args ?? []);
   });
+
+program
+  .command('gate')
+  .description(
+    'Run an agent under a rules policy with nobody at the gate (CI): calls a rule ' +
+      'allows proceed, uncovered calls are refused, and the audit + a signed report are written out',
+  )
+  .requiredOption('--rules <file>', 'a JSON file of rules, or `defaults`')
+  .option('--out <dir>', 'where to write the audit and signed report', 'solix-gate')
+  .option('--allow-denials', "exit with the agent's own code even if calls were refused")
+  .option('--home <dir>', 'SOLIX_HOME for the gate server (default: a fresh temp dir)')
+  .argument('<command...>', 'the agent command, after --')
+  .action(
+    async (
+      command: string[],
+      opts: { rules: string; out: string; allowDenials?: boolean; home?: string },
+    ) => {
+      const code = await gate({
+        rules: opts.rules,
+        out: opts.out,
+        allowDenials: Boolean(opts.allowDenials),
+        home: opts.home,
+        command,
+      });
+      process.exit(code);
+    },
+  );
 
 program
   .command('install-shim')

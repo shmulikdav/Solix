@@ -288,6 +288,8 @@ export function createHttpApp(opts: {
       version: opts.version ?? 'unknown',
       /** True inside a `solix demo` sandbox — every figure here is invented. */
       demo: process.env.SOLIX_DEMO === '1',
+      /** True under `solix gate`: no one is at the gate; uncovered calls are refused. */
+      headless: opts.router.isHeadless(),
       ts: Date.now(),
     }),
   );
@@ -360,12 +362,19 @@ export function createHttpApp(opts: {
   // fail-open / fail-closed policy.
   app.post('/events/permission', async (c) => {
     let body: HookEvent | null = null;
+    // An unreadable payload is waved through when a person is watching (they
+    // can see the agent), but under a headless gate nobody is — so there it
+    // fails closed like everything else the policy does not cover.
+    const unreadable = () =>
+      opts.router.isHeadless()
+        ? c.json({ decision: 'deny', reason: 'Solix gate could not read this hook payload (headless: refused).' })
+        : c.json({ decision: 'allow' });
     try {
       body = (await c.req.json()) as HookEvent;
     } catch {
-      return c.json({ decision: 'allow' });
+      return unreadable();
     }
-    if (!body || !body.event) return c.json({ decision: 'allow' });
+    if (!body || !body.event) return unreadable();
     const result = await opts.router.requestPermission(body);
     const decision = result.timedOut
       ? 'timeout'

@@ -236,6 +236,12 @@
       "claim": "An isolated task runs in its own git worktree, concurrently with its siblings, and its changes are integrated back into the plan's checkout; a task whose changes conflict with another's is escalated to a person, never silently merged, and the checkout is left intact.",
       "publishedIn": "Maestro, CHANGELOG 1.20.0",
       "heldBy": "packages/server/src/orchestrator/parallel.test.ts"
+    },
+    {
+      "id": "CLAIM-HEADLESS-FAILS-CLOSED",
+      "claim": "Under `solix gate` (a headless server), a call a rule allows proceeds and a call no rule covers is refused immediately — never held — recorded as an automatic decision, not a person's. The denylist still runs first, the level dial cannot wave a call through, and a run with any refusal exits non-zero unless `--allow-denials`.",
+      "publishedIn": "`solix gate`, docs/GATE.md, CHANGELOG 1.20.0",
+      "heldBy": "packages/server/src/router.headless.test.ts"
     }
   ]
 }

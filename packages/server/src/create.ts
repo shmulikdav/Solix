@@ -51,6 +51,9 @@ export interface SolixServerOptions {
   /** Product version, surfaced at /api/health. The CLI passes its own
    * package version; defaults to "unknown" when embedded directly. */
   version?: string;
+  /** Nobody is at the gate (CI / `solix gate`): a gated call no rule covers is
+   *  refused at once instead of held. See EventRouter. */
+  headless?: boolean;
   /** Hook install state for /api/diagnostics. Only the CLI can answer this
    *  honestly, since it owns the install; omitted when embedded. */
   hookStatus?: () => {
@@ -254,7 +257,9 @@ export async function createSolixServer(
   const broadcaster = new Broadcaster();
   const launcher = new Launcher(db, broadcaster);
   const transcripts = new TranscriptWatcherManager(db, broadcaster);
-  const router = new EventRouter(db, broadcaster, launcher, transcripts);
+  const router = new EventRouter(db, broadcaster, launcher, transcripts, {
+    headless: opts.headless,
+  });
 
   // v2 Maestro orchestrator: goal → plan → approve → dispatch → verify → report.
   const orchestrator = new Orchestrator({

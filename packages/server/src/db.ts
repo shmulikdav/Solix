@@ -525,6 +525,15 @@ function applySchema(db: DB): void {
   );
 }
 
+/**
+ * Open an existing Solix database read-only, without migrations — for reading a
+ * finished run's records (e.g. `solix gate` collecting its artifact from the
+ * child server's isolated home after it has stopped).
+ */
+export function openDbReadonly(path: string): DB {
+  return new Database(path, { readonly: true, fileMustExist: true });
+}
+
 export function getDb(): DB {
   if (_db) return _db;
   ensureSolixHome();

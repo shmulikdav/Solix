@@ -79,13 +79,28 @@ interface PendingPermission {
 export class EventRouter {
   private permissions = new Map<string, PendingPermission>();
 
+  /**
+   * Headless: nobody is at the gate (CI, `solix gate`). Every gated call is
+   * decided by the policy — the level/role shortcuts that wave a call through
+   * are skipped, so it behaves as `strict` — and a call no rule covers is
+   * refused at once instead of being held for a person who is not there.
+   * (`CLAIM-HEADLESS-FAILS-CLOSED`)
+   */
+  private readonly headless: boolean;
+
   constructor(
     private db: DB,
     private broadcaster: Broadcaster,
     private launcher?: Launcher,
     private transcripts?: TranscriptWatcherManager,
+    opts: { headless?: boolean } = {},
   ) {
+    this.headless = Boolean(opts.headless);
     this.clearStalePermissionHolds();
+  }
+
+  isHeadless(): boolean {
+    return this.headless;
   }
 
   /**
@@ -644,6 +659,7 @@ export class EventRouter {
         session.sessionRole === 'routine'
       ) {
         if (
+          !this.headless &&
           !shouldGateContainedRole(getGovernanceLevel(this.db), session.sessionRole)
         ) {
           return Promise.resolve({ approved: true, timedOut: false });
@@ -655,7 +671,7 @@ export class EventRouter {
     // its say above, so a denylisted command is refused at this level too —
     // the dial decides what is held for a human, never what is allowed to run
     // unchecked.
-    if (!shouldGateAtAll(getGovernanceLevel(this.db))) {
+    if (!this.headless && !shouldGateAtAll(getGovernanceLevel(this.db))) {
       return Promise.resolve({ approved: true, timedOut: false });
     }
 
@@ -716,6 +732,31 @@ export class EventRouter {
             'not retry it or reword it; report what you needed and stop.',
         });
       }
+    }
+    // Headless: there is no one to ask. Holding would only stall the run until
+    // the timeout denied it anyway, so refuse now — and say so, so the agent
+    // stops rather than rephrasing. Recorded as an automatic decision: the
+    // policy refused it, not a person. (`CLAIM-HEADLESS-FAILS-CLOSED`)
+    if (this.headless) {
+      recordAudit(this.db, {
+        kind: 'permission_auto_denied',
+        sessionId,
+        projectId: session?.projectId,
+        summary: `Headless gate refused ${tool} — no rule covers it${summarizeArgs(args)}`,
+        payload: { tool, args, headless: true },
+      });
+      if (session) {
+        const active = setSessionStatus(this.db, sessionId, 'active');
+        if (active) this.broadcaster.broadcast({ type: 'session_upsert', session: active });
+      }
+      return Promise.resolve({
+        approved: false,
+        timedOut: false,
+        reason:
+          "No rule in this gate's policy covers this, and nobody is at the gate " +
+          '(headless). Refused. Do not retry it or reword it; report what you ' +
+          'needed so a person can add a rule.',
+      });
     }
     const requestId = nanoid();
     const timeoutMs = Number(process.env.SOLIX_GATE_TIMEOUT_MS ?? 300_000);
