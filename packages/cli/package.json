@@ -5,7 +5,7 @@
   "license": "MIT",
   "type": "module",
   "bin": {
-    "solix": "./dist/index.js"
+    "solix": "dist/index.js"
   },
   "main": "./dist/index.js",
   "files": [
