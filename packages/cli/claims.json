@@ -164,6 +164,66 @@
       "claim": "Editing a routine keeps its run history and its webhook URL. A routine's cadence can be corrected; its trigger cannot be changed, and a generic edit cannot enable it.",
       "publishedIn": "brief, Routines tab, CHANGELOG 1.18.3",
       "heldBy": "packages/server/src/http.routineedit.test.ts"
+    },
+    {
+      "id": "CLAIM-RULES-NEVER-OVERRIDE-FLOOR",
+      "claim": "An approval rule is consulted only after the containment floor. No rule, however broad, lets a denylisted command through.",
+      "publishedIn": "README, `solix rules`, Fleet → Rules",
+      "heldBy": "packages/server/src/router.rules.test.ts"
+    },
+    {
+      "id": "CLAIM-AUTO-DECISIONS-LABELLED",
+      "claim": "A decision made by a rule is recorded as the rule's, never as a person's: the ledger's decision count excludes it and counts it separately.",
+      "publishedIn": "`solix ledger`, the signed report",
+      "heldBy": "packages/server/src/router.rules.test.ts"
+    },
+    {
+      "id": "CLAIM-HOST-IS-OURS",
+      "claim": "The API and the websocket answer only to a loopback name, a `*.localhost` name, or a name listed in `SOLIX_ALLOWED_HOSTS` — so a DNS-rebinding page cannot read local state as if it were same-origin.",
+      "publishedIn": "README (security), smoke suite H",
+      "heldBy": "packages/server/src/host.guard.test.ts"
+    },
+    {
+      "id": "CLAIM-ONE-HOOK-SET",
+      "claim": "Solix wires exactly one set of hooks into `settings.json`, whichever `SOLIX_HOME` it was last started from; a second home replaces the first set rather than adding to it, and uninstall removes a set from any home.",
+      "publishedIn": "`solix doctor`, CHANGELOG 1.19.0, the eval numbers",
+      "heldBy": "packages/cli/src/install.test.ts"
+    },
+    {
+      "id": "CLAIM-DENY-IS-STICKY",
+      "claim": "A command a person denies in a plan is refused for the rest of that plan without asking again, and that automatic refusal is counted apart from a person's decisions. The floor still runs first; a one-off approval is not remembered.",
+      "publishedIn": "`solix` gate, CHANGELOG 1.19.0",
+      "heldBy": "packages/server/src/router.sticky.test.ts"
+    },
+    {
+      "id": "CLAIM-DENY-STOPS-RETRY",
+      "claim": "When a person denies a command during a task attempt, the task is escalated for a human at once rather than retried — retrying would re-pose a decision already made.",
+      "publishedIn": "Maestro, CHANGELOG 1.19.0",
+      "heldBy": "packages/server/src/orchestrator/sticky.test.ts"
+    },
+    {
+      "id": "CLAIM-RESTART-PAUSES-ON-HOLD",
+      "claim": "A plan whose held decision was dropped when Solix stopped resumes paused on restart, for a person to review, rather than deciding the held command by default.",
+      "publishedIn": "Maestro, CHANGELOG 1.19.0",
+      "heldBy": "packages/server/src/orchestrator/sticky.test.ts"
+    },
+    {
+      "id": "CLAIM-DOWNGRADE-NEEDS-FORCE",
+      "claim": "Lowering the governance dial while contained sessions are in flight is refused without `--force`, so a running worker's rules are not changed mid-task by accident.",
+      "publishedIn": "`solix level`, Fleet → Governance, CHANGELOG 1.19.0",
+      "heldBy": "packages/server/src/governance.downgrade.test.ts"
+    },
+    {
+      "id": "CLAIM-PARALLEL-LIMIT-ENFORCED",
+      "claim": "A plan dispatches at most `parallelLimit` tasks at once (default 1, serial). Above 1, only isolated tasks — each in its own working directory — are co-dispatched; tasks sharing the plan's checkout stay serial.",
+      "publishedIn": "Maestro, CHANGELOG 1.19.0",
+      "heldBy": "packages/server/src/orchestrator/parallel.test.ts"
+    },
+    {
+      "id": "CLAIM-HOOK-OVERHEAD-BOUNDED",
+      "claim": "Every shipped hook time-caps its network call and fails open, so a hook can never hold a tool call beyond its cap (one second for telemetry, the gate timeout for a held decision) nor fail one.",
+      "publishedIn": "install banner, brief, CHANGELOG 1.19.0",
+      "heldBy": "packages/cli/src/hookOverhead.test.ts"
     }
   ]
 }

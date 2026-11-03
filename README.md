@@ -45,6 +45,15 @@ not a floor.
 
 Set how much is held with `solix level observe|standard|strict`.
 
+A hold is the exception, not every call. `solix rules defaults` installs a
+short opt-in allow list — read-only tools, writes inside the project, and the
+likes of `ls`, `git status`, `node --test`, `git commit` — and every rule is a
+standing decision of yours: consulted after the denylist, which no rule can
+override, and recorded in the ledger apart from the decisions you make by
+hand. `solix rules add --prefix "git push"` or **Always allow** on a
+Decisions card adds one. Measured on the same five-task plan: 30 holds
+without rules, 4 with the defaults.
+
 All of it on your machine. No account, no telemetry.
 
 ```sh

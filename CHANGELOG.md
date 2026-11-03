@@ -5,6 +5,153 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.0] — Unreleased
+
+### A hold is the exception now
+
+Measured on the published 1.18.3, on 2026-11-03, with the same evaluation
+run against Paperclip the day before: a five-task Maestro plan at `standard`
+was held **thirty times for thirty tool calls**, `Read SPEC.md` included, and
+`solix ledger` printed "approved 4 times — worth a rule rather than a
+decision" with no rule to make. A hold has to be the exception or people flip
+to `observe` and the gate is gone.
+
+**Approval rules.** A rule is a person's standing decision at the gate. It is
+consulted *after* the containment floor — which nothing overrides — and
+*before* anyone is asked. Its decision is written as
+`permission_auto_approved` / `permission_auto_denied`, which the signed ledger
+counts **apart from a person's**: a rule firing a hundred times is not a
+hundred people.
+
+- `solix rules defaults` installs an opt-in set: read-only tools, writes
+  inside the project, and a short list — listing, reading, testing,
+  committing, and the project's own code via `node`. Nothing in it deletes,
+  pushes, escalates or fetches code. `solix rules add --prefix "git status"`,
+  `--regex`, `--readonly`, `--writes-inside-root`, `--deny`, `--project`.
+- A shell command is allowed only when **every segment** is covered: `ls &&
+  git push --force` is not "an ls". Absolute paths outside the project are
+  never covered, so an allowed `cat` does not read `~/.ssh`. Balanced quotes
+  do not split; heredoc bodies are data; the contents of `$( … )` and
+  backticks are lifted out as segments that must be covered too —
+  `echo "$(git push --force)"` runs git push, and the first version of the
+  splitter would have let an allowed `echo` carry it.
+- Fleet → **Rules** lists each rule with how often it has decided. The
+  Decisions card gains **Always allow …**, which writes the rule this request
+  suggests and approves the call. `GET /api/decisions/pending` returns what is
+  waiting on a person; `GET/POST/PATCH/DELETE /api/rules` manage rules.
+- `solix ledger` now prints "N more decided by rules" beside the count, and
+  the exact `solix rules add …` line under a repeated approval.
+- The hooks echo a server-supplied reason on deny, so a rule's refusal tells
+  the agent a standing decision applies rather than that a person just
+  reviewed this call.
+
+Re-run of the same plan with the defaults: **holds 30 → 4** (a project binary
+run directly, two writes to a scratchpad outside the project, a `find`), 27
+calls decided by rules, **4m00s against 8m58s**, $5.45, 33/33 tests,
+committed. Two of the four are holds a person should see; the other two are a
+rule away.
+
+### One set of hooks, whichever home you started from
+
+Found while measuring the above: the audit log of that run held eight human
+decisions for four commands. Solix had been started under a second
+`SOLIX_HOME`, and `install()` only recognised its own hooks by their
+directory, so the first home's set was taken for the user's and kept, and a
+second full set was merged in beside it. Every tool call fired twice: two
+holds, two audit rows, a person asked twice. A hook is now ours by its name
+wherever its directory is — a second home replaces the set rather than adding
+to it, and uninstall removes a set from any home. `CLAIM-ONE-HOOK-SET`.
+
+### A denial is a decision, not a question to ask again
+
+Measured on the published 1.18.3: a Maestro worker was denied a command, the
+verifier rejected the task for not doing it, the orchestrator retried, and the
+same command was put to the person a second time. A held decision left open
+when Solix stopped came back resumed on restart, deciding it by default. A
+level change ungated the workers already running. None of that treats a
+person's answer as binding.
+
+- **A denial sticks to its plan.** When a person denies a command, that exact
+  command is refused for the rest of the plan without asking again, recorded
+  as `permission_auto_denied` so the ledger does not count it as a second
+  human decision. A one-off approval is not remembered — a standing yes is an
+  approval rule, made on purpose. The containment floor still runs first, and
+  a denial in one plan says nothing about another. (`CLAIM-DENY-IS-STICKY`)
+- **A denied task stops, rather than retrying.** If a person denies something
+  during an attempt, the task is escalated for a human at once instead of
+  spending its retry budget re-posing a settled question. Retry anyway, or
+  abort the plan. (`CLAIM-DENY-STOPS-RETRY`)
+- **A restart does not answer for you.** A plan whose held decision was dropped
+  on shutdown resumes **paused**, with a note, for a person to review and press
+  Resume — not resumed on its own with the command decided by default.
+  (`CLAIM-RESTART-PAUSES-ON-HOLD`)
+- **The dial will not drop under running work by accident.** Lowering
+  governance while contained sessions are in flight is refused without
+  `--force` (`solix level observe --force`, or `force: true` on the API),
+  which reports how many sessions it would change the rules for. Each contained
+  session now records the level it launched under. (`CLAIM-DOWNGRADE-NEEDS-FORCE`)
+
+### A `Host` that has to be ours
+
+DNS-rebinding read exposure: with a foreign `Host` and no `Origin` — what a
+rebound page's same-origin fetch sends — `GET /api/plans`, `/api/missions`
+and `/api/system/governance` answered 200 with data on 1.18.3. The Origin
+gate refused mutations; nothing looked at the name a *read* was addressed
+to. Every route and the websocket upgrade now answer only to a loopback
+name, `*.localhost`, or a name in `SOLIX_ALLOWED_HOSTS` (for a LAN or
+tailnet address). Verified live with the exact probes, recorded as smoke
+suite H.
+
+### Honest numbers, real parallelism, and plan spend
+
+- **The parallel limit is wired, not just tested.** `withinParallelLimit`
+  shipped unit-tested and never called, so Maestro ran one task at a time
+  whatever the review hoped. It is now the real gate on a per-plan
+  `parallelLimit` (default **1** — the serial behaviour exactly, because a
+  plan's tasks share one checkout). Above 1, only *isolated* tasks — each with
+  its own working directory — are co-dispatched; tasks sharing the plan's
+  checkout stay serial, so two writers never race in one directory. Turning the
+  limit up by default, with a worktree per task and the planner marking tasks
+  isolated, is 1.20. (`CLAIM-PARALLEL-LIMIT-ENFORCED`)
+- **The hook-overhead claim is now a bound, not a guess.** The install banner
+  and brief said "~2ms each" of the hooks that fire on every tool call — that
+  is the cost of starting `sh`, not of the hook, which also does a POST the
+  review clocked near 16ms. A loopback roundtrip is machine-dependent and not
+  worth publishing; the *bound* is. Every shipped hook time-caps its network
+  call (one second for telemetry, the gate timeout for a held decision) and
+  fails open, so a hook can never hold a tool call beyond its cap nor fail one.
+  The copy now says that, and a test reads it off the shipped scripts.
+  (`CLAIM-HOOK-OVERHEAD-BOUNDED`)
+- **Shutdown timing is stated as a bound.** The flat "24ms" in the brief
+  becomes "well under a second, even with a browser tab held open" — which is
+  what `create.shutdown.test` measures (222ms with a tab held for five
+  minutes). 24ms was a best case on one machine; the review saw ~1.1s on
+  another.
+- **Plan spend is on the API.** `GET /api/plans/:id` returns `spendUsd`, the
+  sum of cost over the plan's sessions, beside `budgetUsd` — so a plan card can
+  show how much of a cap has been used, not only the cap.
+
+### The evaluation harness is in the repo now
+
+The before/after numbers in these notes come from a fixed task — build a small
+`tally` CLI, with tests — run against a live Solix and measured the same way
+every time. That harness was a pile of scripts in a scratch directory; it is
+now [`scripts/eval/`](scripts/eval/) and [`docs/EVAL.md`](docs/EVAL.md): the
+spec, a runner that sets up the project and drives one Maestro run, a stand-in
+approver, and a tally. It needs a real agent, so it does not run in CI — it is
+the ritual before a release, and its numbers go in the notes. `docs/EVAL.md`
+states the 1.19 targets and, honestly, where the last run missed them (4 holds
+against ≤3, ~$5.45 against ≤$4).
+
+### Claims
+
+Ten new rows in `docs/CLAIMS.md`, each proven by reinstating its bug:
+`CLAIM-RULES-NEVER-OVERRIDE-FLOOR` (make the floor advisory → fails),
+`CLAIM-AUTO-DECISIONS-LABELLED` (record a rule under the human kinds →
+fails), `CLAIM-HOST-IS-OURS` (remove the gate → fails),
+`CLAIM-ONE-HOOK-SET` (match hooks by directory again → fails), and the
+four sticky-denial and governance claims above.
+
 ## [1.18.3] — 2026-11-01
 
 **Plan editing, and the hole that was under it.**

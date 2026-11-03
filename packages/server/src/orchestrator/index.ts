@@ -16,6 +16,11 @@ import { ensureProject } from '../state/projects.js';
 import { gitHead } from '../state/git.js';
 import { appendThreadEntry } from '../state/threads.js';
 import { recordAudit } from '../state/audit.js';
+import {
+  humanDeniedDetail,
+  sessionHoldWasAbandoned,
+} from '../state/denials.js';
+import { getGovernanceLevel } from '../state/governance.js';
 import { resolveWorkerEnv } from '../state/connections.js';
 import {
   setSessionCost,
@@ -36,6 +41,7 @@ import {
   decideRetryOrEscalate,
   isBudgetExceeded,
   shouldWarnBudget,
+  withinParallelLimit,
 } from './scheduler.js';
 import type { SessionRunner } from './runner.js';
 
@@ -86,7 +92,23 @@ export class Orchestrator {
   /** Plan ids with a task currently executing. Phase-2 uses serialized
    *  execution — at most one worker per plan touches the tree at a time (the
    *  R2 decision), so this doubles as the per-plan write lock. */
-  private readonly inFlight = new Set<string>();
+  /**
+   * How many tasks are dispatched per plan right now. Was a `Set<planId>` (one
+   * worker per plan); a count lets `withinParallelLimit` admit more than one
+   * for plans whose limit allows it. (1.19 §4)
+   */
+  private readonly inFlightByPlan = new Map<string, number>();
+  private inFlightFor(planId: string): number {
+    return this.inFlightByPlan.get(planId) ?? 0;
+  }
+  private enterFlight(planId: string): void {
+    this.inFlightByPlan.set(planId, this.inFlightFor(planId) + 1);
+  }
+  private leaveFlight(planId: string): void {
+    const n = this.inFlightFor(planId) - 1;
+    if (n <= 0) this.inFlightByPlan.delete(planId);
+    else this.inFlightByPlan.set(planId, n);
+  }
 
   /** Per-plan kill-switch. `abortPlan` fires the controller, which SIGTERMs the
    *  in-flight worker/verifier child (via the SessionRunner's `signal`). */
@@ -305,9 +327,35 @@ export class Orchestrator {
       return;
     }
 
-    // 4. Serialized dispatch — one worker per plan at a time (the R2 write lock).
-    if (this.inFlight.has(planId)) return;
-    const next = tasks.find((t) => t.status === 'ready');
+    // 4. Dispatch up to the plan's parallel limit (the R2 write lock).
+    //
+    // Default limit 1 is the historical behaviour exactly: one worker per plan
+    // at a time, because a plan's tasks share one checkout and two writers in
+    // one directory would race. A limit above 1 co-dispatches additional ready
+    // tasks only when they are *isolated* — each carrying its own cwd, distinct
+    // from the plan's and from the others in the batch (a worktree). Shared-cwd
+    // tasks still run one at a time whatever the limit says. `withinParallelLimit`
+    // is the cap that was unit-tested but, until now, never consulted. (1.19 §4)
+    const limit = Math.max(1, plan.parallelLimit ?? 1);
+    if (!withinParallelLimit(this.inFlightFor(planId), limit)) return;
+    const ready = tasks.filter((t) => t.status === 'ready');
+    const batch: PlanTask[] = [];
+    const takenCwds = new Set<string>();
+    for (const t of ready) {
+      if (!withinParallelLimit(this.inFlightFor(planId) + batch.length, limit)) break;
+      const taskCwd = t.cwd ?? plan.cwd;
+      const isolated = taskCwd !== plan.cwd && !takenCwds.has(taskCwd);
+      if (batch.length === 0) {
+        batch.push(t);
+        takenCwds.add(taskCwd);
+        if (!isolated) break; // a shared-checkout task runs alone
+      } else if (isolated) {
+        batch.push(t);
+        takenCwds.add(taskCwd);
+      }
+      // a non-isolated task cannot join a batch — it waits for a serial turn
+    }
+    const next = batch[0];
     if (!next) return; // waiting on an in-flight task or unmet deps
 
     // 4a. Budget gate (Ledger): pause before spending past the cap rather than
@@ -351,18 +399,25 @@ export class Orchestrator {
     }
 
     const signal = this.aborterFor(planId).signal;
-    this.inFlight.add(planId);
-    try {
-      await this.dispatchTask(plan, next, signal);
-    } catch (err) {
-      // A transient error inside dispatch (a DB call, a runner throw) must not
-      // strand the task as `dispatched` or crash the loop — treat it as a task
-      // failure so it retries/escalates like any other.
-      console.error('[orchestrator] dispatch error', err);
-      this.handleTaskFailure(next.id, `dispatch error: ${(err as Error).message}`);
-    } finally {
-      this.inFlight.delete(planId);
-    }
+    // Dispatch the batch concurrently (one task when the limit is 1). Each
+    // task accounts for itself in the in-flight count so a re-entrant advance()
+    // sees the real load, and a failure in one never strands the others.
+    await Promise.all(
+      batch.map(async (task) => {
+        this.enterFlight(planId);
+        try {
+          await this.dispatchTask(plan, task, signal);
+        } catch (err) {
+          // A transient error inside dispatch (a DB call, a runner throw) must
+          // not strand the task as `dispatched` or crash the loop — treat it as
+          // a task failure so it retries/escalates like any other.
+          console.error('[orchestrator] dispatch error', err);
+          this.handleTaskFailure(task.id, `dispatch error: ${(err as Error).message}`);
+        } finally {
+          this.leaveFlight(planId);
+        }
+      }),
+    );
     // Pick the next task (completed → unblocks dependents; failed → retry/escalate).
     await this.advance(planId);
   }
@@ -552,9 +607,21 @@ export class Orchestrator {
   async reconcile(): Promise<void> {
     const { db } = this.deps;
     const running = listPlans(db).filter((p) => p.status === 'running');
+    // Plans that had a decision waiting on a person when Solix stopped. Their
+    // held requests were dropped (`abandonAllPending`) and answered closed, so
+    // resuming them unchanged would re-run a task whose command a person was
+    // in the middle of judging — deciding it by default, the opposite of the
+    // gate's promise. Resume them `paused` with a note instead, for the person
+    // to review and press Resume. (`CLAIM-RESTART-PAUSES-ON-HOLD`)
+    const pausedForHold = new Set<string>();
     for (const plan of running) {
       for (const task of listPlanTasks(db, plan.id)) {
         if (task.status !== 'dispatched' && task.status !== 'verifying') continue;
+        const abandoned =
+          (task.sessionId && sessionHoldWasAbandoned(db, task.sessionId)) ||
+          (task.verifierSessionId &&
+            sessionHoldWasAbandoned(db, task.verifierSessionId));
+        if (abandoned) pausedForHold.add(plan.id);
         if (task.sessionId) this.terminateRow(task.sessionId);
         if (task.verifierSessionId) this.terminateRow(task.verifierSessionId);
         const reset = updatePlanTask(db, task.id, {
@@ -562,9 +629,24 @@ export class Orchestrator {
           attempts: Math.max(0, task.attempts - 1), // the attempt never finished
         });
         if (reset) this.emitTask(reset);
+        if (abandoned) {
+          this.thread(
+            reset ?? task,
+            'escalated',
+            'system',
+            'A decision was waiting on a person when Solix stopped. The plan was ' +
+              'paused rather than resumed on its own — review the task and press ' +
+              'Resume to continue.',
+          );
+        }
       }
     }
+    for (const planId of pausedForHold) {
+      const paused = updatePlan(db, planId, { status: 'paused' });
+      if (paused) this.emitPlan(paused);
+    }
     for (const plan of running) {
+      if (pausedForHold.has(plan.id)) continue;
       await this.advance(plan.id).catch((err) => {
         console.error('[orchestrator] reconcile advance failed', err);
       });
@@ -723,6 +805,33 @@ export class Orchestrator {
   private handleTaskFailure(taskId: string, reason: string): void {
     const t = getPlanTask(this.deps.db, taskId);
     if (!t) return;
+
+    // Did a person deny something to this attempt's worker? Then the failure
+    // is a decision, not a flaky run. Retrying re-dispatches a fresh worker
+    // that hits the same command and the person is asked the same question —
+    // the loop measured on 1.18.3. Escalate at once (needs a human: retry
+    // anyway, or delete the plan), spending none of the retry budget on a
+    // question already answered. The sticky denial in the router means a
+    // deliberate retry is refused without re-asking unless the person first
+    // lifts the denial. (`CLAIM-DENY-STOPS-RETRY`)
+    const deniedDetail = t.sessionId
+      ? humanDeniedDetail(this.deps.db, t.sessionId)
+      : undefined;
+    if (deniedDetail !== undefined) {
+      const updated = updatePlanTask(this.deps.db, taskId, {
+        status: 'escalated',
+        lastError: `A person denied \`${deniedDetail}\` during this attempt — not retried, because retrying would ask again. ${reason}`,
+      });
+      if (updated) this.emitTask(updated);
+      this.thread(
+        t,
+        'escalated',
+        'human',
+        `A person denied \`${deniedDetail}\`. The task was stopped rather than retried — retry anyway to ask again, or abort the plan.`,
+        { attempt: t.attempts },
+      );
+      return;
+    }
     const next = decideRetryOrEscalate(t) === 'retry' ? 'pending' : 'escalated';
     const updated = updatePlanTask(this.deps.db, taskId, {
       status: next,
@@ -846,6 +955,7 @@ export class Orchestrator {
       planId: plan.id,
       planTaskId: task.id,
       sessionRole: role,
+      gateLevelAtLaunch: getGovernanceLevel(db),
       runtime,
     });
     const active = setSessionStatus(db, sessionId, 'active');

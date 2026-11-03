@@ -102,3 +102,21 @@ export function shouldGateContainedRole(
 export function shouldGateAtAll(level: GovernanceLevel): boolean {
   return level !== 'observe';
 }
+
+/**
+ * How much each level holds, lowest to highest: observe < standard < strict.
+ * A move to a lower rank holds *less* for a person — a downgrade. Doing that
+ * while contained sessions are already in flight silently changes the rules a
+ * running worker is held to, mid-task, which is why the HTTP/CLI edge asks for
+ * `--force` first. (`CLAIM-DOWNGRADE-NEEDS-FORCE`)
+ */
+export function governanceRank(level: GovernanceLevel): number {
+  return LEVELS.indexOf(level);
+}
+
+export function isGovernanceDowngrade(
+  from: GovernanceLevel,
+  to: GovernanceLevel,
+): boolean {
+  return governanceRank(to) < governanceRank(from);
+}

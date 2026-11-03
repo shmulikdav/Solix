@@ -22,9 +22,16 @@ to be there: it is out of date.**
 Checked against `codex-cli 0.166.0`, installed and inspected rather than
 assumed. Its binary ships a full hook system — `PreModelRequest`,
 `PreToolUse`, `PermissionRequest`, `PostToolUse`, `PreCompact`,
-`PostCompact`, `SessionStart`, `SessionEnd`, `SubagentStart` — using the same
-`hookSpecificOutput` / `permissionDecision` vocabulary Claude Code uses. Its
-own error strings settle what it does:
+`PostCompact`, `SessionStart`, `SessionEnd`, `SubagentStart` — wrapping its
+output in the same `hookSpecificOutput` envelope Claude Code uses.
+
+**The vocabulary inside that envelope is not uniformly the same, and this
+sentence used to say it was.** `PreToolUse` does take Claude Code's flat
+`permissionDecision`; `PermissionRequest` does not — it reads a nested
+`decision.behavior` instead (see below). Reading "same vocabulary" as "same
+everywhere" is what sent the first version of the probe at the wrong field.
+
+Its own error strings settle what `PreToolUse` does:
 
 ```
 Command blocked by PreToolUse hook:
@@ -40,29 +47,64 @@ reason.** Deny-only is exactly what the command denylist needs — a floor only
 ever refuses — so the floor can cover Codex with a hook script and no change
 to the router's decision logic.
 
-### What is still unknown
+### `PermissionRequest` can approve — documented, not yet observed
 
-Whether **`PermissionRequest` can affirmatively approve**, which decides
-whether the *human* gate on Codex is as strong as it is on Claude Code or
-weaker.
+This section used to say it was unknown whether `PermissionRequest` could
+affirmatively approve, and planned to find out by returning each
+`permissionDecision` value in turn. **That plan was aimed at the wrong
+field.** `PreToolUse`'s flat `permissionDecision` is not what
+`PermissionRequest` reads; it takes a nested decision object:
 
-The binary contains `approve`, `block` and `allow` near a
-`PermissionRequestBehaviorWire`, and — unlike `PreToolUse` — its
-`PermissionRequest hook returned unsupported …` messages are all about other
-fields (`continue`, `interrupt`, `stop`, `suppress`, `updatedInput`) and
-never about a decision value. That is suggestive and not proof: a
-concatenated symbol table does not say which struct owns which string.
+```json
+{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}
+```
 
-If `PermissionRequest` supports approve, Solix holds there and answers either
-way, and the Codex gate means what the Claude Code gate means. If it does
-not, "approve" can only mean "do not deny" and Codex's own approval flow
-continues — a materially weaker promise that has to be said out loud rather
-than inherited by assumption.
+with `{"behavior":"deny","message":"…"}` to refuse. Had the probe gone out as
+written, every value would have come back unsupported and this file would now
+record "Codex cannot approve" — a false negative with clean output behind it.
 
-**Settle it by running it**, not by reading more strings: register a hook on
-an authenticated `codex`, return each decision value in turn, and record
-which ones it accepts. Until then no site copy or README line may claim the
-Codex gate holds for a human decision.
+Per the [Codex hooks docs](https://developers.openai.com/codex/hooks),
+`PermissionRequest` *"can allow the request, deny the request, or decline to
+decide and let the normal approval prompt continue"*; *"an `allow` lets the
+request proceed without surfacing the approval prompt"*; and across several
+hooks, *"any `deny` wins"*. A flat `decision: "approve"` is parsed but not
+supported, and `updatedInput`, `updatedPermissions` and `interrupt` fail
+closed here.
+
+**This is a documented behaviour and nothing more.** It is the same class of
+evidence as the gate that was unit-tested, documented and off in 1.15.0,
+1.17.0 and 1.18.0. `docs/CODEX-PROBE.md` is the run sheet that settles it on
+the binary, with `scripts/probe-codex-gate.sh` and its hook config.
+**Until a run of it passes with its control refusing, no site copy or README
+line may claim the Codex gate holds for a human decision.**
+
+### Two hooks, two jobs — and the scope limit that holds regardless
+
+| hook | fires on | decisions | role |
+|---|---|---|---|
+| `PreToolUse` | every local tool call | **deny only** | the command denylist (a floor only refuses) |
+| `PermissionRequest` | only calls **Codex** escalates | allow / deny / abstain | the human hold |
+
+The docs are explicit that `PermissionRequest` *"doesn't run for commands that
+don't need approval"*. So **Solix's own notion of risky cannot drive it.** A
+command Solix would hold, but Codex does not escalate, can be refused at
+`PreToolUse`, or held there and then not-denied — it cannot be
+held-then-approved. Even in the best case the Codex human gate covers
+escalations, not everything, and that is narrower than the Claude Code gate.
+
+### Hook trust is a problem for `solix install --codex`
+
+Non-managed hooks must be reviewed and trusted through `/hooks` before Codex
+will run them, and trust is recorded **against the hook script's hash** — so a
+new or changed script is marked for review and skipped until re-trusted.
+
+That means every Solix upgrade which touches a Codex hook script would
+silently turn the Codex gate off until the user noticed. Claude Code has no
+equivalent; the hook version stamp that `solix doctor` checks covers a much
+milder version of the same failure. Any `--codex` installer has to either use
+managed hooks (`requirements.toml`) or tell the user, loudly, to re-trust
+after an upgrade — and `doctor` needs a check for it. Run 5 of the probe
+measures how silent the failure actually is.
 
 ### A limit that holds either way
 

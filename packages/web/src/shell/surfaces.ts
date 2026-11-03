@@ -67,6 +67,7 @@ export const FLEET_SECTIONS = [
   { id: 'routines', label: 'Routines' },
   { id: 'connections', label: 'Connections' },
   { id: 'orgs', label: 'Orgs' },
+  { id: 'rules', label: 'Rules' },
 ] as const;
 
 export type FleetTabId = (typeof FLEET_SECTIONS)[number]['id'];

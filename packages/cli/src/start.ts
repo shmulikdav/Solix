@@ -122,7 +122,9 @@ function ensureWired(noWire = false): void {
       : '[solix] first run — about to wire Claude Code:\n' +
           `        • ${HOOK_NAMES.length} hooks into ${CLAUDE_SETTINGS}, backed up first.\n` +
           '          Two of them run on every tool call of every Claude Code\n' +
-          '          session, in the agent\'s blocking path (~2ms each).\n' +
+          '          session, in the agent\'s blocking path. Each does one short\n' +
+          '          POST to Solix on the loopback, capped at one second so a\n' +
+          '          slow or stopped Solix can never hold up your tool call.\n' +
           `        • advisor agents into ${CLAUDE_AGENTS_DIR}. An agent of yours\n` +
           '          with the same name is kept as <name>.md.pre-solix.bak.\n' +
           '        • hook scripts and skills under ~/.solix.\n' +

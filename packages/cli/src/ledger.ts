@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { getDb } from '@solix/server/db';
 import {
   countLedgerDecisions,
+  countRuleDecisions,
   ledgerPatterns,
   ledgerToCsv,
   ledgerToMarkdown,
@@ -44,6 +45,8 @@ export function ledger(opts: {
   // capped at 1000 rows of every audit kind, so the record under-reported
   // itself by an unknowable amount and said nothing.
   const total = countLedgerDecisions(db, { since, until });
+  // Decided by a rule, not a person. Shown beside the count, never inside it.
+  const byRules = countRuleDecisions(db, { since, until });
   const patterns = ledgerPatterns(entries);
 
   if (opts.md || opts.csv) {
@@ -84,6 +87,13 @@ export function ledger(opts: {
     for (const p of patterns) {
       console.log(`    ${WARN}•${RESET} ${p.summary}`);
       if (p.detail) console.log(`      ${DIM}${p.detail}${RESET}`);
+      if (p.kind === 'repeated') {
+        // The rule to make, spelled out — the one thing this line used to
+        // leave the reader to work out.
+        const sample = entries.find((e) => e.detail === p.detail);
+        const hint = sample && p.detail ? ruleCommandFor(sample.tool, p.detail) : null;
+        if (hint) console.log(`      ${DIM}→ ${hint}${RESET}`);
+      }
     }
     console.log('');
   }
@@ -103,7 +113,9 @@ export function ledger(opts: {
   }
 
   console.log(
-    `\n${DIM}  ${total} decision${total === 1 ? '' : 's'} in the window.` +
+    `\n${DIM}  ${total} decision${total === 1 ? '' : 's'} in the window` +
+      (byRules > 0 ? `, ${byRules} more decided by rules` : '') +
+      '.' +
       (total > entries.length
         ? ` Showing the most recent ${entries.length}.`
         : '') +
@@ -116,4 +128,22 @@ function localStamp(ts: number): string {
   const d = new Date(ts);
   const p = (n: number): string => String(n).padStart(2, '0');
   return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/**
+ * The `solix rules add` line that would turn a repeated approval into a
+ * standing one. Shell commands become a one- or two-word prefix; paths
+ * become the read-only or in-project-writes rule.
+ */
+export function ruleCommandFor(tool: string, detail: string): string | null {
+  const t = tool.toLowerCase();
+  if (t === 'read' || t === 'glob' || t === 'grep') return 'solix rules add --readonly';
+  if (t === 'write' || t === 'edit' || t === 'multiedit') return 'solix rules add --writes-inside-root';
+  if (t !== 'bash') return null;
+  const first = detail.split(/\|\||&&|;|\||\n/)[0]?.trim() ?? '';
+  const words = first.replace(/^[({\s]+/, '').split(/\s+/).filter(Boolean);
+  if (words.length === 0) return null;
+  const twoWord = new Set(['git', 'npm', 'pnpm', 'npx', 'node', 'yarn', 'cargo', 'go', 'make', 'docker']);
+  const prefix = twoWord.has(words[0]!) && words[1] ? `${words[0]} ${words[1]}` : words[0]!;
+  return `solix rules add --prefix "${prefix}"`;
 }

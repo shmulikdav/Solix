@@ -14,7 +14,7 @@ import { listSkills } from './state/skills.js';
 import { listSchedules } from './state/schedules.js';
 import { listGoals } from './state/goals.js';
 import { listPlans, listPlanTasks } from './state/plans.js';
-import { isAllowedOrigin } from './origins.js';
+import { isAllowedHost, isAllowedOrigin } from './origins.js';
 
 export interface WsContext {
   db: DB;
@@ -39,7 +39,9 @@ export function attachWs(server: HttpServer, ctx: WsContext): WebSocketServer {
       // and drive their agents. Browsers always send Origin on the handshake;
       // reject anything that isn't a loopback origin. (Non-browser WS clients
       // send no Origin and are allowed.)
-      if (!isAllowedOrigin(req.headers.origin)) {
+      // The same DNS-rebinding defense the HTTP routes have: the name this
+      // socket was addressed to has to be one of ours.
+      if (!isAllowedHost(req.headers.host) || !isAllowedOrigin(req.headers.origin)) {
         socket.write('HTTP/1.1 403 Forbidden\r\n\r\n');
         socket.destroy();
         return;

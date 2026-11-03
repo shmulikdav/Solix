@@ -290,6 +290,35 @@ CREATE TABLE IF NOT EXISTS notifiers (
   enabled INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS approval_rules (
+  id TEXT PRIMARY KEY,
+  scope TEXT NOT NULL,
+  project_id TEXT,
+  tool TEXT NOT NULL,
+  match TEXT NOT NULL,
+  value TEXT,
+  decision TEXT NOT NULL,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  hits INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  created_by TEXT
+);
+
+-- A command a person denied for a specific plan. The router re-applies it
+-- without asking again, so a worker that keeps re-posing a decision already
+-- made (Maestro's retry loop) is refused the second time rather than holding
+-- the human hostage to the same question. Scoped to the plan: a denial in one
+-- plan says nothing about another. Cleared when the plan is deleted.
+CREATE TABLE IF NOT EXISTS plan_denials (
+  id TEXT PRIMARY KEY,
+  plan_id TEXT NOT NULL,
+  tool TEXT NOT NULL,
+  match_value TEXT NOT NULL,
+  session_id TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_plan_denials_plan ON plan_denials(plan_id);
 `;
 
 export type DB = Database.Database;
@@ -444,6 +473,9 @@ function applySchema(db: DB): void {
   ensureColumn(db, 'sessions', 'plan_id', 'plan_id TEXT');
   ensureColumn(db, 'sessions', 'plan_task_id', 'plan_task_id TEXT');
   ensureColumn(db, 'sessions', 'session_role', 'session_role TEXT');
+  // The governance level in force when this session was launched, so the UI
+  // can show which dial a planet is running under even after the dial moves.
+  ensureColumn(db, 'sessions', 'gate_level_at_launch', 'gate_level_at_launch TEXT');
   // Multi-runtime: which agent CLI a session is ('claude' default, 'codex', …).
   ensureColumn(db, 'sessions', 'runtime', "runtime TEXT NOT NULL DEFAULT 'claude'");
   // v2 Maestro — durable per-task retry ceiling (idempotent for DBs that
@@ -468,6 +500,9 @@ function applySchema(db: DB): void {
   ensureColumn(db, 'plans', 'base_ref', 'base_ref TEXT');
   // P2 #6 — one-time soft budget heads-up flag (~80% of the cap).
   ensureColumn(db, 'plans', 'budget_warned', 'budget_warned INTEGER NOT NULL DEFAULT 0');
+  // Per-plan parallel dispatch cap. Default 1 keeps the serial behaviour; a
+  // higher value co-dispatches only isolated tasks (own worktree). (1.19 §4)
+  ensureColumn(db, 'plans', 'parallel_limit', 'parallel_limit INTEGER NOT NULL DEFAULT 1');
   // P3 #10 — multi-org: tag plans + goals with their owning org (nullable →
   // treated as the default org for pre-existing rows).
   ensureColumn(db, 'plans', 'org_id', 'org_id TEXT');

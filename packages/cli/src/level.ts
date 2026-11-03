@@ -2,10 +2,12 @@ import { getDb } from '@solix/server/db';
 import {
   describeGovernanceLevel,
   getGovernanceLevel,
+  isGovernanceDowngrade,
   isGovernanceLevel,
   setGovernanceLevel,
   type GovernanceLevel,
 } from '@solix/server/governance';
+import { countInFlightContainedSessions } from '@solix/server/sessions';
 
 /**
  * `solix level` — read or set the one governance dial.
@@ -21,7 +23,7 @@ const WARN = '\x1b[33m';
 
 const ORDER: GovernanceLevel[] = ['observe', 'standard', 'strict'];
 
-export function level(requested?: string): void {
+export function level(requested?: string, opts: { force?: boolean } = {}): void {
   const db = getDb();
 
   if (requested === undefined) {
@@ -45,6 +47,23 @@ export function level(requested?: string): void {
     );
     process.exitCode = 1;
     return;
+  }
+
+  // Dropping the dial while contained sessions are running changes the rules
+  // a worker is held to mid-task. Refuse without --force, and say how many
+  // sessions are affected. (`CLAIM-DOWNGRADE-NEEDS-FORCE`)
+  const current = getGovernanceLevel(db);
+  if (isGovernanceDowngrade(current, requested) && !opts.force) {
+    const inFlight = countInFlightContainedSessions(db);
+    if (inFlight > 0) {
+      console.error(
+        `${WARN}[solix] ${inFlight} contained session${inFlight === 1 ? ' is' : 's are'} running under ${current}.\n` +
+          `        Lowering to ${requested} now changes the rules they run under mid-task.\n` +
+          `        Re-run with --force if that is what you mean.${RESET}`,
+      );
+      process.exitCode = 1;
+      return;
+    }
   }
 
   const next = setGovernanceLevel(db, requested);

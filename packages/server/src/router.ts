@@ -45,6 +45,22 @@ import {
 } from './state/wrappers.js';
 import type { Launcher } from './launcher.js';
 import type { TranscriptWatcherManager } from './state/transcript.js';
+import type { ApprovalRule } from '@solix/shared';
+import { applyRules, describeRule } from './state/rules.js';
+import {
+  recordPlanDenial,
+  matchingPlanDenial,
+  stickyKeyFor,
+} from './state/denials.js';
+
+/** `: <first arg>`, trimmed, for an audit summary a person can scan. */
+function summarizeArgs(args: Record<string, unknown>): string {
+  const k = Object.keys(args)[0];
+  if (!k) return '';
+  const v = args[k];
+  const str = typeof v === 'string' ? v : JSON.stringify(v);
+  return `: ${str.length > 80 ? str.slice(0, 80) + '…' : str}`;
+}
 
 interface PendingPermission {
   requestId: string;
@@ -518,7 +534,7 @@ export class EventRouter {
    */
   requestPermission(
     event: HookEvent,
-  ): Promise<{ approved: boolean; timedOut: boolean }> {
+  ): Promise<{ approved: boolean; timedOut: boolean; reason?: string }> {
     const sessionId = this.extractSessionId(event);
     const p = event.payload as Record<string, unknown>;
     const { tool, args } = this.describeGatedTool(event.event, p);
@@ -642,6 +658,60 @@ export class EventRouter {
       return Promise.resolve({ approved: true, timedOut: false });
     }
 
+    // A standing decision beats a fresh ask — but only after the floor, which
+    // ran above and which nothing here can override. See state/rules.ts.
+    if (session) {
+      const verdict = applyRules(this.db, {
+        tool,
+        args,
+        root: session.cwd,
+        projectId: session.projectId,
+      });
+      if (verdict) {
+        const allowed = verdict.decision === 'allow';
+        recordAudit(this.db, {
+          kind: allowed ? 'permission_auto_approved' : 'permission_auto_denied',
+          sessionId,
+          summary: `${allowed ? 'Rule allowed' : 'Rule refused'} ${tool} for ${sessionId.slice(0, 8)}${summarizeArgs(args)}`,
+          payload: { tool, args, ruleId: verdict.rule.id, rule: describeRule(verdict.rule) },
+        });
+        return Promise.resolve({
+          approved: allowed,
+          timedOut: false,
+          reason: allowed
+            ? undefined
+            : `An approval rule in Solix refuses this (${describeRule(verdict.rule)}). That is a standing decision by a person, not a transient failure. Do not retry it or reword it; explain what you needed and stop.`,
+        });
+      }
+    }
+
+    // A person already answered this exact question for this plan. Re-posing
+    // it is the retry loop measured on 1.18.3: deny a command, the verifier
+    // rejects the task for skipping it, the task retries, the same command is
+    // put to the person again. A denial is a decision; apply it without
+    // asking again. Recorded as an auto-decision, so the ledger does not count
+    // it as a fresh human one. See state/denials.ts. (`CLAIM-DENY-IS-STICKY`)
+    if (session?.planId) {
+      const key = stickyKeyFor(tool, args);
+      const denial = matchingPlanDenial(this.db, session.planId, tool, key);
+      if (denial) {
+        recordAudit(this.db, {
+          kind: 'permission_auto_denied',
+          sessionId,
+          projectId: session.projectId,
+          summary: `Sticky deny: ${tool} was already denied for this plan${summarizeArgs(args)}`,
+          payload: { tool, args, sticky: true, planId: session.planId, denialId: denial.id },
+        });
+        return Promise.resolve({
+          approved: false,
+          timedOut: false,
+          reason:
+            'A person already denied this exact command earlier in this plan. ' +
+            'Solix is applying that standing decision without asking again. Do ' +
+            'not retry it or reword it; report what you needed and stop.',
+        });
+      }
+    }
     const requestId = nanoid();
     const timeoutMs = Number(process.env.SOLIX_GATE_TIMEOUT_MS ?? 300_000);
 
@@ -875,6 +945,18 @@ export class EventRouter {
       summary: `${approved ? 'Approved' : 'Denied'} ${pending.tool} for ${session?.name ?? pending.sessionId.slice(0, 8)}${argSummary}`,
       payload: { tool: pending.tool, args: pending.args },
     });
+    // A denial from a plan is sticky for that plan: the same command will be
+    // refused without asking again. A one-off approval is not remembered — a
+    // yes is for this call; a standing yes is an approval rule, made on
+    // purpose. (`CLAIM-DENY-IS-STICKY`)
+    if (!approved && session?.planId) {
+      recordPlanDenial(this.db, {
+        planId: session.planId,
+        tool: pending.tool,
+        matchValue: stickyKeyFor(pending.tool, pending.args),
+        sessionId: pending.sessionId,
+      });
+    }
     return true;
   }
 
@@ -1044,6 +1126,14 @@ export class EventRouter {
   }
   broadcastGoalRemove(goalId: string): void {
     this.broadcaster.broadcast({ type: 'goal_remove', goalId });
+  }
+
+  broadcastRuleUpsert(rule: ApprovalRule): void {
+    this.broadcaster.broadcast({ type: 'rule_upsert', rule });
+  }
+
+  broadcastRuleRemove(ruleId: string): void {
+    this.broadcaster.broadcast({ type: 'rule_remove', ruleId });
   }
   broadcastProjectUpsert(project: import('@solix/shared').Project): void {
     this.broadcaster.broadcast({ type: 'project_upsert', project });

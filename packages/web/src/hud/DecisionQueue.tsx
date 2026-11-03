@@ -7,6 +7,7 @@ import { Button } from '../ui/Button.js';
 import { PanelHeader, RightDock } from '../panels/RightDock.js';
 import type { Mission, Session } from '@solix/shared';
 import { suggestForPermission } from '../suggestions.js';
+import { describeRule, suggestRuleFor } from '@solix/shared';
 
 /**
  * Decision Queue — the "what do I need to do?" inbox.
@@ -44,6 +45,36 @@ export function DecisionQueue(): JSX.Element | null {
 
   const onAsk = (sessionId: string): void => {
     selectSession(sessionId);
+  };
+
+  /**
+   * "Always allow": write the rule this request suggests, scoped to the
+   * session's project, then approve the call that prompted it. The rule is
+   * the durable part; if it does not land, the call is still answered by
+   * hand so the agent is not left waiting on a failed write.
+   */
+  const alwaysAllow = async (
+    p: { requestId: string; tool: string; args: Record<string, unknown> },
+    projectId: string | undefined,
+  ): Promise<void> => {
+    const suggestion = suggestRuleFor(p.tool, p.args);
+    if (suggestion) {
+      try {
+        const res = await fetch('/api/rules', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...suggestion,
+            scope: projectId ? 'project' : 'global',
+            projectId,
+          }),
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      } catch (err) {
+        console.warn('[solix] the rule did not land; answering this call only', err);
+      }
+    }
+    resolve(p.requestId, true);
   };
 
   // There used to be a collapse toggle and an effect that force-expanded the
@@ -112,6 +143,11 @@ export function DecisionQueue(): JSX.Element | null {
               onApprove={() => resolve(p.requestId, true)}
               onDeny={() => resolve(p.requestId, false)}
               onAsk={() => onAsk(p.sessionId)}
+              onAlwaysAllow={
+                suggestRuleFor(p.tool, p.args)
+                  ? () => void alwaysAllow(p, session?.projectId)
+                  : undefined
+              }
               sending={resolving.has(p.requestId)}
               connected={connected}
             />
@@ -226,6 +262,8 @@ interface DecisionCardProps {
   onApprove: () => void;
   onDeny: () => void;
   onAsk: () => void;
+  /** Make a standing rule for this kind of call, then approve it. Absent when nothing sensible can be suggested. */
+  onAlwaysAllow?: () => void;
   /** Decision sent, waiting for the server to confirm it. */
   sending: boolean;
   connected: boolean;
@@ -239,6 +277,7 @@ function DecisionCard({
   onApprove,
   onDeny,
   onAsk,
+  onAlwaysAllow,
   sending,
   connected,
 }: DecisionCardProps): JSX.Element {
@@ -248,6 +287,7 @@ function DecisionCard({
   const suggestion = session
     ? suggestForPermission(session, mission, tool, args)
     : null;
+  const standing = onAlwaysAllow ? suggestRuleFor(tool, args) : null;
 
   return (
     <div className="pointer-events-auto rounded border border-solix-danger bg-solix-panel p-3 backdrop-blur shadow-lg">
@@ -319,6 +359,21 @@ function DecisionCard({
           Ask
         </button>
       </div>
+      {/*
+        A hold should be the exception. On 1.18.3 a five-task plan was held
+        thirty times, Read SPEC.md included, and the only answer was Y, thirty
+        times. This writes the rule a person would have written instead.
+      */}
+      {onAlwaysAllow && standing && (
+        <button
+          onClick={onAlwaysAllow}
+          disabled={sending || !connected}
+          className="mt-1.5 w-full py-1 rounded border border-solix-border/70 text-[11px] text-slate-300 hover:text-white hover:bg-solix-border/30 disabled:opacity-40 disabled:cursor-not-allowed"
+          title="Adds a rule for this project and approves this call. The denylist still runs first; no rule can override it."
+        >
+          Always {describeRule({ ...standing, scope: 'project' })}
+        </button>
+      )}
     </div>
   );
 }

@@ -42,6 +42,8 @@ export type SessionKind = 'user' | 'advisor';
  *  Absent for ordinary sessions a human started. Autonomous roles are governed
  *  by the containment denylist instead of a per-step human prompt — there is
  *  nobody at the keyboard to answer one. */
+export type GovernanceLevel = 'observe' | 'standard' | 'strict';
+
 export type SessionRole = 'worker' | 'verifier' | 'planner' | 'routine';
 
 export interface Session {
@@ -111,6 +113,10 @@ export interface Session {
   planId?: string;
   planTaskId?: string;
   sessionRole?: SessionRole;
+  /** The governance level in force when this session was launched. Lets the
+   *  UI show which dial a planet is running under even after the dial moves,
+   *  and records what a contained role was actually held to. */
+  gateLevelAtLaunch?: GovernanceLevel;
 }
 
 /** A tenant (P3 #10). A default org always exists; a Team edition can add more
@@ -228,6 +234,10 @@ export interface Plan {
   /** True once the soft budget heads-up has fired (~80% of the cap), so it
    *  only warns once before the hard pause at 100% (P2 #6). */
   budgetWarned?: boolean;
+  /** How many of this plan's tasks may run at once. Default 1 — serial, the
+   *  historical behaviour, because tasks share one checkout. Above 1 only
+   *  isolated tasks (each in its own worktree/cwd) are co-dispatched. */
+  parallelLimit?: number;
   createdAt: number;
   updatedAt: number;
 }
@@ -639,6 +649,10 @@ export interface TimelineEvent {
 export type AuditKind =
   | 'permission_approved'
   | 'permission_denied'
+  // Decided by an approval rule, not a person. Kept distinct from the two
+  // above so the signed ledger never counts a rule as a human decision.
+  | 'permission_auto_approved'
+  | 'permission_auto_denied'
   // Refused by containment before any human saw it. Distinct from
   // `permission_denied`, which means a person looked at it and said no —
   // conflating the two makes it impossible to say how much the denylist
@@ -705,3 +719,34 @@ export interface GalaxyManifestDiff {
     removed: string[];
   };
 }
+
+// ---------------------------------------------------------------------------
+// Approval rules — a person's standing decision at the gate (state/rules.ts)
+// ---------------------------------------------------------------------------
+
+export type ApprovalRuleScope = 'global' | 'project';
+export type ApprovalRuleMatch =
+  | 'readonly_tool'
+  | 'write_inside_root'
+  | 'command_prefix'
+  | 'command_regex';
+export type ApprovalRuleDecision = 'allow' | 'deny';
+
+export interface ApprovalRule {
+  id: string;
+  scope: ApprovalRuleScope;
+  projectId?: string;
+  /** Tool name, or `*` for any tool the matcher applies to. */
+  tool: string;
+  match: ApprovalRuleMatch;
+  /** The prefix or regular expression for the command matchers. */
+  value?: string;
+  decision: ApprovalRuleDecision;
+  enabled: boolean;
+  /** How many calls this rule has decided. */
+  hits: number;
+  createdAt: number;
+  createdBy?: string;
+}
+
+export type ApprovalRuleInput = Omit<ApprovalRule, 'id' | 'enabled' | 'hits' | 'createdAt'>;
