@@ -5,6 +5,41 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Writing a gate policy without running an agent to find out
+
+On 2026-11-03 a hand-written `solix gate` policy was refused three times in a
+row before the one command it was written for ran: a missing `head`, then a
+`2>&1` that an anchored regex did not expect. The gate was right each time;
+the policy was hard to get right, and the only way to check one was a real
+agent run.
+
+- **`solix rules test`** — would the gate allow this? Prints the gate's own
+  verdict and, when a command is not covered, which part: *no rule covers
+  this*, or *`cat` matches, but /etc/hostname is outside the project*. Exit
+  0 / 1 / 2, so it can sit in CI. `--rules <file|defaults>` tests a policy;
+  without it, the rules in force on this machine. `CLAIM-RULES-TEST-IS-THE-GATE`.
+- **A policy can extend the defaults:** `{ "extends": "defaults", "rules":
+  [...] }`. Deny rules still win, so a policy can start from the defaults and
+  refuse something they allow. `CLAIM-POLICY-EXTENDS-DEFAULTS`.
+- **Rules match the command, not its plumbing.** Redirects that only move or
+  discard output (`2>&1`, `>&2`, `>/dev/null`) are ignored when matching, so
+  `^npm (pack|publish) --dry-run$` covers `npm publish --dry-run 2>&1`.
+
+### Security: a regex allow rule could cover a path outside the project
+
+Prefix allow rules never covered a segment naming a path outside the project;
+regex allow rules skipped that check, so `^cat ` covered
+`cat ~/.ssh/id_ed25519` and `^echo` covered `echo x >/etc/y`. No default rule
+is a regex, so only hand-written regex rules were affected. Every allow rule
+now applies the same check. `CLAIM-ALLOW-RULES-CONFINED`.
+
+### Release tooling
+
+- `pnpm release:tag` lists the files that make the tree dirty instead of only
+  saying it is.
+
 ## [1.20.1] — 2026-11-03
 
 ### Security: a redirect could write outside the project under an allow rule

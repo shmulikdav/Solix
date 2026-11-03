@@ -25,6 +25,7 @@ import {
 } from './reporting.js';
 import { importCmd } from './import.js';
 import { level } from './level.js';
+import { rulesTest, type RulesTestOptions } from './rulesTest.js';
 import { gate } from './gate.js';
 import { unknownCommand, unknownCommandMessage } from './commandGuard.js';
 import { rulesAdd, rulesDefaults, rulesList, rulesRemove, rulesSetEnabled } from './rules.js';
@@ -221,6 +222,16 @@ rules
   .description('Keep a rule but stop consulting it')
   .action((id: string) => {
     rulesSetEnabled(id, false);
+  });
+rules
+  .command('test [command...]')
+  .description('Would the gate allow this command? Says which part no rule covers — no agent needed')
+  .option('--rules <file|defaults>', 'test against a gate policy instead of the rules in force')
+  .option('--file <path>', 'test a file tool (Write by default) on this path instead of a command')
+  .option('--tool <name>', 'the tool making the call (default: Bash, or Write with --file)')
+  .option('--cwd <dir>', 'the project root (default: the current directory)')
+  .action((command: string[], opts: RulesTestOptions) => {
+    process.exitCode = rulesTest(command, opts);
   });
 rules
   .command('remove <id>')

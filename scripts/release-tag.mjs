@@ -82,8 +82,14 @@ export function checkRelease(facts) {
     retag,
   } = facts;
 
-  if (dirty) {
-    problems.push('the working tree has uncommitted changes — commit or stash them first');
+  // `dirty` is the `git status --porcelain` lines (or a bare true). Naming
+  // them saves a round trip: on 2026-11-03 the release stopped here over an
+  // untracked `.solix/` folder, and finding that took a second command.
+  const dirtyLines = Array.isArray(dirty) ? dirty : dirty ? [] : null;
+  if (dirtyLines && (dirty === true || dirtyLines.length > 0)) {
+    const shown = dirtyLines.slice(0, 8).map((l) => `\n      ${l}`).join('');
+    const more = dirtyLines.length > 8 ? `\n      … and ${dirtyLines.length - 8} more` : '';
+    problems.push(`the working tree has uncommitted changes — commit or stash them first${shown}${more}`);
   }
   if (branch !== RELEASE_BRANCH) {
     problems.push(`on branch "${branch}", not ${RELEASE_BRANCH} — releases are cut from ${RELEASE_BRANCH}`);
@@ -168,7 +174,8 @@ async function main() {
 
   const facts = {
     version,
-    dirty: git('status', '--porcelain') !== '',
+    // Not `git()`: its trim() would eat the leading space of the first line.
+    dirty: execFileSync('git', ['status', '--porcelain'], { cwd: ROOT, encoding: 'utf8' }).split('\n').filter(Boolean),
     branch: git('rev-parse', '--abbrev-ref', 'HEAD'),
     localSha: headSha,
     remoteSha: git('rev-parse', `origin/${RELEASE_BRANCH}`),

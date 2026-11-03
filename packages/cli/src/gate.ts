@@ -56,7 +56,21 @@ export interface GateDeps {
 export const EXIT_REFUSED = 3;
 export const EXIT_GATE_ERROR = 2;
 
-/** Load and validate the policy before anything starts. */
+/**
+ * Load and validate the policy before anything starts.
+ *
+ *   defaults                                  Solix's opt-in set
+ *   [ rule, … ]                               exactly these rules
+ *   { "rules": [ rule, … ] }                  the same
+ *   { "extends": "defaults", "rules": [ … ] } the defaults, plus these
+ *
+ * `extends` exists because a policy written from scratch has to list every
+ * read-only command an agent might pipe through. Measured on 2026-11-03: three
+ * gate runs in a row were refused for a missing `head`, then a `2>&1`, before
+ * the one command the policy was about ever ran. Deny rules win over allow
+ * rules wherever they come from, so a policy can extend the defaults and still
+ * refuse something they allow. (`CLAIM-POLICY-EXTENDS-DEFAULTS`)
+ */
 export function loadPolicy(spec: string): { ok: true; rules: ApprovalRuleInput[] } | { ok: false; error: string } {
   if (spec === 'defaults') return { ok: true, rules: defaultRuleInputs() };
   const path = resolve(spec);
@@ -67,9 +81,26 @@ export function loadPolicy(spec: string): { ok: true; rules: ApprovalRuleInput[]
   } catch (err) {
     return { ok: false, error: `${path} is not valid JSON: ${(err as Error).message}` };
   }
-  const list = Array.isArray(raw) ? raw : (raw as { rules?: unknown })?.rules;
-  if (!Array.isArray(list)) return { ok: false, error: `${path} must be a JSON array of rules (or { "rules": [...] })` };
-  const rules: ApprovalRuleInput[] = [];
+  const shape = `${path} must be a JSON array of rules, or { "extends": "defaults", "rules": [...] }`;
+  let base: ApprovalRuleInput[] = [];
+  let list: unknown;
+  if (Array.isArray(raw)) {
+    list = raw;
+  } else if (raw && typeof raw === 'object') {
+    const obj = raw as { extends?: unknown; rules?: unknown };
+    for (const key of Object.keys(obj)) {
+      if (key !== 'extends' && key !== 'rules') return { ok: false, error: `${path}: unknown key "${key}" — ${shape}` };
+    }
+    if (obj.extends !== undefined) {
+      if (obj.extends !== 'defaults') {
+        return { ok: false, error: `${path}: "extends" can only be "defaults", got ${JSON.stringify(obj.extends)}` };
+      }
+      base = defaultRuleInputs();
+    }
+    list = obj.rules ?? (obj.extends !== undefined ? [] : undefined);
+  }
+  if (!Array.isArray(list)) return { ok: false, error: shape };
+  const rules: ApprovalRuleInput[] = [...base];
   for (const [i, item] of list.entries()) {
     // A gate run has no project id up front, so every rule is global to it.
     const parsed = parseRuleInput({ ...(item as object), scope: 'global', projectId: undefined, createdBy: 'gate' });
