@@ -5,7 +5,10 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.20.0] — Unreleased
+## [1.20.0] — 2026-11-03
+
+> **1.19.0 was never published.** Everything planned for it ships here, below
+> the 1.20 work. There is no `@shmulikdav/solix@1.19.0`.
 
 ### Parallel Maestro, for the fan-out case
 
@@ -83,7 +86,6 @@ before anything runs: `error: unknown command 'gaet' — did you mean 'gate'?`,
 with the running version and a note that newer docs may need a newer release.
 `start` also refuses excess arguments. `CLAIM-TYPO-NEVER-STARTS`.
 
-## [1.19.0] — Unreleased
 
 ### A hold is the exception now
 
