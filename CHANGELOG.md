@@ -131,6 +131,18 @@ suite H.
   sum of cost over the plan's sessions, beside `budgetUsd` — so a plan card can
   show how much of a cap has been used, not only the cap.
 
+### The evaluation harness is in the repo now
+
+The before/after numbers in these notes come from a fixed task — build a small
+`tally` CLI, with tests — run against a live Solix and measured the same way
+every time. That harness was a pile of scripts in a scratch directory; it is
+now [`scripts/eval/`](scripts/eval/) and [`docs/EVAL.md`](docs/EVAL.md): the
+spec, a runner that sets up the project and drives one Maestro run, a stand-in
+approver, and a tally. It needs a real agent, so it does not run in CI — it is
+the ritual before a release, and its numbers go in the notes. `docs/EVAL.md`
+states the 1.19 targets and, honestly, where the last run missed them (4 holds
+against ≤3, ~$5.45 against ≤$4).
+
 ### Claims
 
 Ten new rows in `docs/CLAIMS.md`, each proven by reinstating its bug:
