@@ -16,6 +16,7 @@ import {
   SOLIX_INSTALL_STAMP,
   SOLIX_SKILLS_DIR,
 } from './paths.js';
+import { isSolixHookCommand } from './install.js';
 import { readAgentsManifest } from './install.js';
 import { uninstallShim } from './install-shim.js';
 
@@ -95,7 +96,8 @@ export function uninstall(): void {
   if (cur.hooks) {
     for (const [evt, entries] of Object.entries(cur.hooks)) {
       cur.hooks[evt] = entries.filter(
-        (e) => !e.hooks.some((h) => h.command.includes(HOOKS_DIR)),
+        // Ours from any Solix home, not only this one — see isSolixHookCommand.
+        (e) => !e.hooks.some((h) => isSolixHookCommand(h.command)),
       );
       if (cur.hooks[evt].length === 0) delete cur.hooks[evt];
     }

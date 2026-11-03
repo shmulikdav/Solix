@@ -182,6 +182,12 @@
       "claim": "The API and the websocket answer only to a loopback name, a `*.localhost` name, or a name listed in `SOLIX_ALLOWED_HOSTS` — so a DNS-rebinding page cannot read local state as if it were same-origin.",
       "publishedIn": "README (security), smoke suite H",
       "heldBy": "packages/server/src/host.guard.test.ts"
+    },
+    {
+      "id": "CLAIM-ONE-HOOK-SET",
+      "claim": "Solix wires exactly one set of hooks into `settings.json`, whichever `SOLIX_HOME` it was last started from; a second home replaces the first set rather than adding to it, and uninstall removes a set from any home.",
+      "publishedIn": "`solix doctor`, CHANGELOG 1.19.0, the eval numbers",
+      "heldBy": "packages/cli/src/install.test.ts"
     }
   ]
 }

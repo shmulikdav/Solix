@@ -83,6 +83,7 @@ If you cannot write step 2, you cannot make the claim.
 | `CLAIM-RULES-NEVER-OVERRIDE-FLOOR` | An approval rule is consulted only after the containment floor. No rule, however broad, lets a denylisted command through. | README, `solix rules`, Fleet → Rules | `packages/server/src/router.rules.test.ts` |
 | `CLAIM-AUTO-DECISIONS-LABELLED` | A decision made by a rule is recorded as the rule's, never as a person's: the ledger's decision count excludes it and counts it separately. | `solix ledger`, the signed report | `packages/server/src/router.rules.test.ts` |
 | `CLAIM-HOST-IS-OURS` | The API and the websocket answer only to a loopback name, a `*.localhost` name, or a name listed in `SOLIX_ALLOWED_HOSTS` — so a DNS-rebinding page cannot read local state as if it were same-origin. | README (security), smoke suite H | `packages/server/src/host.guard.test.ts` |
+| `CLAIM-ONE-HOOK-SET` | Solix wires exactly one set of hooks into `settings.json`, whichever `SOLIX_HOME` it was last started from; a second home replaces the first set rather than adding to it, and uninstall removes a set from any home. | `solix doctor`, CHANGELOG 1.19.0, the eval numbers | `packages/cli/src/install.test.ts` |
 
 ## The matrix
 

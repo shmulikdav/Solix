@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -465,5 +466,54 @@ describe('advisor agents in the user\'s own directory', () => {
 
     const { existsSync } = await import('node:fs');
     expect(existsSync(db)).toBe(true);
+  });
+});
+
+/**
+ * Found while measuring 1.19's approval rules, on 2026-11-03: the audit log
+ * of a five-task plan held eight human decisions for four commands. Solix had
+ * been started under a second `SOLIX_HOME`, and install() knew its own hooks
+ * only by their directory — so the first home's set passed for the user's
+ * own, was kept, and a second complete set was merged in beside it. Every
+ * tool call then fired two hooks, and a person was asked twice.
+ */
+describe('CLAIM-ONE-HOOK-SET · install() under a second SOLIX_HOME', () => {
+  const PRE_BASH = /\/hooks\/pre-tool-bash\.sh$/;
+
+  function preToolBashEntries(): string[] {
+    const settings = JSON.parse(readFileSync(join(home, '.claude', 'settings.json'), 'utf8')) as {
+      hooks?: Record<string, { hooks: { command: string }[] }[]>;
+    };
+    return (settings.hooks?.PreToolUse ?? [])
+      .flatMap((e) => e.hooks.map((h) => h.command))
+      .filter((c) => PRE_BASH.test(c));
+  }
+
+  it('replaces the set wired from the first home instead of adding a second', async () => {
+    mkdirSync(join(home, '.claude'), { recursive: true });
+    const first = await load();
+    first.install();
+    expect(preToolBashEntries()).toHaveLength(1);
+    expect(preToolBashEntries()[0]).toContain(`${join(home, '.solix')}/`);
+
+    vi.stubEnv('SOLIX_HOME', join(home, '.solix-b'));
+    const second = await load();
+    second.install();
+
+    const wired = preToolBashEntries();
+    expect(wired).toHaveLength(1);
+    expect(wired[0]).toContain(`${join(home, '.solix-b')}/`);
+    expect(second.hooksInstalled()).toBe(true);
+  });
+
+  it('knows its hooks by name, wherever their directory is', async () => {
+    const { isSolixHookCommand } = await load();
+    expect(isSolixHookCommand('/Users/someone/.solix/hooks/pre-tool-bash.sh')).toBe(true);
+    expect(isSolixHookCommand('/srv/other-home/hooks/post-tool.sh')).toBe(true);
+    expect(isSolixHookCommand('bash /srv/other-home/hooks/stop.sh --quiet')).toBe(true);
+    // Someone else's hook, even one that lives in a directory called hooks.
+    expect(isSolixHookCommand('/opt/other-tool/hook.sh')).toBe(false);
+    expect(isSolixHookCommand('/home/me/hooks/lint.sh')).toBe(false);
+    expect(isSolixHookCommand('/home/me/.solix/hooks/pre-tool-bash.sh.bak')).toBe(false);
   });
 });

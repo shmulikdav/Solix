@@ -137,3 +137,39 @@ describe('CLAIM-UNINSTALL-RESTORES · uninstall', () => {
     expect(() => uninstall()).not.toThrow();
   });
 });
+
+/**
+ * The other half of `CLAIM-ONE-HOOK-SET`: a set of Solix hooks wired from a
+ * different `SOLIX_HOME` is still Solix's, and uninstall takes it out. It
+ * used to match hooks by this home's directory only, so a set from another
+ * home was left behind as if it were the user's own.
+ */
+describe('CLAIM-ONE-HOOK-SET · uninstall and a set from another Solix home', () => {
+  it('removes hooks wired from another SOLIX_HOME, and leaves other tools alone', async () => {
+    const foreign = '/srv/another-home/hooks';
+    writeFileSync(
+      settingsPath(),
+      JSON.stringify({
+        hooks: {
+          SessionStart: [
+            { matcher: '*', hooks: [{ type: 'command', command: '/opt/other-tool/hook.sh' }] },
+            { matcher: '*', hooks: [{ type: 'command', command: `${foreign}/session-start.sh` }] },
+          ],
+          PreToolUse: [
+            { matcher: 'Bash', hooks: [{ type: 'command', command: `${foreign}/pre-tool-bash.sh` }] },
+          ],
+        },
+      }),
+    );
+    const { install } = await loadInstall();
+    install();
+
+    const { uninstall } = await load();
+    uninstall();
+
+    const hooks = JSON.stringify(readSettings().hooks ?? {});
+    expect(hooks).toContain('/opt/other-tool/hook.sh');
+    expect(hooks).not.toContain(foreign);
+    expect(hooks).not.toContain('.solix');
+  });
+});

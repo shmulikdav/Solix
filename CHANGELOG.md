@@ -5,6 +5,82 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.19.0] — Unreleased
+
+### A hold is the exception now
+
+Measured on the published 1.18.3, on 2026-11-03, with the same evaluation
+run against Paperclip the day before: a five-task Maestro plan at `standard`
+was held **thirty times for thirty tool calls**, `Read SPEC.md` included, and
+`solix ledger` printed "approved 4 times — worth a rule rather than a
+decision" with no rule to make. A hold has to be the exception or people flip
+to `observe` and the gate is gone.
+
+**Approval rules.** A rule is a person's standing decision at the gate. It is
+consulted *after* the containment floor — which nothing overrides — and
+*before* anyone is asked. Its decision is written as
+`permission_auto_approved` / `permission_auto_denied`, which the signed ledger
+counts **apart from a person's**: a rule firing a hundred times is not a
+hundred people.
+
+- `solix rules defaults` installs an opt-in set: read-only tools, writes
+  inside the project, and a short list — listing, reading, testing,
+  committing, and the project's own code via `node`. Nothing in it deletes,
+  pushes, escalates or fetches code. `solix rules add --prefix "git status"`,
+  `--regex`, `--readonly`, `--writes-inside-root`, `--deny`, `--project`.
+- A shell command is allowed only when **every segment** is covered: `ls &&
+  git push --force` is not "an ls". Absolute paths outside the project are
+  never covered, so an allowed `cat` does not read `~/.ssh`. Balanced quotes
+  do not split; heredoc bodies are data; the contents of `$( … )` and
+  backticks are lifted out as segments that must be covered too —
+  `echo "$(git push --force)"` runs git push, and the first version of the
+  splitter would have let an allowed `echo` carry it.
+- Fleet → **Rules** lists each rule with how often it has decided. The
+  Decisions card gains **Always allow …**, which writes the rule this request
+  suggests and approves the call. `GET /api/decisions/pending` returns what is
+  waiting on a person; `GET/POST/PATCH/DELETE /api/rules` manage rules.
+- `solix ledger` now prints "N more decided by rules" beside the count, and
+  the exact `solix rules add …` line under a repeated approval.
+- The hooks echo a server-supplied reason on deny, so a rule's refusal tells
+  the agent a standing decision applies rather than that a person just
+  reviewed this call.
+
+Re-run of the same plan with the defaults: **holds 30 → 4** (a project binary
+run directly, two writes to a scratchpad outside the project, a `find`), 27
+calls decided by rules, **4m00s against 8m58s**, $5.45, 33/33 tests,
+committed. Two of the four are holds a person should see; the other two are a
+rule away.
+
+### One set of hooks, whichever home you started from
+
+Found while measuring the above: the audit log of that run held eight human
+decisions for four commands. Solix had been started under a second
+`SOLIX_HOME`, and `install()` only recognised its own hooks by their
+directory, so the first home's set was taken for the user's and kept, and a
+second full set was merged in beside it. Every tool call fired twice: two
+holds, two audit rows, a person asked twice. A hook is now ours by its name
+wherever its directory is — a second home replaces the set rather than adding
+to it, and uninstall removes a set from any home. `CLAIM-ONE-HOOK-SET`.
+
+### A `Host` that has to be ours
+
+DNS-rebinding read exposure: with a foreign `Host` and no `Origin` — what a
+rebound page's same-origin fetch sends — `GET /api/plans`, `/api/missions`
+and `/api/system/governance` answered 200 with data on 1.18.3. The Origin
+gate refused mutations; nothing looked at the name a *read* was addressed
+to. Every route and the websocket upgrade now answer only to a loopback
+name, `*.localhost`, or a name in `SOLIX_ALLOWED_HOSTS` (for a LAN or
+tailnet address). Verified live with the exact probes, recorded as smoke
+suite H.
+
+### Claims
+
+Four new rows in `docs/CLAIMS.md`, each proven by reinstating its bug:
+`CLAIM-RULES-NEVER-OVERRIDE-FLOOR` (make the floor advisory → fails),
+`CLAIM-AUTO-DECISIONS-LABELLED` (record a rule under the human kinds →
+fails), `CLAIM-HOST-IS-OURS` (remove the gate → fails),
+`CLAIM-ONE-HOOK-SET` (match hooks by directory again → fails).
+
 ## [1.18.3] — 2026-11-01
 
 **Plan editing, and the hole that was under it.**

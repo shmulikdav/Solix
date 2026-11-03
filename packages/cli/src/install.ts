@@ -141,8 +141,26 @@ function buildSolixHooks(): Record<string, HookEntry[]> {
   };
 }
 
+/**
+ * Is this command one of ours — from *any* Solix home, not just this one?
+ *
+ * This used to test for the current `HOOKS_DIR` path only. Start Solix under
+ * a different `SOLIX_HOME` and the hooks already wired from the old one were
+ * taken for the user's own and kept, and a second complete set was merged in
+ * beside them. Every tool call then fired two hooks: two holds, two audit
+ * rows, two rule decisions, a person asked twice. Measured on 2026-11-03 —
+ * a five-task plan logged 8 human decisions for 4 commands. A hook is ours
+ * by its name, wherever its directory is. (`CLAIM-ONE-HOOK-SET`)
+ */
+export function isSolixHookCommand(command: string): boolean {
+  if (command.includes(`${HOOKS_DIR}/`)) return true;
+  return SOLIX_HOOK_SCRIPT.test(command);
+}
+
+const SOLIX_HOOK_SCRIPT = new RegExp(`/hooks/(?:${HOOK_NAMES.join('|')})\\.sh(?:\\s|$)`);
+
 function isSolixHook(entry: HookEntry): boolean {
-  return entry.hooks.some((h) => h.command.includes(`${HOOKS_DIR}/`));
+  return entry.hooks.some((h) => isSolixHookCommand(h.command));
 }
 
 function mergeHooks(
