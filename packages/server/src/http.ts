@@ -58,6 +58,7 @@ import { fullAutoContainmentStatus } from './containment.js';
 import {
   describeGovernanceLevel,
   getGovernanceLevel,
+  isGovernanceDowngrade,
   isGovernanceLevel,
   setGovernanceLevel,
 } from './state/governance.js';
@@ -67,6 +68,7 @@ import {
   listActiveSessions,
   listSessionsForProject,
   setSessionStatus,
+  countInFlightContainedSessions,
 } from './state/sessions.js';
 import { listMissions } from './state/missions.js';
 import { loadTimeline } from './state/timeline.js';
@@ -381,12 +383,35 @@ export function createHttpApp(opts: {
   });
 
   app.post('/api/system/governance', async (c) => {
-    const body = (await c.req.json().catch(() => ({}))) as { level?: unknown };
+    const body = (await c.req.json().catch(() => ({}))) as {
+      level?: unknown;
+      force?: unknown;
+    };
     if (!isGovernanceLevel(body.level)) {
       return c.json(
         { error: 'level must be observe, standard or strict' },
         400,
       );
+    }
+    // Dropping the dial while contained sessions are running changes the rules
+    // a worker is held to in the middle of its task. Refuse unless the caller
+    // says so with `force`, and report how many sessions are affected so the
+    // decision is an informed one. (`CLAIM-DOWNGRADE-NEEDS-FORCE`)
+    const current = getGovernanceLevel(opts.db);
+    if (isGovernanceDowngrade(current, body.level) && body.force !== true) {
+      const inFlight = countInFlightContainedSessions(opts.db);
+      if (inFlight > 0) {
+        return c.json(
+          {
+            error: `${inFlight} contained session${inFlight === 1 ? ' is' : 's are'} in flight under ${current}. Lowering the dial to ${body.level} now would change the rules they run under mid-task. Retry with force to proceed.`,
+            inFlight,
+            from: current,
+            to: body.level,
+            needsForce: true,
+          },
+          409,
+        );
+      }
     }
     const level = setGovernanceLevel(opts.db, body.level);
     // Announced, not silent: changing how much is held for you is exactly the

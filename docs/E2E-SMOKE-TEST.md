@@ -700,6 +700,54 @@ is the easy way to turn this into noise.
 
 ---
 
+### E9 · A denial is final for this plan — **P1** (1.19)
+
+The 1.18.3 retry loop: deny a command, the task is rejected for skipping it,
+the orchestrator retries, and the same command is put to you again.
+
+1. Run a plan whose task needs a specific command (e.g. a build that shells
+   out). When it is held, press **Deny**.
+2. Watch the task.
+
+**Expected:** the task is escalated for a human at once — not retried — with
+the thread saying a person denied the command. If the orchestrator issues the
+same command again (a deliberate retry you asked for), it is refused without
+asking you a second time, and the audit shows `permission_auto_denied` with
+`sticky: true`. `solix ledger` counts that automatic refusal apart from your
+own decisions. (`CLAIM-DENY-IS-STICKY`, `CLAIM-DENY-STOPS-RETRY`)
+
+**Result:** ☐ PASS ☐ FAIL  **Saw:** `________________`
+
+---
+
+### E10 · A restart does not answer a held decision for you — **P1** (1.19)
+
+1. Trigger a held command from a plan (as E2), and while it is held, stop
+   Solix with `Ctrl+C`.
+2. Start Solix again.
+
+**Expected:** the plan comes back **paused**, not running, with a note that a
+decision was waiting when Solix stopped. The task is back to pending; pressing
+**Resume** continues it. The held command was not run by default.
+(`CLAIM-RESTART-PAUSES-ON-HOLD`)
+
+**Result:** ☐ PASS ☐ FAIL  **Saw:** `________________`
+
+---
+
+### E11 · Lowering the dial under running work needs intent — **P1** (1.19)
+
+1. With a plan's workers running under `standard`, run `solix level observe`.
+
+**Expected:** it refuses, naming how many contained sessions are in flight,
+and the level is unchanged. `solix level observe --force` proceeds. The same
+holds for the Fleet → Governance control and `POST /api/system/governance`
+(409 without `force`). (`CLAIM-DOWNGRADE-NEEDS-FORCE`)
+
+**Result:** ☐ PASS ☐ FAIL  **Saw:** `________________`
+
+---
+
 # Suite F — Containment denylist
 
 > These should be refused by Solix **before** reaching you, on a

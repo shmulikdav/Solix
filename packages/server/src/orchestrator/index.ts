@@ -16,6 +16,11 @@ import { ensureProject } from '../state/projects.js';
 import { gitHead } from '../state/git.js';
 import { appendThreadEntry } from '../state/threads.js';
 import { recordAudit } from '../state/audit.js';
+import {
+  humanDeniedDetail,
+  sessionHoldWasAbandoned,
+} from '../state/denials.js';
+import { getGovernanceLevel } from '../state/governance.js';
 import { resolveWorkerEnv } from '../state/connections.js';
 import {
   setSessionCost,
@@ -552,9 +557,21 @@ export class Orchestrator {
   async reconcile(): Promise<void> {
     const { db } = this.deps;
     const running = listPlans(db).filter((p) => p.status === 'running');
+    // Plans that had a decision waiting on a person when Solix stopped. Their
+    // held requests were dropped (`abandonAllPending`) and answered closed, so
+    // resuming them unchanged would re-run a task whose command a person was
+    // in the middle of judging — deciding it by default, the opposite of the
+    // gate's promise. Resume them `paused` with a note instead, for the person
+    // to review and press Resume. (`CLAIM-RESTART-PAUSES-ON-HOLD`)
+    const pausedForHold = new Set<string>();
     for (const plan of running) {
       for (const task of listPlanTasks(db, plan.id)) {
         if (task.status !== 'dispatched' && task.status !== 'verifying') continue;
+        const abandoned =
+          (task.sessionId && sessionHoldWasAbandoned(db, task.sessionId)) ||
+          (task.verifierSessionId &&
+            sessionHoldWasAbandoned(db, task.verifierSessionId));
+        if (abandoned) pausedForHold.add(plan.id);
         if (task.sessionId) this.terminateRow(task.sessionId);
         if (task.verifierSessionId) this.terminateRow(task.verifierSessionId);
         const reset = updatePlanTask(db, task.id, {
@@ -562,9 +579,24 @@ export class Orchestrator {
           attempts: Math.max(0, task.attempts - 1), // the attempt never finished
         });
         if (reset) this.emitTask(reset);
+        if (abandoned) {
+          this.thread(
+            reset ?? task,
+            'escalated',
+            'system',
+            'A decision was waiting on a person when Solix stopped. The plan was ' +
+              'paused rather than resumed on its own — review the task and press ' +
+              'Resume to continue.',
+          );
+        }
       }
     }
+    for (const planId of pausedForHold) {
+      const paused = updatePlan(db, planId, { status: 'paused' });
+      if (paused) this.emitPlan(paused);
+    }
     for (const plan of running) {
+      if (pausedForHold.has(plan.id)) continue;
       await this.advance(plan.id).catch((err) => {
         console.error('[orchestrator] reconcile advance failed', err);
       });
@@ -723,6 +755,33 @@ export class Orchestrator {
   private handleTaskFailure(taskId: string, reason: string): void {
     const t = getPlanTask(this.deps.db, taskId);
     if (!t) return;
+
+    // Did a person deny something to this attempt's worker? Then the failure
+    // is a decision, not a flaky run. Retrying re-dispatches a fresh worker
+    // that hits the same command and the person is asked the same question —
+    // the loop measured on 1.18.3. Escalate at once (needs a human: retry
+    // anyway, or delete the plan), spending none of the retry budget on a
+    // question already answered. The sticky denial in the router means a
+    // deliberate retry is refused without re-asking unless the person first
+    // lifts the denial. (`CLAIM-DENY-STOPS-RETRY`)
+    const deniedDetail = t.sessionId
+      ? humanDeniedDetail(this.deps.db, t.sessionId)
+      : undefined;
+    if (deniedDetail !== undefined) {
+      const updated = updatePlanTask(this.deps.db, taskId, {
+        status: 'escalated',
+        lastError: `A person denied \`${deniedDetail}\` during this attempt — not retried, because retrying would ask again. ${reason}`,
+      });
+      if (updated) this.emitTask(updated);
+      this.thread(
+        t,
+        'escalated',
+        'human',
+        `A person denied \`${deniedDetail}\`. The task was stopped rather than retried — retry anyway to ask again, or abort the plan.`,
+        { attempt: t.attempts },
+      );
+      return;
+    }
     const next = decideRetryOrEscalate(t) === 'retry' ? 'pending' : 'escalated';
     const updated = updatePlanTask(this.deps.db, taskId, {
       status: next,
@@ -846,6 +905,7 @@ export class Orchestrator {
       planId: plan.id,
       planTaskId: task.id,
       sessionRole: role,
+      gateLevelAtLaunch: getGovernanceLevel(db),
       runtime,
     });
     const active = setSessionStatus(db, sessionId, 'active');

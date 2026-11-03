@@ -43,6 +43,10 @@
     "./reporting": {
       "types": "./src/state/reporting.ts",
       "import": "./src/state/reporting.ts"
+    },
+    "./sessions": {
+      "types": "./src/state/sessions.ts",
+      "import": "./src/state/sessions.ts"
     }
   },
   "scripts": {

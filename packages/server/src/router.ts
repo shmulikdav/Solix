@@ -47,6 +47,11 @@ import type { Launcher } from './launcher.js';
 import type { TranscriptWatcherManager } from './state/transcript.js';
 import type { ApprovalRule } from '@solix/shared';
 import { applyRules, describeRule } from './state/rules.js';
+import {
+  recordPlanDenial,
+  matchingPlanDenial,
+  stickyKeyFor,
+} from './state/denials.js';
 
 /** `: <first arg>`, trimmed, for an audit summary a person can scan. */
 function summarizeArgs(args: Record<string, unknown>): string {
@@ -679,6 +684,34 @@ export class EventRouter {
         });
       }
     }
+
+    // A person already answered this exact question for this plan. Re-posing
+    // it is the retry loop measured on 1.18.3: deny a command, the verifier
+    // rejects the task for skipping it, the task retries, the same command is
+    // put to the person again. A denial is a decision; apply it without
+    // asking again. Recorded as an auto-decision, so the ledger does not count
+    // it as a fresh human one. See state/denials.ts. (`CLAIM-DENY-IS-STICKY`)
+    if (session?.planId) {
+      const key = stickyKeyFor(tool, args);
+      const denial = matchingPlanDenial(this.db, session.planId, tool, key);
+      if (denial) {
+        recordAudit(this.db, {
+          kind: 'permission_auto_denied',
+          sessionId,
+          projectId: session.projectId,
+          summary: `Sticky deny: ${tool} was already denied for this plan${summarizeArgs(args)}`,
+          payload: { tool, args, sticky: true, planId: session.planId, denialId: denial.id },
+        });
+        return Promise.resolve({
+          approved: false,
+          timedOut: false,
+          reason:
+            'A person already denied this exact command earlier in this plan. ' +
+            'Solix is applying that standing decision without asking again. Do ' +
+            'not retry it or reword it; report what you needed and stop.',
+        });
+      }
+    }
     const requestId = nanoid();
     const timeoutMs = Number(process.env.SOLIX_GATE_TIMEOUT_MS ?? 300_000);
 
@@ -912,6 +945,18 @@ export class EventRouter {
       summary: `${approved ? 'Approved' : 'Denied'} ${pending.tool} for ${session?.name ?? pending.sessionId.slice(0, 8)}${argSummary}`,
       payload: { tool: pending.tool, args: pending.args },
     });
+    // A denial from a plan is sticky for that plan: the same command will be
+    // refused without asking again. A one-off approval is not remembered — a
+    // yes is for this call; a standing yes is an approval rule, made on
+    // purpose. (`CLAIM-DENY-IS-STICKY`)
+    if (!approved && session?.planId) {
+      recordPlanDenial(this.db, {
+        planId: session.planId,
+        tool: pending.tool,
+        matchValue: stickyKeyFor(pending.tool, pending.args),
+        sessionId: pending.sessionId,
+      });
+    }
     return true;
   }
 

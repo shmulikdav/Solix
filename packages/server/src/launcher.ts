@@ -1113,6 +1113,7 @@ export class Launcher {
         model: model ?? 'default',
         kind: 'user',
         sessionRole: role,
+        gateLevelAtLaunch: getGovernanceLevel(this.db),
       });
       const active = setSessionStatus(this.db, sessionId, 'active');
       if (active) {

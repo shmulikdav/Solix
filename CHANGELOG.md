@@ -62,6 +62,35 @@ holds, two audit rows, a person asked twice. A hook is now ours by its name
 wherever its directory is — a second home replaces the set rather than adding
 to it, and uninstall removes a set from any home. `CLAIM-ONE-HOOK-SET`.
 
+### A denial is a decision, not a question to ask again
+
+Measured on the published 1.18.3: a Maestro worker was denied a command, the
+verifier rejected the task for not doing it, the orchestrator retried, and the
+same command was put to the person a second time. A held decision left open
+when Solix stopped came back resumed on restart, deciding it by default. A
+level change ungated the workers already running. None of that treats a
+person's answer as binding.
+
+- **A denial sticks to its plan.** When a person denies a command, that exact
+  command is refused for the rest of the plan without asking again, recorded
+  as `permission_auto_denied` so the ledger does not count it as a second
+  human decision. A one-off approval is not remembered — a standing yes is an
+  approval rule, made on purpose. The containment floor still runs first, and
+  a denial in one plan says nothing about another. (`CLAIM-DENY-IS-STICKY`)
+- **A denied task stops, rather than retrying.** If a person denies something
+  during an attempt, the task is escalated for a human at once instead of
+  spending its retry budget re-posing a settled question. Retry anyway, or
+  abort the plan. (`CLAIM-DENY-STOPS-RETRY`)
+- **A restart does not answer for you.** A plan whose held decision was dropped
+  on shutdown resumes **paused**, with a note, for a person to review and press
+  Resume — not resumed on its own with the command decided by default.
+  (`CLAIM-RESTART-PAUSES-ON-HOLD`)
+- **The dial will not drop under running work by accident.** Lowering
+  governance while contained sessions are in flight is refused without
+  `--force` (`solix level observe --force`, or `force: true` on the API),
+  which reports how many sessions it would change the rules for. Each contained
+  session now records the level it launched under. (`CLAIM-DOWNGRADE-NEEDS-FORCE`)
+
 ### A `Host` that has to be ours
 
 DNS-rebinding read exposure: with a foreign `Host` and no `Origin` — what a
@@ -75,11 +104,12 @@ suite H.
 
 ### Claims
 
-Four new rows in `docs/CLAIMS.md`, each proven by reinstating its bug:
+Eight new rows in `docs/CLAIMS.md`, each proven by reinstating its bug:
 `CLAIM-RULES-NEVER-OVERRIDE-FLOOR` (make the floor advisory → fails),
 `CLAIM-AUTO-DECISIONS-LABELLED` (record a rule under the human kinds →
 fails), `CLAIM-HOST-IS-OURS` (remove the gate → fails),
-`CLAIM-ONE-HOOK-SET` (match hooks by directory again → fails).
+`CLAIM-ONE-HOOK-SET` (match hooks by directory again → fails), and the
+four sticky-denial and governance claims above.
 
 ## [1.18.3] — 2026-11-01
 

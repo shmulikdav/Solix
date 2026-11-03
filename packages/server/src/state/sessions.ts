@@ -38,6 +38,7 @@ interface SessionRow {
   plan_id: string | null;
   plan_task_id: string | null;
   session_role: string | null;
+  gate_level_at_launch: string | null;
   runtime: string | null;
   created_at: number;
   updated_at: number;
@@ -88,6 +89,9 @@ function rowToSession(row: SessionRow): Session {
     planId: row.plan_id ?? undefined,
     planTaskId: row.plan_task_id ?? undefined,
     sessionRole: (row.session_role as SessionRole | null) ?? undefined,
+    gateLevelAtLaunch:
+      (row.gate_level_at_launch as import('@solix/shared').GovernanceLevel | null) ??
+      undefined,
     runtime: (row.runtime as AgentRuntime | null) ?? undefined,
   };
 }
@@ -124,6 +128,7 @@ export interface CreateSessionInput {
   planId?: string;
   planTaskId?: string;
   sessionRole?: SessionRole;
+  gateLevelAtLaunch?: import('@solix/shared').GovernanceLevel;
   runtime?: AgentRuntime;
 }
 
@@ -159,11 +164,11 @@ export function upsertSession(db: DB, input: CreateSessionInput): Session {
        context_usage_pct, orbit_slot, cwd, name, kind, advisor_role,
        worktree_path, wrapper_socket_path,
        agent_view_id, agent_view_summary, pr_url, pr_check_status,
-       plan_id, plan_task_id, session_role,
+       plan_id, plan_task_id, session_role, gate_level_at_launch,
        runtime,
        created_at, updated_at
      )
-     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     input.id,
     input.pid,
@@ -185,6 +190,7 @@ export function upsertSession(db: DB, input: CreateSessionInput): Session {
     input.planId ?? null,
     input.planTaskId ?? null,
     input.sessionRole ?? null,
+    input.gateLevelAtLaunch ?? null,
     input.runtime ?? 'claude',
     ts,
     ts,
@@ -215,6 +221,7 @@ export function upsertSession(db: DB, input: CreateSessionInput): Session {
     planId: input.planId,
     planTaskId: input.planTaskId,
     sessionRole: input.sessionRole,
+    gateLevelAtLaunch: input.gateLevelAtLaunch,
     runtime: input.runtime ?? 'claude',
   };
 }
@@ -414,6 +421,22 @@ export function listActiveSessions(db: DB): Session[] {
     )
     .all() as SessionRow[];
   return rows.map(rowToSession);
+}
+
+/**
+ * How many contained sessions (worker / verifier / routine) are still in
+ * flight — not terminated. These are the sessions a governance change would
+ * affect mid-run, so the dial refuses to drop below them without `--force`.
+ */
+export function countInFlightContainedSessions(db: DB): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS c FROM sessions
+       WHERE status != 'terminated'
+         AND session_role IN ('worker', 'verifier', 'routine')`,
+    )
+    .get() as { c: number } | undefined;
+  return row?.c ?? 0;
 }
 
 export function listSessionsForProject(db: DB, projectId: string): Session[] {

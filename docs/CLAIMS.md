@@ -84,6 +84,10 @@ If you cannot write step 2, you cannot make the claim.
 | `CLAIM-AUTO-DECISIONS-LABELLED` | A decision made by a rule is recorded as the rule's, never as a person's: the ledger's decision count excludes it and counts it separately. | `solix ledger`, the signed report | `packages/server/src/router.rules.test.ts` |
 | `CLAIM-HOST-IS-OURS` | The API and the websocket answer only to a loopback name, a `*.localhost` name, or a name listed in `SOLIX_ALLOWED_HOSTS` — so a DNS-rebinding page cannot read local state as if it were same-origin. | README (security), smoke suite H | `packages/server/src/host.guard.test.ts` |
 | `CLAIM-ONE-HOOK-SET` | Solix wires exactly one set of hooks into `settings.json`, whichever `SOLIX_HOME` it was last started from; a second home replaces the first set rather than adding to it, and uninstall removes a set from any home. | `solix doctor`, CHANGELOG 1.19.0, the eval numbers | `packages/cli/src/install.test.ts` |
+| `CLAIM-DENY-IS-STICKY` | A command a person denies in a plan is refused for the rest of that plan without asking again, and that automatic refusal is counted apart from a person's decisions. The floor still runs first; a one-off approval is not remembered. | `solix` gate, CHANGELOG 1.19.0 | `packages/server/src/router.sticky.test.ts` |
+| `CLAIM-DENY-STOPS-RETRY` | When a person denies a command during a task attempt, the task is escalated for a human at once rather than retried — retrying would re-pose a decision already made. | Maestro, CHANGELOG 1.19.0 | `packages/server/src/orchestrator/sticky.test.ts` |
+| `CLAIM-RESTART-PAUSES-ON-HOLD` | A plan whose held decision was dropped when Solix stopped resumes paused on restart, for a person to review, rather than deciding the held command by default. | Maestro, CHANGELOG 1.19.0 | `packages/server/src/orchestrator/sticky.test.ts` |
+| `CLAIM-DOWNGRADE-NEEDS-FORCE` | Lowering the governance dial while contained sessions are in flight is refused without `--force`, so a running worker's rules are not changed mid-task by accident. | `solix level`, Fleet → Governance, CHANGELOG 1.19.0 | `packages/server/src/governance.downgrade.test.ts` |
 
 ## The matrix
 

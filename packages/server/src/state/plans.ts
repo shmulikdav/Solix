@@ -188,6 +188,8 @@ export function getPlanSpendUsd(db: DB, planId: string): number {
 export function deletePlan(db: DB, id: string): boolean {
   deleteThreadEntriesForPlan(db, id);
   db.prepare('DELETE FROM plan_tasks WHERE plan_id = ?').run(id);
+  // A sticky denial belongs to the plan that was denied; it goes with it.
+  db.prepare('DELETE FROM plan_denials WHERE plan_id = ?').run(id);
   const res = db.prepare('DELETE FROM plans WHERE id = ?').run(id);
   return res.changes > 0;
 }

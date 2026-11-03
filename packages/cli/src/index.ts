@@ -139,8 +139,9 @@ program
 program
   .command('level [name]')
   .description('Show or set how much Solix holds for you (observe|standard|strict)')
-  .action((name?: string) => {
-    level(name);
+  .option('--force', 'lower the dial even while contained sessions are running')
+  .action((name: string | undefined, opts: { force?: boolean }) => {
+    level(name, { force: opts.force });
   });
 
 const rules = program

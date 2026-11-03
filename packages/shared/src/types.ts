@@ -42,6 +42,8 @@ export type SessionKind = 'user' | 'advisor';
  *  Absent for ordinary sessions a human started. Autonomous roles are governed
  *  by the containment denylist instead of a per-step human prompt — there is
  *  nobody at the keyboard to answer one. */
+export type GovernanceLevel = 'observe' | 'standard' | 'strict';
+
 export type SessionRole = 'worker' | 'verifier' | 'planner' | 'routine';
 
 export interface Session {
@@ -111,6 +113,10 @@ export interface Session {
   planId?: string;
   planTaskId?: string;
   sessionRole?: SessionRole;
+  /** The governance level in force when this session was launched. Lets the
+   *  UI show which dial a planet is running under even after the dial moves,
+   *  and records what a contained role was actually held to. */
+  gateLevelAtLaunch?: GovernanceLevel;
 }
 
 /** A tenant (P3 #10). A default org always exists; a Team edition can add more

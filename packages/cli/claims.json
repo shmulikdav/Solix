@@ -188,6 +188,30 @@
       "claim": "Solix wires exactly one set of hooks into `settings.json`, whichever `SOLIX_HOME` it was last started from; a second home replaces the first set rather than adding to it, and uninstall removes a set from any home.",
       "publishedIn": "`solix doctor`, CHANGELOG 1.19.0, the eval numbers",
       "heldBy": "packages/cli/src/install.test.ts"
+    },
+    {
+      "id": "CLAIM-DENY-IS-STICKY",
+      "claim": "A command a person denies in a plan is refused for the rest of that plan without asking again, and that automatic refusal is counted apart from a person's decisions. The floor still runs first; a one-off approval is not remembered.",
+      "publishedIn": "`solix` gate, CHANGELOG 1.19.0",
+      "heldBy": "packages/server/src/router.sticky.test.ts"
+    },
+    {
+      "id": "CLAIM-DENY-STOPS-RETRY",
+      "claim": "When a person denies a command during a task attempt, the task is escalated for a human at once rather than retried — retrying would re-pose a decision already made.",
+      "publishedIn": "Maestro, CHANGELOG 1.19.0",
+      "heldBy": "packages/server/src/orchestrator/sticky.test.ts"
+    },
+    {
+      "id": "CLAIM-RESTART-PAUSES-ON-HOLD",
+      "claim": "A plan whose held decision was dropped when Solix stopped resumes paused on restart, for a person to review, rather than deciding the held command by default.",
+      "publishedIn": "Maestro, CHANGELOG 1.19.0",
+      "heldBy": "packages/server/src/orchestrator/sticky.test.ts"
+    },
+    {
+      "id": "CLAIM-DOWNGRADE-NEEDS-FORCE",
+      "claim": "Lowering the governance dial while contained sessions are in flight is refused without `--force`, so a running worker's rules are not changed mid-task by accident.",
+      "publishedIn": "`solix level`, Fleet → Governance, CHANGELOG 1.19.0",
+      "heldBy": "packages/server/src/governance.downgrade.test.ts"
     }
   ]
 }

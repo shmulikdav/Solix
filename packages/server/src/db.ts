@@ -304,6 +304,21 @@ CREATE TABLE IF NOT EXISTS approval_rules (
   created_at INTEGER NOT NULL,
   created_by TEXT
 );
+
+-- A command a person denied for a specific plan. The router re-applies it
+-- without asking again, so a worker that keeps re-posing a decision already
+-- made (Maestro's retry loop) is refused the second time rather than holding
+-- the human hostage to the same question. Scoped to the plan: a denial in one
+-- plan says nothing about another. Cleared when the plan is deleted.
+CREATE TABLE IF NOT EXISTS plan_denials (
+  id TEXT PRIMARY KEY,
+  plan_id TEXT NOT NULL,
+  tool TEXT NOT NULL,
+  match_value TEXT NOT NULL,
+  session_id TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_plan_denials_plan ON plan_denials(plan_id);
 `;
 
 export type DB = Database.Database;
@@ -458,6 +473,9 @@ function applySchema(db: DB): void {
   ensureColumn(db, 'sessions', 'plan_id', 'plan_id TEXT');
   ensureColumn(db, 'sessions', 'plan_task_id', 'plan_task_id TEXT');
   ensureColumn(db, 'sessions', 'session_role', 'session_role TEXT');
+  // The governance level in force when this session was launched, so the UI
+  // can show which dial a planet is running under even after the dial moves.
+  ensureColumn(db, 'sessions', 'gate_level_at_launch', 'gate_level_at_launch TEXT');
   // Multi-runtime: which agent CLI a session is ('claude' default, 'codex', …).
   ensureColumn(db, 'sessions', 'runtime', "runtime TEXT NOT NULL DEFAULT 'claude'");
   // v2 Maestro — durable per-task retry ceiling (idempotent for DBs that
