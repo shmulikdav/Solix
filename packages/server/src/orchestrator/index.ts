@@ -14,6 +14,12 @@ import {
 } from '../state/plans.js';
 import { ensureProject } from '../state/projects.js';
 import { gitHead } from '../state/git.js';
+import {
+  ensureWorktree,
+  integrateWorktree,
+  removeWorktree,
+  worktreeBranchFor,
+} from '../state/worktrees.js';
 import { appendThreadEntry } from '../state/threads.js';
 import { recordAudit } from '../state/audit.js';
 import {
@@ -23,6 +29,7 @@ import {
 import { getGovernanceLevel } from '../state/governance.js';
 import { resolveWorkerEnv } from '../state/connections.js';
 import {
+  getSession,
   setSessionCost,
   setSessionStatus,
   upsertSession,
@@ -108,6 +115,33 @@ export class Orchestrator {
     const n = this.inFlightFor(planId) - 1;
     if (n <= 0) this.inFlightByPlan.delete(planId);
     else this.inFlightByPlan.set(planId, n);
+  }
+
+  /**
+   * Run `fn` with at most one in flight per plan — a promise chain keyed by
+   * planId. Integration mutates the plan checkout, and two concurrent isolated
+   * tasks finish independently, so their integrates must not race each other.
+   */
+  private readonly integrateChains = new Map<string, Promise<unknown>>();
+  private runExclusive<T>(planId: string, fn: () => Promise<T>): Promise<T> {
+    const prior = this.integrateChains.get(planId) ?? Promise.resolve();
+    const next = prior.then(fn, fn);
+    // Keep the chain alive but don't leak rejections into it.
+    this.integrateChains.set(
+      planId,
+      next.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+    return next;
+  }
+
+  /** The worktree a task ran in, if it was isolated (persisted on its worker
+   *  session row at dispatch). Used to tear worktrees down on exit. */
+  private worktreePathForTask(task: PlanTask): string | undefined {
+    if (!task.sessionId) return undefined;
+    return getSession(this.deps.db, task.sessionId)?.worktreePath;
   }
 
   /** Per-plan kill-switch. `abortPlan` fires the controller, which SIGTERMs the
@@ -232,6 +266,7 @@ export class Orchestrator {
         assignedAdvisorRole: t.assignedAdvisorRole,
         model: t.model,
         runtime: t.runtime,
+        isolated: t.isolated,
         orderIndex: i,
       });
       idMap.set(t.id, task.id);
@@ -332,26 +367,23 @@ export class Orchestrator {
     // Default limit 1 is the historical behaviour exactly: one worker per plan
     // at a time, because a plan's tasks share one checkout and two writers in
     // one directory would race. A limit above 1 co-dispatches additional ready
-    // tasks only when they are *isolated* — each carrying its own cwd, distinct
-    // from the plan's and from the others in the batch (a worktree). Shared-cwd
-    // tasks still run one at a time whatever the limit says. `withinParallelLimit`
-    // is the cap that was unit-tested but, until now, never consulted. (1.19 §4)
+    // tasks only when they are *isolated* — the planner marked them independent
+    // (empty `dependsOn`, disjoint files), so each gets its own git worktree off
+    // the plan baseRef (see dispatchTask) and their changes are integrated back
+    // one at a time. A non-isolated task still runs alone in the plan checkout.
+    // `withinParallelLimit` is the cap §4 wired; this is where it bites. (1.20)
     const limit = Math.max(1, plan.parallelLimit ?? 1);
     if (!withinParallelLimit(this.inFlightFor(planId), limit)) return;
     const ready = tasks.filter((t) => t.status === 'ready');
+    const isIsolatable = (t: PlanTask) => Boolean(t.isolated) && t.dependsOn.length === 0;
     const batch: PlanTask[] = [];
-    const takenCwds = new Set<string>();
     for (const t of ready) {
       if (!withinParallelLimit(this.inFlightFor(planId) + batch.length, limit)) break;
-      const taskCwd = t.cwd ?? plan.cwd;
-      const isolated = taskCwd !== plan.cwd && !takenCwds.has(taskCwd);
       if (batch.length === 0) {
         batch.push(t);
-        takenCwds.add(taskCwd);
-        if (!isolated) break; // a shared-checkout task runs alone
-      } else if (isolated) {
+        if (!isIsolatable(t)) break; // a shared-checkout task runs alone
+      } else if (isIsolatable(t)) {
         batch.push(t);
-        takenCwds.add(taskCwd);
       }
       // a non-isolated task cannot join a batch — it waits for a serial turn
     }
@@ -432,6 +464,12 @@ export class Orchestrator {
     if (!plan) return { ok: false, error: 'plan not found' };
     this.aborters.get(planId)?.abort();
     this.aborters.delete(planId);
+    // Tear down any isolated-task worktrees — the run is stopping, and a
+    // half-finished worktree has nothing worth keeping.
+    for (const task of listPlanTasks(this.deps.db, planId)) {
+      const wt = this.worktreePathForTask(task);
+      if (wt) removeWorktree(wt);
+    }
     if (plan.status === 'running' || plan.status === 'awaiting_approval') {
       const paused = updatePlan(this.deps.db, planId, { status: 'paused' });
       if (paused) this.emitPlan(paused);
@@ -494,6 +532,10 @@ export class Orchestrator {
       };
     }
 
+    // Drop a worktree kept from a failed/conflicted attempt so the retry starts
+    // from a clean one (ensureWorktree would otherwise reuse the old state).
+    const keptWorktree = this.worktreePathForTask(task);
+    if (keptWorktree) removeWorktree(keptWorktree);
     const reset = updatePlanTask(db, taskId, { status: 'pending', attempts: 0 });
     if (!reset) return { ok: false, error: 'could not reset the task' };
     this.deps.broadcast({ type: 'plan_task_upsert', task: reset });
@@ -622,6 +664,10 @@ export class Orchestrator {
           (task.verifierSessionId &&
             sessionHoldWasAbandoned(db, task.verifierSessionId));
         if (abandoned) pausedForHold.add(plan.id);
+        // Its worktree (if any) is orphaned — the worker that owned it is gone.
+        // Reset re-dispatches a fresh one.
+        const wt = this.worktreePathForTask(task);
+        if (wt) removeWorktree(wt);
         if (task.sessionId) this.terminateRow(task.sessionId);
         if (task.verifierSessionId) this.terminateRow(task.verifierSessionId);
         const reset = updatePlanTask(db, task.id, {
@@ -659,7 +705,39 @@ export class Orchestrator {
     signal: AbortSignal,
   ): Promise<void> {
     const { db, runner } = this.deps;
-    const cwd = task.cwd ?? plan.cwd;
+    // An isolated, independent task runs in its own git worktree off the plan
+    // baseRef, so it can run concurrently with its siblings without racing on
+    // the shared checkout. Its changes are integrated back into plan.cwd on
+    // success (see below). Everything else runs in the plan checkout as before.
+    const runIsolated =
+      Boolean(task.isolated) &&
+      task.dependsOn.length === 0 &&
+      Math.max(1, plan.parallelLimit ?? 1) > 1;
+    let cwd = task.cwd ?? plan.cwd;
+    let worktreePath: string | undefined;
+    if (runIsolated) {
+      try {
+        const wt = ensureWorktree({
+          repoCwd: plan.cwd,
+          branch: worktreeBranchFor(plan.id, task.id),
+          baseRef: plan.baseRef,
+        });
+        cwd = wt.path;
+        worktreePath = wt.path;
+      } catch (err) {
+        // Could not isolate (not a git repo, or `git worktree add` failed).
+        // Fall back to the plan checkout — the task still runs, it only loses
+        // the concurrency. Safe: it is now an ordinary serial task.
+        this.thread(
+          task,
+          'dispatched',
+          'system',
+          `Could not create an isolated worktree (${(err as Error).message}); running in the plan checkout.`,
+        );
+        cwd = task.cwd ?? plan.cwd;
+        worktreePath = undefined;
+      }
+    }
     const attempts = task.attempts + 1;
 
     // Pre-create the worker planet row with a UUID id (Spire R1). The UUID is
@@ -668,7 +746,7 @@ export class Orchestrator {
     let t = updatePlanTask(db, task.id, { status: 'dispatched', attempts });
     if (t) this.emitTask(t);
     const workerId = randomUUID();
-    this.spawnPlanetRow(plan, task, workerId, 'worker', task.model, task.runtime);
+    this.spawnPlanetRow(plan, task, workerId, 'worker', task.model, task.runtime, cwd, worktreePath);
     t = updatePlanTask(db, task.id, { sessionId: workerId });
     if (t) this.emitTask(t);
     const runtimeLabel = task.runtime ?? 'claude';
@@ -744,7 +822,7 @@ export class Orchestrator {
     t = updatePlanTask(db, task.id, { status: 'verifying' });
     if (t) this.emitTask(t);
     const verifierId = randomUUID();
-    this.spawnPlanetRow(plan, task, verifierId, 'verifier', 'haiku');
+    this.spawnPlanetRow(plan, task, verifierId, 'verifier', 'haiku', 'claude', cwd);
     t = updatePlanTask(db, task.id, { verifierSessionId: verifierId });
     if (t) this.emitTask(t);
 
@@ -772,6 +850,40 @@ export class Orchestrator {
 
     const verdict = parseVerifierOutput(vRun.ok ? vRun.output : '');
     if (verdict.pass && !verdict.ambiguous) {
+      // An isolated task did its work in a worktree; its changes have to be
+      // integrated into the plan checkout — where the review diffs and where
+      // dependents will look — before it counts as done. Serialized per plan so
+      // two concurrent completions never race on the checkout. A conflict means
+      // the task was not really disjoint: escalate it, leave the checkout and
+      // the worktree untouched for a person. (`CLAIM-PARALLEL-INTEGRATES`)
+      if (worktreePath && worktreePath !== plan.cwd) {
+        const result = await this.runExclusive(plan.id, () =>
+          Promise.resolve(
+            integrateWorktree({
+              targetCwd: plan.cwd,
+              worktreeCwd: worktreePath,
+              baseRef: plan.baseRef ?? 'HEAD',
+            }),
+          ),
+        );
+        if (!result.ok) {
+          const blocked = updatePlanTask(db, task.id, {
+            status: 'escalated',
+            lastError: `Integration failed: ${result.reason}`,
+          });
+          if (blocked) this.emitTask(blocked);
+          this.thread(
+            task,
+            'escalated',
+            'system',
+            `Verified, but its changes could not be merged into the plan: ${result.reason}. ` +
+              `The worktree is kept at ${worktreePath} for inspection; retry after resolving, or abort.`,
+            { attempt: attempts, payload: { sessionId: verifierId } },
+          );
+          return;
+        }
+        removeWorktree(worktreePath);
+      }
       const done = updatePlanTask(db, task.id, {
         status: 'completed',
         lastError: undefined, // clear stale feedback
@@ -940,9 +1052,11 @@ export class Orchestrator {
     role: 'worker' | 'verifier',
     model: string | undefined,
     runtime: import('@solix/shared').AgentRuntime = 'claude',
+    cwdOverride?: string,
+    worktreePath?: string,
   ): void {
     const { db } = this.deps;
-    const cwd = task.cwd ?? plan.cwd;
+    const cwd = cwdOverride ?? task.cwd ?? plan.cwd;
     const project = ensureProject(db, cwd);
     upsertSession(db, {
       id: sessionId,
@@ -956,6 +1070,9 @@ export class Orchestrator {
       planTaskId: task.id,
       sessionRole: role,
       gateLevelAtLaunch: getGovernanceLevel(db),
+      // Persisted so reconcile can tear the worktree down after a restart,
+      // when the in-memory dispatch state is gone.
+      worktreePath,
       runtime,
     });
     const active = setSessionStatus(db, sessionId, 'active');

@@ -320,6 +320,10 @@ export interface PlanTask {
   resultSummary?: string;
   /** Stable ordering for display. */
   orderIndex: number;
+  /** The planner may run this task concurrently with its siblings, in its own
+   *  git worktree, because it has no dependencies and touches a disjoint set of
+   *  files. Default false → the task runs serially in the plan's checkout. */
+  isolated?: boolean;
   /** How many delegation hops produced this task (0 = from the original plan).
    *  A worker may propose subtasks (P2 #8); each inherits parent depth + 1, and
    *  the orchestrator refuses to expand past a hard depth cap. */
