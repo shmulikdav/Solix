@@ -1,4 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { ApprovalRule } from '@solix/shared';
 import {
   DEFAULT_ALLOW_PREFIXES,
@@ -460,5 +463,146 @@ describe('CLAIM-RULES-TEST-IS-THE-GATE: explainRules agrees with the gate and na
     expect(inside.segments).toEqual([]);
     const outside = explainRules(defaults, { tool: 'Write', args: { file_path: '/etc/x' }, root: ROOT });
     expect(outside.verdict).toBeNull();
+  });
+});
+
+/**
+ * CLAIM-RULES-SEE-EVERY-PATH. No allow rule covers a command that reaches
+ * outside the project, however the path is spelled.
+ *
+ * A probe against 1.20.1's default rules on 2026-11-03 found every row of the
+ * first table auto-allowed: a path was only recognised when a word began with
+ * `/` or `~`.
+ */
+describe('CLAIM-RULES-SEE-EVERY-PATH: a path outside the project is seen however it is spelled', () => {
+  const defaults = defaultRuleInputs().map((r) => rule(r));
+  const decide = (c: string, extra: Partial<{ root: string; cwd: string }> = {}) =>
+    evaluateRules(defaults, { ...cmd(c), ...extra })?.decision ?? 'held';
+
+  it.each([
+    ['through $HOME', 'cat $HOME/.ssh/id_ed25519'],
+    ['through ${HOME}', 'cat ${HOME}/.aws/credentials'],
+    ['through a quoted "$HOME"', 'cat "$HOME"/.ssh/id_ed25519'],
+    ['through ~user', 'cat ~root/.ssh/id_rsa'],
+    ['through ..', 'cat ../../.ssh/id_ed25519'],
+    ['through .. to /etc', 'cat ../../../etc/passwd'],
+    ['a write through ..', 'echo x > ../../.bashrc'],
+    ['an append through $HOME', 'echo x >> $HOME/.zshrc'],
+    ['a directory made through ..', 'mkdir -p ../../outside'],
+    ['an option value', 'git log --output=/etc/x'],
+    ['an option value through ..', 'git diff --output=../../x'],
+    ['a short option glued to its path', 'sort -o/etc/x file'],
+    ['a key=value argument', 'node build.mjs out=../../dist'],
+    ['a variable set to a path in the same command', 'F=~/.ssh/id_ed25519; cat $F'],
+    ['a variable set from a substitution', 'F=$(printf x); cat $F'],
+    ['a variable the command cannot know', 'cat $SOME_DIR/secret'],
+    ['cd out of the project', 'cd ..'],
+  ])('does not cover a path %s: %j', (_how, c) => {
+    expect(decide(c)).toBe('held');
+  });
+
+  it('checks the command inside a process substitution on its own', () => {
+    expect(shellSegments('cat <(rm -rf ./src)')).toContain('rm -rf ./src');
+    expect(shellSegments('diff <(ls a) >(cat)')).toEqual(expect.arrayContaining(['ls a', 'cat']));
+    expect(decide('cat <(rm -rf ./src)')).toBe('held');
+    expect(decide('diff <(ls src) <(ls test)')).toBe('allow');
+  });
+
+  it('resolves relative paths from where the call runs, not only the project root', () => {
+    // From packages/cli, `../server/x` is still inside the project…
+    expect(decide('cat ../server/src/a.ts', { cwd: `${ROOT}/packages/cli` })).toBe('allow');
+    // …and from the root it is not.
+    expect(decide('cat ../server/src/a.ts')).toBe('held');
+  });
+
+  it('follows a symlink inside the project that points out of it', () => {
+    const root = mkdtempSync(join(tmpdir(), 'rules-symlink-'));
+    try {
+      mkdirSync(join(root, 'src'));
+      symlinkSync(tmpdir(), join(root, 'escape'));
+      expect(decide('cat escape/passwd', { root, cwd: root })).toBe('held');
+      expect(decide('cat src/a.ts', { root, cwd: root })).toBe('allow');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    'ls -la',
+    'cat package.json | head -60',
+    'cd src && ls',
+    'cat src/../package.json',
+    'cat $PWD/src/a.ts',
+    'echo $HOME',
+    'echo "done: $count"',
+    'echo hi > out.txt',
+    'cat x >/dev/null 2>&1',
+    'git log --format=%H -1',
+    'git commit -m "fix: thing"',
+    'npm test 2>&1 | tail -20',
+    'S=src/out; mkdir -p $S',
+    'date +%Y-%m-%d',
+  ])('still allows %j, which stays inside the project', (c) => {
+    expect(decide(c)).toBe('allow');
+  });
+});
+
+/**
+ * CLAIM-READS-CONFINED. The default read-only rule allows reading inside the
+ * project and the session scratchpad, not anywhere on the machine.
+ *
+ * Measured on 2026-11-03 against 1.20.2's defaults: `Read ~/.ssh/id_ed25519`,
+ * `Read /etc/passwd`, `Grep` over the home directory and `Glob ~/.aws/*` were
+ * all auto-allowed. A Solix allow answers the hook, so Claude Code would not
+ * have asked either.
+ */
+describe('CLAIM-READS-CONFINED: read-only tools are allowed inside the project only', () => {
+  const defaults = defaultRuleInputs().map((r) => rule(r));
+  const decide = (tool: string, args: Record<string, unknown>, extra: Partial<{ cwd: string; scratchpad: string }> = {}) =>
+    evaluateRules(defaults, { tool, args, root: ROOT, ...extra })?.decision ?? 'held';
+
+  it.each([
+    ['Read', { file_path: '/home/me/.ssh/id_ed25519' }],
+    ['Read', { file_path: '~/.aws/credentials' }],
+    ['Read', { file_path: '/etc/passwd' }],
+    ['Read', { file_path: '../other-project/.env' }],
+    ['Grep', { pattern: 'password', path: '/home/me' }],
+    ['Grep', { pattern: 'token', path: '~' }],
+    ['Glob', { pattern: '/home/me/.aws/*' }],
+    ['Glob', { pattern: '../../**/*.pem' }],
+    ['Glob', { pattern: '*.ts', path: '/etc' }],
+  ])('does not allow %s %j', (tool, args) => {
+    expect(decide(tool, args)).toBe('held');
+  });
+
+  it.each([
+    ['Read', { file_path: `${ROOT}/SPEC.md` }],
+    ['Read', { file_path: 'src/a.ts' }],
+    ['Grep', { pattern: 'TODO' }],
+    ['Grep', { pattern: 'TODO', path: 'src' }],
+    ['Glob', { pattern: '**/*.ts' }],
+    ['Glob', { pattern: 'src/**/*.ts', path: ROOT }],
+  ])('still allows %s %j', (tool, args) => {
+    expect(decide(tool, args)).toBe('allow');
+  });
+
+  it('allows reading the session scratchpad', () => {
+    expect(decide('Read', { file_path: '/tmp/claude-0/s1/scratchpad/notes.md' }, { scratchpad: '/tmp/claude-0/s1/scratchpad' })).toBe('allow');
+  });
+
+  it('a read-only deny rule still refuses every read', () => {
+    const deny = rule({ tool: 'Read', match: 'readonly_tool', decision: 'deny' });
+    expect(evaluateRules([deny, ...defaults], { tool: 'Read', args: { file_path: 'src/a.ts' }, root: ROOT })?.decision).toBe('deny');
+  });
+
+  it('a file write follows a symlink out of the project', () => {
+    const root = mkdtempSync(join(tmpdir(), 'rules-write-link-'));
+    try {
+      symlinkSync(tmpdir(), join(root, 'escape'));
+      expect(evaluateRules(defaults, { tool: 'Write', args: { file_path: 'escape/x' }, root, cwd: root })?.decision ?? 'held').toBe('held');
+      expect(evaluateRules(defaults, { tool: 'Write', args: { file_path: 'ok.txt' }, root, cwd: root })?.decision).toBe('allow');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

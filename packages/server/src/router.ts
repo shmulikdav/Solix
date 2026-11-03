@@ -682,6 +682,9 @@ export class EventRouter {
         tool,
         args,
         root: session.cwd,
+        // Relative paths (`../../x`) resolve from where the call runs: the
+        // `cwd` in Claude Code's hook input, else the hook's own directory.
+        cwd: callCwd(event) || session.cwd,
         // The session's own scratchpad counts as inside its confinement, so an
         // agent's scratch commands are decided by rule rather than held one by
         // one. See scratchpadDirFor and CLAIM-SCRATCHPAD-COVERED.
@@ -1301,4 +1304,10 @@ export class EventRouter {
     }
     return true;
   }
+}
+
+/** The directory a tool call runs in, as the hook reports it. */
+function callCwd(event: HookEvent): string {
+  const fromInput = (event.payload as { cwd?: unknown } | undefined)?.cwd;
+  return typeof fromInput === 'string' && fromInput ? fromInput : event.cwd;
 }

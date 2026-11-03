@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import type { ApprovalRule, ApprovalRuleInput } from '@solix/shared';
+import { SUBSTITUTION_PLACEHOLDER, type ApprovalRule, type ApprovalRuleInput } from '@solix/shared';
 import { getDb } from '@solix/server/db';
 import { listProjects } from '@solix/server/projects';
 import { describeRule, explainRules, listRules, type RuleExplanation } from '@solix/server/rules';
@@ -66,9 +66,12 @@ export function explanationLines(e: RuleExplanation, shown: string): { lines: st
     return { lines, code: EXIT_NOT_ALLOWED };
   }
 
-  const width = Math.min(48, Math.max(0, ...e.segments.map((s) => s.segment.length)));
+  // Where a `$( … )` or `<( … )` was lifted out to be judged on its own.
+  const shownSeg = (t: string) => t.split(SUBSTITUTION_PLACEHOLDER).join('( … )');
+  const width = Math.min(48, Math.max(0, ...e.segments.map((s) => shownSeg(s.segment).length)));
   for (const s of e.segments) {
-    const seg = s.segment.length > width ? `${s.segment.slice(0, width - 1)}…` : s.segment.padEnd(width);
+    const text = shownSeg(s.segment);
+    const seg = text.length > width ? `${text.slice(0, width - 1)}…` : text.padEnd(width);
     if (s.coveredBy) {
       lines.push(`    ${OK}✓${RESET} ${seg}  ${DIM}${describeRule(s.coveredBy)}${RESET}`);
     } else if (s.assignment) {

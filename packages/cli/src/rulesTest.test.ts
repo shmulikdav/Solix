@@ -103,4 +103,12 @@ describe('solix rules test', () => {
     const after = await run(['ls']);
     expect(after.code).toBe(0);
   });
+
+  it('shows a lifted substitution as ( … ), and judges its command on its own line', async () => {
+    const r = await run(['cat <(rm -rf ./src)'], { rules: 'defaults' });
+    expect(r.code).toBe(1);
+    expect(r.text).toMatch(/✓ cat \( … \)/);
+    expect(r.text).toMatch(/✗ rm -rf \.\/src\s+no rule covers this/);
+    expect(r.text).not.toContain('__solix_subst__');
+  });
 });

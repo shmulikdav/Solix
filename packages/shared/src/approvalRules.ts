@@ -12,6 +12,8 @@ import type { ApprovalRule, ApprovalRuleInput } from './types.js';
 export const UNCOVERABLE = '__solix_uncoverable__';
 
 const SUBST = '__solix_subst__';
+/** What `shellSegments` leaves in a segment where a substitution was lifted out. */
+export const SUBSTITUTION_PLACEHOLDER = SUBST;
 
 /**
  * Split a shell command into the segments a shell would run.
@@ -86,7 +88,10 @@ function liftSubstitutions(command: string, lifted: string[]): string | null {
   let out = '';
   let i = 0;
   while (i < command.length) {
-    if (command.startsWith('$(', i)) {
+    // `$( … )`, and process substitution `<( … )` / `>( … )`: each runs a
+    // command of its own, so each is judged as its own segment. Measured on
+    // 2026-11-03: `cat <(rm -rf ./src)` was "a `cat`" to the default rules.
+    if (command.startsWith('$(', i) || command.startsWith('<(', i) || command.startsWith('>(', i)) {
       let depth = 1;
       let j = i + 2;
       while (j < command.length && depth > 0) {
