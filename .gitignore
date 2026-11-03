@@ -16,3 +16,6 @@ coverage/
 
 # npm pack output from `pnpm rehearse`
 *.tgz
+
+# `solix gate` artifacts (audit + signed report), written to the working directory
+solix-gate/
