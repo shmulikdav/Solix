@@ -108,14 +108,32 @@ function readSettings(): SettingsRead {
   return { ok: true, settings: parsed as ClaudeSettings };
 }
 
+/** Quote for a POSIX shell only when needed, so plain paths stay greppable. */
+function shellWord(v: string): string {
+  return /^[A-Za-z0-9_./:@%+=-]+$/.test(v) ? v : `'${v.replace(/'/g, `'\\''`)}'`;
+}
+
 /**
  * The hook block Solix wires into Claude Code's settings. Exported so
  * `solix gate` can hand the same hooks to a single run via `--settings`,
  * pointing at the gate's own isolated hooks directory, without ever touching
  * `~/.claude/settings.json`.
  */
-export function buildSolixHooks(hooksDir: string = HOOKS_DIR): Record<string, HookEntry[]> {
-  const hookCommand = (name: string) => `${hooksDir}/${name}.sh`;
+export function buildSolixHooks(
+  hooksDir: string = HOOKS_DIR,
+  /**
+   * Environment set on each hook command itself (`KEY=value script.sh`), rather
+   * than on the agent. `solix gate` uses it so only *its* hooks talk to the
+   * gate: exported into the agent's environment, the same values also steered a
+   * machine's globally installed Solix hooks at the gate, and every call was
+   * decided and recorded twice. (`CLAIM-GATE-ONE-HOOK-SET`)
+   */
+  env: Record<string, string> = {},
+): Record<string, HookEntry[]> {
+  const prefix = Object.entries(env)
+    .map(([k, v]) => `${k}=${shellWord(v)} `)
+    .join('');
+  const hookCommand = (name: string) => `${prefix}${shellWord(`${hooksDir}/${name}.sh`)}`;
   return {
     SessionStart: [
       { matcher: '*', hooks: [{ type: 'command', command: hookCommand('session-start') }] },

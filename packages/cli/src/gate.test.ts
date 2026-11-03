@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -40,6 +41,18 @@ async function load() {
 
 type Mods = Awaited<ReturnType<typeof load>>;
 
+/** The `KEY=value` prefix on the gate's Bash PreToolUse hook command. */
+function hookCommandEnv(settingsPath: string): Record<string, string> {
+  const settings = JSON.parse(readFileSync(settingsPath, 'utf8')) as {
+    hooks: { PreToolUse: Array<{ matcher: string; hooks: Array<{ command: string }> }> };
+  };
+  const cmd = settings.hooks.PreToolUse.find((e) => e.matcher === 'Bash')!.hooks[0]!.command;
+  const env: Record<string, string> = {};
+  for (const m of cmd.matchAll(/([A-Z_]+)=('[^']*'|\S+)\s/g)) env[m[1]!] = m[2]!.replace(/^'|'$/g, '');
+  return env;
+}
+
+
 /** Deps: the real headless server in process, and a scripted agent. */
 function deps(m: Mods, commands: string[], seen: Array<{ command: string; decision: string }>, agentExit = 0) {
   let calls = 0;
@@ -60,9 +73,12 @@ function deps(m: Mods, commands: string[], seen: Array<{ command: string; decisi
         };
       },
       async runAgent(_cmd: string[], env: NodeJS.ProcessEnv) {
-        expect(env.SOLIX_GATE_ENABLED).toBe('1');
-        expect(env.SOLIX_GATE_POLICY).toBe('deny');
-        const base = `http://127.0.0.1:${env.SOLIX_PORT}`;
+        // What a hook actually runs with: the agent's env, plus — for claude —
+        // the `KEY=value` prefix on the gate's hook command in --settings.
+        const hookEnv = { ...env, ...hookCommandEnv(env.SOLIX_GATE_SETTINGS!) };
+        expect(hookEnv.SOLIX_GATE_ENABLED).toBe('1');
+        expect(hookEnv.SOLIX_GATE_POLICY).toBe('deny');
+        const base = `http://127.0.0.1:${hookEnv.SOLIX_PORT}`;
         const sid = 'gate-session-1';
         await fetch(`${base}/events`, {
           method: 'POST',
@@ -190,5 +206,61 @@ describe('docs/GATE.md', () => {
     const res = m.loadPolicy(file);
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.rules).toHaveLength(5);
+  });
+});
+
+/**
+ * CLAIM-GATE-ONE-HOOK-SET. Measured on a real machine with Solix also installed
+ * globally: the gate exported its port and token into claude's environment, so
+ * the global hooks in ~/.claude/settings.json reported to the gate too and every
+ * call was counted twice. For claude the gate's settings now ride on its own
+ * hook commands, and the agent's environment carries none of them.
+ */
+describe('CLAIM-GATE-ONE-HOOK-SET · only the gate hooks reach the gate', () => {
+  it('gives claude no gate variables in its environment — even ones already exported in the shell', async () => {
+    vi.stubEnv('SOLIX_PORT', '4242');
+    vi.stubEnv('SOLIX_GATE_ENABLED', '1');
+    const m = await load();
+    let agentEnv: NodeJS.ProcessEnv = {};
+    const d = deps(m, ['ls -la', 'npm publish'], []);
+    const run = d.value.runAgent;
+    d.value.runAgent = async (cmd, env) => {
+      agentEnv = env;
+      return run(cmd, env);
+    };
+    await m.gate({ rules: 'defaults', out: join(home, 'a'), home, command: ['claude', '-p', 'x'] }, d.value);
+    for (const k of ['SOLIX_PORT', 'SOLIX_HOME', 'SOLIX_HOST', 'SOLIX_GATE_ENABLED', 'SOLIX_GATE_POLICY', 'SOLIX_GATE_TIMEOUT']) {
+      expect(agentEnv[k], k).toBeUndefined();
+    }
+  });
+
+  it('puts them on the gate hook commands instead', async () => {
+    const m = await load();
+    const d = deps(m, [], []);
+    await m.gate({ rules: 'defaults', out: join(home, 'a'), home, command: ['claude', '-p', 'x'] }, d.value);
+    const env = hookCommandEnv(join(home, 'gate-settings.json'));
+    expect(env).toMatchObject({ SOLIX_HOME: home, SOLIX_GATE_ENABLED: '1', SOLIX_GATE_POLICY: 'deny', SOLIX_HOST: '127.0.0.1' });
+    expect(env.SOLIX_PORT).toMatch(/^\d+$/);
+  });
+
+  it('the prefixed hook command really hands the values to the script under sh', async () => {
+    const { buildSolixHooks } = await import('./install.js');
+    const dir = join(home, 'stub hooks'); // a space, to exercise quoting
+    mkdirSync(dir, { recursive: true });
+    const script = join(dir, 'pre-tool-bash.sh');
+    writeFileSync(script, '#!/bin/sh\necho "$SOLIX_PORT|$SOLIX_GATE_ENABLED|$SOLIX_HOME"\n');
+    chmodSync(script, 0o755);
+    const hooks = buildSolixHooks(dir, { SOLIX_PORT: '5151', SOLIX_GATE_ENABLED: '1', SOLIX_HOME: "/tmp/it's here" });
+    const cmd = hooks.PreToolUse!.find((e) => e.matcher === 'Bash')!.hooks[0]!.command;
+    const out = execFileSync('sh', ['-c', cmd], { encoding: 'utf8', env: { PATH: process.env.PATH } });
+    expect(out.trim()).toBe("5151|1|/tmp/it's here");
+  });
+
+  it('counts each call once: one allowed, one refused, for one of each', async () => {
+    const m = await load();
+    const out = join(home, 'once');
+    const d = deps(m, ['ls -la', 'npm publish'], []);
+    await m.gate({ rules: 'defaults', out, home, command: ['claude', '-p', 'x'] }, d.value);
+    expect(logs.join('\n')).toMatch(/1 allowed by rule · 1 refused/);
   });
 });

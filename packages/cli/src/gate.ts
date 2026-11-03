@@ -142,21 +142,41 @@ export async function gate(opts: GateOptions, deps: GateDeps = defaultDeps()): P
     return EXIT_GATE_ERROR;
   }
 
-  // The hooks for this one run, pointing at the gate's own hook scripts.
-  const settingsPath = join(home, 'gate-settings.json');
-  writeFileSync(settingsPath, JSON.stringify({ hooks: buildSolixHooks(join(home, 'hooks')) }, null, 2));
-  const command = [...opts.command];
-  if (basename(command[0]!) === 'claude') command.splice(1, 0, '--settings', settingsPath);
-  const env: NodeJS.ProcessEnv = {
-    ...process.env,
+  // What the gate's hooks need to reach this gate and fail closed.
+  const gateEnv: Record<string, string> = {
     SOLIX_HOME: home,
     SOLIX_HOST: '127.0.0.1',
     SOLIX_PORT: String(server.port),
     SOLIX_GATE_ENABLED: '1',
     SOLIX_GATE_POLICY: 'deny', // the hook refuses if the gate is unreachable
     SOLIX_GATE_TIMEOUT: '30', // nothing is held, so a long wait means a fault
-    SOLIX_GATE_SETTINGS: settingsPath,
   };
+  const settingsPath = join(home, 'gate-settings.json');
+  const command = [...opts.command];
+  const isClaude = basename(command[0]!) === 'claude';
+  let env: NodeJS.ProcessEnv;
+  if (isClaude) {
+    // The gate's settings ride on its own hook commands, not on the agent.
+    // Measured on a real machine (2026-11-03): with them exported into
+    // claude's environment, the Solix hooks installed globally in
+    // ~/.claude/settings.json read the same values, also reported to the
+    // gate, and every call was decided and recorded twice ("2 allowed · 2
+    // refused" for one of each). With the values scoped to the gate's hooks
+    // and scrubbed from the agent, a global hook sees an ordinary session —
+    // the gate's hooks are the only gate. (`CLAIM-GATE-ONE-HOOK-SET`)
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({ hooks: buildSolixHooks(join(home, 'hooks'), gateEnv) }, null, 2),
+    );
+    command.splice(1, 0, '--settings', settingsPath);
+    env = { ...process.env, SOLIX_GATE_SETTINGS: settingsPath };
+    for (const k of Object.keys(gateEnv)) delete env[k];
+  } else {
+    // Another runtime has no `--settings`; whatever hooks it is configured
+    // with can only find the gate through the environment.
+    writeFileSync(settingsPath, JSON.stringify({ hooks: buildSolixHooks(join(home, 'hooks'), gateEnv) }, null, 2));
+    env = { ...process.env, ...gateEnv, SOLIX_GATE_SETTINGS: settingsPath };
+  }
 
   log(`[solix gate] ${policy.rules.length} rule(s) loaded; uncovered calls will be refused`);
   const startedAt = deps.now();
