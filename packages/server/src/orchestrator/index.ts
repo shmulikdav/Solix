@@ -41,6 +41,7 @@ import {
   decideRetryOrEscalate,
   isBudgetExceeded,
   shouldWarnBudget,
+  withinParallelLimit,
 } from './scheduler.js';
 import type { SessionRunner } from './runner.js';
 
@@ -91,7 +92,23 @@ export class Orchestrator {
   /** Plan ids with a task currently executing. Phase-2 uses serialized
    *  execution — at most one worker per plan touches the tree at a time (the
    *  R2 decision), so this doubles as the per-plan write lock. */
-  private readonly inFlight = new Set<string>();
+  /**
+   * How many tasks are dispatched per plan right now. Was a `Set<planId>` (one
+   * worker per plan); a count lets `withinParallelLimit` admit more than one
+   * for plans whose limit allows it. (1.19 §4)
+   */
+  private readonly inFlightByPlan = new Map<string, number>();
+  private inFlightFor(planId: string): number {
+    return this.inFlightByPlan.get(planId) ?? 0;
+  }
+  private enterFlight(planId: string): void {
+    this.inFlightByPlan.set(planId, this.inFlightFor(planId) + 1);
+  }
+  private leaveFlight(planId: string): void {
+    const n = this.inFlightFor(planId) - 1;
+    if (n <= 0) this.inFlightByPlan.delete(planId);
+    else this.inFlightByPlan.set(planId, n);
+  }
 
   /** Per-plan kill-switch. `abortPlan` fires the controller, which SIGTERMs the
    *  in-flight worker/verifier child (via the SessionRunner's `signal`). */
@@ -310,9 +327,35 @@ export class Orchestrator {
       return;
     }
 
-    // 4. Serialized dispatch — one worker per plan at a time (the R2 write lock).
-    if (this.inFlight.has(planId)) return;
-    const next = tasks.find((t) => t.status === 'ready');
+    // 4. Dispatch up to the plan's parallel limit (the R2 write lock).
+    //
+    // Default limit 1 is the historical behaviour exactly: one worker per plan
+    // at a time, because a plan's tasks share one checkout and two writers in
+    // one directory would race. A limit above 1 co-dispatches additional ready
+    // tasks only when they are *isolated* — each carrying its own cwd, distinct
+    // from the plan's and from the others in the batch (a worktree). Shared-cwd
+    // tasks still run one at a time whatever the limit says. `withinParallelLimit`
+    // is the cap that was unit-tested but, until now, never consulted. (1.19 §4)
+    const limit = Math.max(1, plan.parallelLimit ?? 1);
+    if (!withinParallelLimit(this.inFlightFor(planId), limit)) return;
+    const ready = tasks.filter((t) => t.status === 'ready');
+    const batch: PlanTask[] = [];
+    const takenCwds = new Set<string>();
+    for (const t of ready) {
+      if (!withinParallelLimit(this.inFlightFor(planId) + batch.length, limit)) break;
+      const taskCwd = t.cwd ?? plan.cwd;
+      const isolated = taskCwd !== plan.cwd && !takenCwds.has(taskCwd);
+      if (batch.length === 0) {
+        batch.push(t);
+        takenCwds.add(taskCwd);
+        if (!isolated) break; // a shared-checkout task runs alone
+      } else if (isolated) {
+        batch.push(t);
+        takenCwds.add(taskCwd);
+      }
+      // a non-isolated task cannot join a batch — it waits for a serial turn
+    }
+    const next = batch[0];
     if (!next) return; // waiting on an in-flight task or unmet deps
 
     // 4a. Budget gate (Ledger): pause before spending past the cap rather than
@@ -356,18 +399,25 @@ export class Orchestrator {
     }
 
     const signal = this.aborterFor(planId).signal;
-    this.inFlight.add(planId);
-    try {
-      await this.dispatchTask(plan, next, signal);
-    } catch (err) {
-      // A transient error inside dispatch (a DB call, a runner throw) must not
-      // strand the task as `dispatched` or crash the loop — treat it as a task
-      // failure so it retries/escalates like any other.
-      console.error('[orchestrator] dispatch error', err);
-      this.handleTaskFailure(next.id, `dispatch error: ${(err as Error).message}`);
-    } finally {
-      this.inFlight.delete(planId);
-    }
+    // Dispatch the batch concurrently (one task when the limit is 1). Each
+    // task accounts for itself in the in-flight count so a re-entrant advance()
+    // sees the real load, and a failure in one never strands the others.
+    await Promise.all(
+      batch.map(async (task) => {
+        this.enterFlight(planId);
+        try {
+          await this.dispatchTask(plan, task, signal);
+        } catch (err) {
+          // A transient error inside dispatch (a DB call, a runner throw) must
+          // not strand the task as `dispatched` or crash the loop — treat it as
+          // a task failure so it retries/escalates like any other.
+          console.error('[orchestrator] dispatch error', err);
+          this.handleTaskFailure(task.id, `dispatch error: ${(err as Error).message}`);
+        } finally {
+          this.leaveFlight(planId);
+        }
+      }),
+    );
     // Pick the next task (completed → unblocks dependents; failed → retry/escalate).
     await this.advance(planId);
   }

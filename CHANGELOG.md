@@ -102,9 +102,38 @@ name, `*.localhost`, or a name in `SOLIX_ALLOWED_HOSTS` (for a LAN or
 tailnet address). Verified live with the exact probes, recorded as smoke
 suite H.
 
+### Honest numbers, real parallelism, and plan spend
+
+- **The parallel limit is wired, not just tested.** `withinParallelLimit`
+  shipped unit-tested and never called, so Maestro ran one task at a time
+  whatever the review hoped. It is now the real gate on a per-plan
+  `parallelLimit` (default **1** — the serial behaviour exactly, because a
+  plan's tasks share one checkout). Above 1, only *isolated* tasks — each with
+  its own working directory — are co-dispatched; tasks sharing the plan's
+  checkout stay serial, so two writers never race in one directory. Turning the
+  limit up by default, with a worktree per task and the planner marking tasks
+  isolated, is 1.20. (`CLAIM-PARALLEL-LIMIT-ENFORCED`)
+- **The hook-overhead claim is now a bound, not a guess.** The install banner
+  and brief said "~2ms each" of the hooks that fire on every tool call — that
+  is the cost of starting `sh`, not of the hook, which also does a POST the
+  review clocked near 16ms. A loopback roundtrip is machine-dependent and not
+  worth publishing; the *bound* is. Every shipped hook time-caps its network
+  call (one second for telemetry, the gate timeout for a held decision) and
+  fails open, so a hook can never hold a tool call beyond its cap nor fail one.
+  The copy now says that, and a test reads it off the shipped scripts.
+  (`CLAIM-HOOK-OVERHEAD-BOUNDED`)
+- **Shutdown timing is stated as a bound.** The flat "24ms" in the brief
+  becomes "well under a second, even with a browser tab held open" — which is
+  what `create.shutdown.test` measures (222ms with a tab held for five
+  minutes). 24ms was a best case on one machine; the review saw ~1.1s on
+  another.
+- **Plan spend is on the API.** `GET /api/plans/:id` returns `spendUsd`, the
+  sum of cost over the plan's sessions, beside `budgetUsd` — so a plan card can
+  show how much of a cap has been used, not only the cap.
+
 ### Claims
 
-Eight new rows in `docs/CLAIMS.md`, each proven by reinstating its bug:
+Ten new rows in `docs/CLAIMS.md`, each proven by reinstating its bug:
 `CLAIM-RULES-NEVER-OVERRIDE-FLOOR` (make the floor advisory → fails),
 `CLAIM-AUTO-DECISIONS-LABELLED` (record a rule under the human kinds →
 fails), `CLAIM-HOST-IS-OURS` (remove the gate → fails),

@@ -167,9 +167,11 @@ it tells you what kind of bugs this codebase produces:
   and the agent waited five minutes before being refused, because a held
   decision is an open connection the shutdown was waiting on — and so was
   your open browser tab. It now refuses what it is holding, says so, and
-  exits: 24ms with one decision held, 1,956ms with two, both measured against
-  the published build. Treat those as examples rather than a bound — the
-  point is that it refuses and leaves, not that it hits a number. If you are
+  exits in well under a second: tens of milliseconds with one decision held,
+  about two with two, both measured against the published build on one
+  machine. Treat those as examples, not a bound — the number depends on the
+  machine and what is held; the point is that it refuses and leaves, bounded,
+  rather than waiting on the gate's five-minute ceiling as 1.18.0 did. If you are
   on 1.18.0, this is the one thing in here you will see misbehave.
 
 - **The two commands you meet first had no tests at all.** `solix demo` and
@@ -250,7 +252,8 @@ nothing behind it, and apparently just as easy to write.
 This build was also installed from a packed tarball into a clean machine and
 put through the twenty-minute sequence above before being sent to you: the
 gate held, deny prevented it, killing Solix mid-hold refused the held call
-in 24ms, and the canary survived all of it.
+in well under a second — even with a browser tab held open — and the canary
+survived all of it.
 
 ---
 

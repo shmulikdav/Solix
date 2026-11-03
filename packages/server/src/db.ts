@@ -500,6 +500,9 @@ function applySchema(db: DB): void {
   ensureColumn(db, 'plans', 'base_ref', 'base_ref TEXT');
   // P2 #6 — one-time soft budget heads-up flag (~80% of the cap).
   ensureColumn(db, 'plans', 'budget_warned', 'budget_warned INTEGER NOT NULL DEFAULT 0');
+  // Per-plan parallel dispatch cap. Default 1 keeps the serial behaviour; a
+  // higher value co-dispatches only isolated tasks (own worktree). (1.19 §4)
+  ensureColumn(db, 'plans', 'parallel_limit', 'parallel_limit INTEGER NOT NULL DEFAULT 1');
   // P3 #10 — multi-org: tag plans + goals with their owning org (nullable →
   // treated as the default org for pre-existing rows).
   ensureColumn(db, 'plans', 'org_id', 'org_id TEXT');

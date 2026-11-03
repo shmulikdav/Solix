@@ -234,6 +234,10 @@ export interface Plan {
   /** True once the soft budget heads-up has fired (~80% of the cap), so it
    *  only warns once before the hard pause at 100% (P2 #6). */
   budgetWarned?: boolean;
+  /** How many of this plan's tasks may run at once. Default 1 — serial, the
+   *  historical behaviour, because tasks share one checkout. Above 1 only
+   *  isolated tasks (each in its own worktree/cwd) are co-dispatched. */
+  parallelLimit?: number;
   createdAt: number;
   updatedAt: number;
 }

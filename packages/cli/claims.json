@@ -212,6 +212,18 @@
       "claim": "Lowering the governance dial while contained sessions are in flight is refused without `--force`, so a running worker's rules are not changed mid-task by accident.",
       "publishedIn": "`solix level`, Fleet → Governance, CHANGELOG 1.19.0",
       "heldBy": "packages/server/src/governance.downgrade.test.ts"
+    },
+    {
+      "id": "CLAIM-PARALLEL-LIMIT-ENFORCED",
+      "claim": "A plan dispatches at most `parallelLimit` tasks at once (default 1, serial). Above 1, only isolated tasks — each in its own working directory — are co-dispatched; tasks sharing the plan's checkout stay serial.",
+      "publishedIn": "Maestro, CHANGELOG 1.19.0",
+      "heldBy": "packages/server/src/orchestrator/parallel.test.ts"
+    },
+    {
+      "id": "CLAIM-HOOK-OVERHEAD-BOUNDED",
+      "claim": "Every shipped hook time-caps its network call and fails open, so a hook can never hold a tool call beyond its cap (one second for telemetry, the gate timeout for a held decision) nor fail one.",
+      "publishedIn": "install banner, brief, CHANGELOG 1.19.0",
+      "heldBy": "packages/cli/src/hookOverhead.test.ts"
     }
   ]
 }

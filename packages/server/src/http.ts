@@ -112,6 +112,7 @@ import {
   deletePlan,
   deletePlanTask,
   getPlan,
+  getPlanSpendUsd,
   getPlanTask,
   listPlans,
   listPlanTasks,
@@ -1379,7 +1380,14 @@ export function createHttpApp(opts: {
   app.get('/api/plans/:id', (c) => {
     const plan = getPlan(opts.db, c.req.param('id'));
     if (!plan) return c.json({ error: 'not found' }, 404);
-    return c.json({ plan, tasks: listPlanTasks(opts.db, plan.id) });
+    // What the plan has actually spent, beside what it is allowed to: the sum
+    // of cost over its sessions (the same figure the budget gate uses). A plan
+    // card could show a budget with no way to see how much of it was used.
+    return c.json({
+      plan,
+      tasks: listPlanTasks(opts.db, plan.id),
+      spendUsd: getPlanSpendUsd(opts.db, plan.id),
+    });
   });
 
   app.post('/api/plans', async (c) => {

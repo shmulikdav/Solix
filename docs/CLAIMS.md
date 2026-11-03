@@ -88,6 +88,8 @@ If you cannot write step 2, you cannot make the claim.
 | `CLAIM-DENY-STOPS-RETRY` | When a person denies a command during a task attempt, the task is escalated for a human at once rather than retried — retrying would re-pose a decision already made. | Maestro, CHANGELOG 1.19.0 | `packages/server/src/orchestrator/sticky.test.ts` |
 | `CLAIM-RESTART-PAUSES-ON-HOLD` | A plan whose held decision was dropped when Solix stopped resumes paused on restart, for a person to review, rather than deciding the held command by default. | Maestro, CHANGELOG 1.19.0 | `packages/server/src/orchestrator/sticky.test.ts` |
 | `CLAIM-DOWNGRADE-NEEDS-FORCE` | Lowering the governance dial while contained sessions are in flight is refused without `--force`, so a running worker's rules are not changed mid-task by accident. | `solix level`, Fleet → Governance, CHANGELOG 1.19.0 | `packages/server/src/governance.downgrade.test.ts` |
+| `CLAIM-PARALLEL-LIMIT-ENFORCED` | A plan dispatches at most `parallelLimit` tasks at once (default 1, serial). Above 1, only isolated tasks — each in its own working directory — are co-dispatched; tasks sharing the plan's checkout stay serial. | Maestro, CHANGELOG 1.19.0 | `packages/server/src/orchestrator/parallel.test.ts` |
+| `CLAIM-HOOK-OVERHEAD-BOUNDED` | Every shipped hook time-caps its network call and fails open, so a hook can never hold a tool call beyond its cap (one second for telemetry, the gate timeout for a held decision) nor fail one. | install banner, brief, CHANGELOG 1.19.0 | `packages/cli/src/hookOverhead.test.ts` |
 
 ## The matrix
 

@@ -21,6 +21,7 @@ interface PlanRow {
   budget_usd: number | null;
   base_ref: string | null;
   budget_warned: number | null;
+  parallel_limit: number | null;
   org_id: string | null;
   created_at: number;
   updated_at: number;
@@ -38,6 +39,7 @@ function rowToPlan(row: PlanRow): Plan {
     budgetUsd: row.budget_usd ?? undefined,
     baseRef: row.base_ref ?? undefined,
     budgetWarned: row.budget_warned === 1,
+    parallelLimit: row.parallel_limit ?? 1,
     orgId: row.org_id ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -54,6 +56,7 @@ export function createPlan(
     autoMode?: boolean;
     goalId?: string;
     budgetUsd?: number;
+    parallelLimit?: number;
     orgId?: string;
   },
 ): Plan {
@@ -64,8 +67,8 @@ export function createPlan(
   const orgId = input.orgId ?? getCurrentOrgId(db);
   db.prepare(
     `INSERT INTO plans
-       (id, name, goal_prompt, status, auto_mode, goal_id, cwd, budget_usd, org_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, name, goal_prompt, status, auto_mode, goal_id, cwd, budget_usd, parallel_limit, org_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     id,
     input.name,
@@ -75,6 +78,7 @@ export function createPlan(
     input.goalId ?? null,
     input.cwd,
     input.budgetUsd ?? null,
+    Math.max(1, Math.floor(input.parallelLimit ?? 1)),
     orgId,
     ts,
     ts,
@@ -126,6 +130,7 @@ export function updatePlan(
       | 'budgetUsd'
       | 'baseRef'
       | 'budgetWarned'
+      | 'parallelLimit'
     >
   >,
 ): Plan | null {
@@ -162,6 +167,10 @@ export function updatePlan(
   if (patch.budgetWarned !== undefined) {
     sets.push('budget_warned = ?');
     vals.push(patch.budgetWarned ? 1 : 0);
+  }
+  if (patch.parallelLimit !== undefined) {
+    sets.push('parallel_limit = ?');
+    vals.push(Math.max(1, Math.floor(patch.parallelLimit)));
   }
   if (sets.length === 0) return getPlan(db, id);
   sets.push('updated_at = ?');
