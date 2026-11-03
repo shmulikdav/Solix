@@ -57,7 +57,8 @@ without rules, 4 with the defaults.
 In CI, or anywhere nobody is watching, `solix gate --rules policy.json --
 claude -p "…"` runs the agent under the same rules with nobody at the gate:
 allowed calls proceed, anything uncovered is refused at once, and the audit and
-a signed report are written out as an artifact. See [`docs/GATE.md`](docs/GATE.md).
+a signed report are written out as an artifact. See [`docs/GATE.md`](docs/GATE.md)
+(unreleased: on `main`, in the next release).
 
 All of it on your machine. No account, no telemetry.
 
