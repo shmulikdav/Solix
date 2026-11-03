@@ -120,6 +120,15 @@ export interface RuleSubject {
   args: Record<string, unknown>;
   /** The session's project root; relative paths resolve against it. */
   root: string;
+  /**
+   * The session's own scratchpad directory, if known. Treated as inside the
+   * worker's confinement for shell-coverage, so an agent's scratch commands
+   * (`S=<scratchpad>; mkdir -p $S`, `cd <scratchpad> && node s.js`) are
+   * auto-decided rather than held one by one — while every other outside-root
+   * path stays held and the command denylist is untouched. See
+   * `scratchpadDirFor`. (`CLAIM-SCRATCHPAD-COVERED`)
+   */
+  scratchpad?: string;
 }
 
 export interface RuleVerdict {
@@ -153,12 +162,52 @@ function toolMatches(rule: ApprovalRule, tool: string): boolean {
   return rule.tool === '*' || rule.tool.toLowerCase() === tool.toLowerCase();
 }
 
+/**
+ * Is this absolute path token outside the worker's confinement — outside the
+ * project root AND outside the session scratchpad? That is the boundary a
+ * prefix rule refuses to cross: an allowed `cat` is not an allowed
+ * `cat /etc/hostname`, but it *is* an allowed `cat <scratchpad>/notes`.
+ */
+function isOutsideConfinement(token: string, root: string, scratchpad?: string): boolean {
+  if (!isWriteOutsideRoot(token, root)) return false;
+  if (scratchpad && !isWriteOutsideRoot(token, scratchpad)) return false;
+  return true;
+}
+
+/**
+ * A pure leading shell-variable assignment (`S=/tmp/x`, or several), with no
+ * command after it. It executes nothing, so it never blocks an otherwise
+ * covered compound command — provided its own path tokens are within
+ * confinement (`S=<scratchpad>` yes, `S=/etc/x` no). A dangerous value like
+ * `S=$(rm -rf /)` is not reached here: `shellSegments` lifts the `$( … )` out
+ * as its own segment, which must be covered on its own (and the floor
+ * denylists it).
+ */
+function isBenignAssignment(segment: string, root: string, scratchpad?: string): boolean {
+  const toks = segment.trim().split(/\s+/);
+  if (toks.length === 0) return false;
+  for (const tok of toks) {
+    const m = /^[A-Za-z_][A-Za-z0-9_]*=(.*)$/.exec(tok);
+    if (!m) return false; // a command followed the assignment — not a pure assignment
+    const value = (m[1] ?? '').replace(/^['"]|['"]$/g, '');
+    if (value.startsWith('/') || value.startsWith('~')) {
+      const resolved = value.startsWith('~') ? resolve(homedir(), value.slice(1).replace(/^\//, '')) : value;
+      if (isOutsideConfinement(resolved, root, scratchpad)) return false;
+    }
+  }
+  return true;
+}
+
 /** Does this rule speak to this segment of a shell command? */
-function coversSegment(rule: ApprovalRule, segment: string, root: string): boolean {
+function coversSegment(rule: ApprovalRule, segment: string, root: string, scratchpad?: string): boolean {
   if (rule.match === 'command_prefix') {
     if (!rule.value || !segmentHasPrefix(segment, rule.value)) return false;
-    // An allowed `cat` is not an allowed `cat /etc/hostname`.
-    return rule.decision === 'deny' || absolutePathTokens(segment).every((t) => !isWriteOutsideRoot(t, root));
+    // An allowed `cat` is not an allowed `cat /etc/hostname` — but it is an
+    // allowed `cat <scratchpad>/x`.
+    return (
+      rule.decision === 'deny' ||
+      absolutePathTokens(segment).every((t) => !isOutsideConfinement(t, root, scratchpad))
+    );
   }
   if (rule.match === 'command_regex') {
     if (!rule.value) return false;
@@ -189,7 +238,7 @@ function matchesOne(rule: ApprovalRule, subject: RuleSubject): boolean {
       const command = subject.args.command;
       if (typeof command !== 'string' || !command.trim()) return false;
       // Used for deny rules: one segment is enough.
-      return shellSegments(command).some((seg) => coversSegment(rule, seg, subject.root));
+      return shellSegments(command).some((seg) => coversSegment(rule, seg, subject.root, subject.scratchpad));
     }
   }
 }
@@ -215,9 +264,16 @@ export function evaluateRules(rules: readonly ApprovalRule[], subject: RuleSubje
     if (segments.length === 0) return null;
     let first: ApprovalRule | null = null;
     for (const seg of segments) {
-      const covering = allows.find((r) => coversSegment(r, seg, subject.root));
-      if (!covering) return null;
-      first ??= covering;
+      const covering = allows.find((r) => coversSegment(r, seg, subject.root, subject.scratchpad));
+      if (covering) {
+        first ??= covering;
+        continue;
+      }
+      // A pure variable assignment runs nothing, so it does not block an
+      // otherwise-covered command (but it names no rule, so a command that is
+      // ONLY assignments still falls through to a person).
+      if (isBenignAssignment(seg, subject.root, subject.scratchpad)) continue;
+      return null;
     }
     return first ? { decision: 'allow', rule: first } : null;
   }
@@ -365,6 +421,7 @@ export function applyRules(
 export const DEFAULT_ALLOW_PREFIXES: readonly string[] = [
   'ls',
   'pwd',
+  'cd',
   'cat',
   'head',
   'tail',
