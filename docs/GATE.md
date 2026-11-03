@@ -41,10 +41,49 @@ take. Every rule in a gate policy is global to the run.
 `--rules defaults` uses Solix's opt-in default set (`solix rules defaults`).
 A malformed policy stops the gate **before** the agent runs.
 
+Most policies should **start from the defaults** and add what the job needs.
+A policy written from scratch has to list every read-only command an agent
+might pipe through (`head`, `tail`, `wc`, …), and a missing one refuses the
+whole command:
+
+```json
+{
+  "extends": "defaults",
+  "rules": [
+    { "tool": "Bash", "match": "command_regex", "value": "^npm (pack|publish) --dry-run$" },
+    { "tool": "Bash", "match": "command_prefix", "value": "git commit", "decision": "deny" }
+  ]
+}
+```
+
+A deny rule wins over an allow rule wherever it comes from, so a policy can
+extend the defaults and still refuse something they allow (here, committing).
+
+### Check a policy before an agent runs under it
+
+```sh
+solix rules test --rules .solix/policy.json "npm publish --dry-run 2>&1 | tail -80"
+```
+
+```
+    ✓ npm publish --dry-run 2>&1  allow shell commands matching /^npm (pack|publish) --dry-run$/
+    ✓ tail -80                    allow shell commands starting with `tail`
+
+  ALLOWED by rule. Under `solix gate` it runs; at the desk nobody is asked.
+```
+
+It prints the gate's own verdict and, when a command is not covered, which
+part: *no rule covers this*, or *`cat` matches, but /etc/hostname is outside
+the project*. Exit 0 when allowed, 1 when not, 2 when the policy does not load.
+Without `--rules` it tests against the rules in force on this machine.
+
 A shell command is allowed only when **every segment** of it is covered (`ls &&
-git push` is not "an `ls`"), absolute paths outside the project are never
-covered, and the contents of `$( … )` are checked as their own segments — the
-same matcher the desk uses.
+git push` is not "an `ls`"), and the contents of `$( … )` are checked as their
+own segments — the same matcher the desk uses. An allow rule, prefix or regex,
+never covers a path outside the project, including a redirect target
+(`echo x >/etc/y`). Redirects that only move or discard output (`2>&1`,
+`>/dev/null`) are ignored when matching, so `^npm test$` covers
+`npm test 2>&1`.
 
 ## Artifact
 

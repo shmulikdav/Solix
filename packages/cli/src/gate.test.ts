@@ -207,6 +207,18 @@ describe('docs/GATE.md', () => {
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.rules).toHaveLength(5);
   });
+
+  it('its extends example is a valid gate policy: the defaults plus two', async () => {
+    const m = await load();
+    const doc = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../../../docs/GATE.md'), 'utf8');
+    const blocks = [...doc.matchAll(/```json\n([\s\S]*?)```/g)].map((b) => b[1]!);
+    const json = blocks.find((b) => b.includes('"extends"'))!;
+    const file = join(home, 'doc-extends.json');
+    writeFileSync(file, json);
+    const res = m.loadPolicy(file);
+    const n = (await import('@solix/server/rules')).defaultRuleInputs().length;
+    expect(res.ok && res.rules.length).toBe(n + 2);
+  });
 });
 
 /**
@@ -262,5 +274,81 @@ describe('CLAIM-GATE-ONE-HOOK-SET · only the gate hooks reach the gate', () => 
     const d = deps(m, ['ls -la', 'npm publish'], []);
     await m.gate({ rules: 'defaults', out, home, command: ['claude', '-p', 'x'] }, d.value);
     expect(logs.join('\n')).toMatch(/1 allowed by rule · 1 refused/);
+  });
+});
+
+/**
+ * CLAIM-POLICY-EXTENDS-DEFAULTS. A policy can start from the defaults and add
+ * to them, and its deny rules still win over what the defaults allow.
+ *
+ * The run this replays, from a real Mac on 2026-11-03: a hand-written policy
+ * was refused three times, once for a missing `head` and once for a `2>&1`,
+ * before the dry run it was written for ever ran.
+ */
+describe('CLAIM-POLICY-EXTENDS-DEFAULTS · a policy extends the defaults', () => {
+  const policy = (body: unknown) => {
+    const file = join(home, 'policy.json');
+    writeFileSync(file, JSON.stringify(body));
+    return file;
+  };
+
+  it('extends the defaults with its own rules, end to end through the headless gate', async () => {
+    const m = await load();
+    const rules = policy({
+      extends: 'defaults',
+      rules: [
+        { tool: 'Bash', match: 'command_prefix', value: 'npm whoami' },
+        { tool: 'Bash', match: 'command_regex', value: '^npm (pack|publish) --dry-run$' },
+      ],
+    });
+    const seen: Array<{ command: string; decision: string }> = [];
+    const d = deps(
+      m,
+      [
+        'cd packages/cli && ls -la && cat package.json | head -60',
+        'cd packages/cli && npm publish --dry-run 2>&1 | tail -80',
+        'npm whoami 2>&1',
+        'npm publish',
+      ],
+      seen,
+    );
+    const code = await m.gate({ rules, out: join(home, 'a'), home, command: ['agent'] }, d.value);
+    expect(seen.map((s) => s.decision)).toEqual(['allow', 'allow', 'allow', 'deny']);
+    expect(code).toBe(m.EXIT_REFUSED);
+  });
+
+  it('loads the defaults plus its own rules, in that order', async () => {
+    const m = await load();
+    const res = m.loadPolicy(policy({ extends: 'defaults', rules: [{ tool: 'Bash', match: 'command_prefix', value: 'npm whoami' }] }));
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const n = (await import('@solix/server/rules')).defaultRuleInputs().length;
+    expect(res.rules).toHaveLength(n + 1);
+    expect(res.rules[n]!.value).toBe('npm whoami');
+  });
+
+  it('accepts extends with no rules of its own', async () => {
+    const m = await load();
+    const res = m.loadPolicy(policy({ extends: 'defaults' }));
+    expect(res.ok && res.rules.length).toBeGreaterThan(10);
+  });
+
+  it('a deny rule in the policy refuses what the defaults would allow', async () => {
+    const m = await load();
+    const rules = policy({ extends: 'defaults', rules: [{ tool: 'Bash', match: 'command_prefix', value: 'git commit', decision: 'deny' }] });
+    const seen: Array<{ command: string; decision: string }> = [];
+    await m.gate({ rules, out: join(home, 'a'), home, command: ['agent'] }, deps(m, ['git status', 'git commit -m x'], seen).value);
+    expect(seen.map((s) => s.decision)).toEqual(['allow', 'deny']);
+  });
+
+  it.each([
+    [{ extends: 'strict', rules: [] }, /"extends" can only be "defaults"/],
+    [{ extend: 'defaults' }, /unknown key "extend"/],
+    [{}, /must be a JSON array/],
+  ])('rejects %j before anything runs', async (body, msg) => {
+    const m = await load();
+    const res = m.loadPolicy(policy(body));
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.error).toMatch(msg);
   });
 });

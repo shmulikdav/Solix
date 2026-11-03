@@ -9,7 +9,7 @@ import type {
   ApprovalRuleScope,
 } from '@solix/shared';
 import type { DB } from '../db.js';
-import { isWriteOutsideRoot } from '../containment.js';
+import { deniedCommandReason, isWriteOutsideRoot } from '../containment.js';
 import {
   READONLY_TOOLS,
   SHELL_TOOLS,
@@ -225,26 +225,61 @@ function isBenignAssignment(segment: string, root: string, scratchpad?: string):
   return absolutePathTokens(segment).every((t) => !isOutsideConfinement(t, root, scratchpad));
 }
 
-/** Does this rule speak to this segment of a shell command? */
-function coversSegment(rule: ApprovalRule, segment: string, root: string, scratchpad?: string): boolean {
+/**
+ * Redirects that only send output to another stream or discard it — `2>&1`,
+ * `>&2`, `>/dev/null`, `2>/dev/null`, `&>/dev/null`, `>&-`. They change where
+ * output goes, not what the command does.
+ */
+const OUTPUT_ONLY_REDIRECT = /(?:^|\s)(?:\d*|&)?>>?\|?\s*(?:&\d+|&-|\/dev\/(?:null|stdout|stderr))(?=\s|$)/g;
+
+/**
+ * The segment with its output-only redirects removed, so a rule is matched
+ * against the command itself. Measured on 2026-11-03: a policy rule
+ * `^npm (pack|publish) --dry-run$` refused `npm publish --dry-run 2>&1`,
+ * because the agent added `2>&1` and the `$` no longer matched — a prefix rule
+ * shrugged that off, a regex rule could not.
+ */
+export function withoutOutputRedirects(segment: string): string {
+  return segment.replace(OUTPUT_ONLY_REDIRECT, '').replace(/\s+/g, ' ').trim();
+}
+
+/** Paths in a segment that are outside the worker's confinement. */
+function outsidePaths(segment: string, root: string, scratchpad?: string): string[] {
+  return absolutePathTokens(segment).filter((t) => isOutsideConfinement(t, root, scratchpad));
+}
+
+/** Does this rule's pattern match the segment, ignoring output-only redirects? */
+function patternMatches(rule: ApprovalRule, segment: string): boolean {
+  if (!rule.value) return false;
+  const bare = withoutOutputRedirects(segment);
   if (rule.match === 'command_prefix') {
-    if (!rule.value || !segmentHasPrefix(segment, rule.value)) return false;
-    // An allowed `cat` is not an allowed `cat /etc/hostname` — but it is an
-    // allowed `cat <scratchpad>/x`.
-    return (
-      rule.decision === 'deny' ||
-      absolutePathTokens(segment).every((t) => !isOutsideConfinement(t, root, scratchpad))
-    );
+    return segmentHasPrefix(segment, rule.value) || segmentHasPrefix(bare, rule.value);
   }
   if (rule.match === 'command_regex') {
-    if (!rule.value) return false;
     try {
-      return new RegExp(rule.value).test(segment);
+      const re = new RegExp(rule.value);
+      return re.test(segment) || re.test(bare);
     } catch {
       return false;
     }
   }
   return false;
+}
+
+/**
+ * Does this rule speak to this segment of a shell command?
+ *
+ * An **allow** rule — prefix or regex — never covers a segment that names a
+ * path outside the project: an allowed `cat` is not an allowed
+ * `cat /etc/hostname` (it *is* an allowed `cat <scratchpad>/x`). Regex allow
+ * rules used to skip that check, so `^cat ` covered `cat ~/.ssh/id_ed25519`
+ * and `^echo` covered `echo x >/etc/y`. (`CLAIM-ALLOW-RULES-CONFINED`)
+ * A **deny** rule matches wherever it applies.
+ */
+function coversSegment(rule: ApprovalRule, segment: string, root: string, scratchpad?: string): boolean {
+  if (rule.match !== 'command_prefix' && rule.match !== 'command_regex') return false;
+  if (!patternMatches(rule, segment)) return false;
+  return rule.decision === 'deny' || outsidePaths(segment, root, scratchpad).length === 0;
 }
 
 function matchesOne(rule: ApprovalRule, subject: RuleSubject): boolean {
@@ -342,6 +377,62 @@ function rowToRule(r: RuleRow): ApprovalRule {
     createdAt: r.created_at,
     createdBy: r.created_by ?? undefined,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Explaining a decision — what `solix rules test` prints
+// ---------------------------------------------------------------------------
+
+export interface SegmentExplanation {
+  segment: string;
+  /** The rule that covers this segment, if one does. */
+  coveredBy?: ApprovalRule;
+  /** A pure variable assignment, which never blocks a covered command. */
+  assignment?: boolean;
+  /** Paths outside the project that kept an allow rule from covering it. */
+  outside: string[];
+  /** Allow rules whose pattern matched but were kept out by `outside`. */
+  matchedButOutside: ApprovalRule[];
+}
+
+export interface RuleExplanation {
+  /** The containment denylist's reason, when it refuses — before any rule. */
+  denylisted: string | null;
+  /** Exactly what the gate decides by rule: `evaluateRules`, nothing else. */
+  verdict: RuleVerdict | null;
+  /** Shell commands only: how each segment fared. */
+  segments: SegmentExplanation[];
+}
+
+/**
+ * Why a call would be allowed, refused or left to a person.
+ *
+ * The verdict is `evaluateRules` itself, not a re-derivation, so `solix rules
+ * test` cannot disagree with the gate (`CLAIM-RULES-TEST-IS-THE-GATE`). The
+ * per-segment detail is only there to say *which* part was not covered —
+ * the question that took three agent runs to answer by hand on 2026-11-03.
+ */
+export function explainRules(rules: readonly ApprovalRule[], subject: RuleSubject): RuleExplanation {
+  const command = typeof subject.args.command === 'string' ? subject.args.command : undefined;
+  const tool = subject.tool.toLowerCase();
+  const denylisted = command && SHELL_TOOLS.has(tool) ? deniedCommandReason(command) : null;
+  const verdict = evaluateRules(rules, subject);
+  const segments: SegmentExplanation[] = [];
+  if (command && SHELL_TOOLS.has(tool)) {
+    const allows = rules.filter((r) => r.enabled && r.decision === 'allow' && toolMatches(r, subject.tool));
+    for (const segment of shellSegments(command)) {
+      const outside = outsidePaths(segment, subject.root, subject.scratchpad);
+      const coveredBy = allows.find((r) => coversSegment(r, segment, subject.root, subject.scratchpad));
+      const matchedButOutside = coveredBy
+        ? []
+        : allows.filter(
+            (r) => (r.match === 'command_prefix' || r.match === 'command_regex') && patternMatches(r, segment),
+          );
+      const assignment = !coveredBy && isBenignAssignment(segment, subject.root, subject.scratchpad);
+      segments.push({ segment, coveredBy, assignment: assignment || undefined, outside, matchedButOutside });
+    }
+  }
+  return { denylisted, verdict, segments };
 }
 
 export function listRules(db: DB, opts: { projectId?: string } = {}): ApprovalRule[] {

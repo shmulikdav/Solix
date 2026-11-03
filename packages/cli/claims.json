@@ -238,6 +238,24 @@
       "heldBy": "packages/server/src/state/rules.test.ts"
     },
     {
+      "id": "CLAIM-ALLOW-RULES-CONFINED",
+      "claim": "An allow rule, prefix or regex, matches the command itself rather than how its output is plumbed (`^npm test$` covers `npm test 2>&1`), and never covers a segment that names a path outside the project. Deny rules match wherever they apply.",
+      "publishedIn": "`solix rules`, `solix gate`",
+      "heldBy": "packages/server/src/state/rules.test.ts"
+    },
+    {
+      "id": "CLAIM-RULES-TEST-IS-THE-GATE",
+      "claim": "`solix rules test` prints the gate's own verdict (`evaluateRules`) for a command or file call, for shell and file tools and with deny rules present, and names the segment no rule covers.",
+      "publishedIn": "`solix rules test`",
+      "heldBy": "packages/server/src/state/rules.test.ts"
+    },
+    {
+      "id": "CLAIM-POLICY-EXTENDS-DEFAULTS",
+      "claim": "A `solix gate` policy can extend the default rules with `{ \"extends\": \"defaults\", \"rules\": [...] }`; its deny rules still refuse what the defaults allow, and an unknown `extends` or key is rejected before the agent runs.",
+      "publishedIn": "`docs/GATE.md`, `solix gate`",
+      "heldBy": "packages/cli/src/gate.test.ts"
+    },
+    {
       "id": "CLAIM-PARALLEL-INTEGRATES",
       "claim": "An isolated task runs in its own git worktree, concurrently with its siblings, and its changes are integrated back into the plan's checkout; a task whose changes conflict with another's is escalated to a person, never silently merged, and the checkout is left intact.",
       "publishedIn": "Maestro, CHANGELOG 1.20.0",
