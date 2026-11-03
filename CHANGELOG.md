@@ -5,6 +5,27 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security: a redirect could write outside the project under an allow rule
+
+Found on 2026-11-03 while checking a false hold. The rule matcher only saw a
+path when a word *began* with `/` or `~`, so a redirect target glued to its
+operator was invisible. With the default rules, `echo hi >/etc/x`,
+`echo hi >>~/.bashrc` and `echo x>/etc/y` were **auto-allowed** by the `echo`
+rule — at the desk without asking, and by `solix gate` in CI. The containment
+denylist still ran first, so its patterns (`rm -rf /`, SSH keys, block devices)
+were never reachable this way; but any other file outside the project was.
+
+- Every word is now split on redirection operators (`>`, `>>`, `>|`, `<`,
+  `2>`, `&>`, `>&`) and each target is judged as a path. Outside the project →
+  not covered by any allow rule → asked about (or refused, under `solix gate`).
+- A pure assignment with a redirect (`S=x>/etc/y`) is judged the same way.
+- The false hold the search started from is gone: `cat x > /dev/null` was held
+  while `cat x >/dev/null` passed. Discarding output and the standard streams
+  (`/dev/null`, `/dev/stdout`, `/dev/stderr`, `/dev/stdin`) are not paths
+  outside the project, spaced or not. `CLAIM-RULES-SEE-REDIRECTS`.
+
 ## [1.20.0] — 2026-11-03
 
 > **1.19.0 was never published.** Everything planned for it ships here, below

@@ -232,6 +232,12 @@
       "heldBy": "packages/server/src/state/rules.test.ts"
     },
     {
+      "id": "CLAIM-RULES-SEE-REDIRECTS",
+      "claim": "A redirect's target is judged as a path: no allow rule covers `echo x >/etc/y`, `>>~/.bashrc`, `2>/etc/x` or `S=x>/etc/y`, with or without a space after the operator. Discarding output (`>/dev/null`, `2>&1`, `>&2`) and redirects inside the project are still covered.",
+      "publishedIn": "`solix rules`, `solix gate`",
+      "heldBy": "packages/server/src/state/rules.test.ts"
+    },
+    {
       "id": "CLAIM-PARALLEL-INTEGRATES",
       "claim": "An isolated task runs in its own git worktree, concurrently with its siblings, and its changes are integrated back into the plan's checkout; a task whose changes conflict with another's is escalated to a person, never silently merged, and the checkout is left intact.",
       "publishedIn": "Maestro, CHANGELOG 1.20.0",

@@ -137,15 +137,41 @@ export interface RuleVerdict {
 }
 
 /**
+ * A shell redirection operator, wherever it sits in a word: `>`, `>>`, `>|`,
+ * `<`, `<<<`, with an optional fd number or `&` in front (`2>`, `&>`) and an
+ * optional `&` after (`>&`). Splitting on it is what makes the target of
+ * `echo x >/etc/y` visible as a path.
+ */
+const REDIRECT = /(?:\d*|&)?(?:>>|>\||<<<|>|<)&?/;
+
+/**
+ * Special files a redirect commonly names that are not a place to write or
+ * read anything: discarding output (`>/dev/null`) and the standard streams.
+ */
+const HARMLESS_DEVICES = new Set(['/dev/null', '/dev/stdout', '/dev/stderr', '/dev/stdin']);
+
+/**
  * Absolute or home-relative path tokens in a segment, with `~` expanded —
  * `isWriteOutsideRoot` would otherwise resolve `~/.ssh/x` *under* the
  * project root and call it inside.
+ *
+ * Redirect targets count. Measured on 2026-11-03: a path was only found when
+ * a whitespace-separated word *began* with `/` or `~`, so `echo hi >/etc/x`,
+ * `echo hi >>~/.bashrc` and `echo x>/etc/y` were auto-allowed by the default
+ * `echo` rule — a write outside the project, decided by a rule meant for
+ * printing. The same blind spot held `cat x > /dev/null` (spaced, so
+ * `/dev/null` was seen) while passing `cat x >/dev/null`. Now every word is
+ * split on redirection operators, each piece is checked, and the
+ * standard-stream devices are not paths outside the project.
+ * (`CLAIM-RULES-SEE-REDIRECTS`)
  */
 function absolutePathTokens(segment: string): string[] {
   return segment
     .split(/\s+/)
-    .map((t) => t.replace(/^['"]|['"]$/g, ''))
+    .flatMap((word) => word.split(REDIRECT))
+    .map((t) => t.replace(/^['"]+|['"]+$/g, ''))
     .filter((t) => t.startsWith('/') || t.startsWith('~'))
+    .filter((t) => !HARMLESS_DEVICES.has(t))
     .map((t) => (t.startsWith('~') ? resolve(homedir(), t.slice(1).replace(/^\//, '')) : t));
 }
 
@@ -195,7 +221,8 @@ function isBenignAssignment(segment: string, root: string, scratchpad?: string):
       if (isOutsideConfinement(resolved, root, scratchpad)) return false;
     }
   }
-  return true;
+  // `S=x>/etc/y` assigns *and* writes the file; its redirect target counts.
+  return absolutePathTokens(segment).every((t) => !isOutsideConfinement(t, root, scratchpad));
 }
 
 /** Does this rule speak to this segment of a shell command? */
