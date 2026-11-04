@@ -232,6 +232,8 @@ interface SolixState {
   selectedAdvisorId: string | null;
   selectedSkillId: string | null;
   motionEnabled: boolean;
+  /** Show idle sessions quiet for over a day in the galaxy. See `selectScenePlanets`. */
+  showQuietSessions: boolean;
   viewMode: 'galaxy' | 'list' | 'missions';
   playback: PlaybackState;
   toasts: { id: string; level: 'info' | 'warn' | 'error'; message: string }[];
@@ -443,6 +445,7 @@ interface SolixState {
   terminateSessions: (ids: string[]) => void;
   setMotionEnabled: (b: boolean) => void;
   toggleMotion: () => void;
+  setShowQuietSessions: (b: boolean) => void;
   setViewMode: (m: 'galaxy' | 'list' | 'missions') => void;
   toggleViewMode: () => void;
   enterPlayback: (events: TimelineEvent[], earliestMs: number, latestMs: number) => void;
@@ -459,6 +462,23 @@ interface SolixState {
 const TOOL_CALL_TTL_MS = 2000;
 
 const MOTION_KEY = 'solix.motion.v1';
+const QUIET_KEY = 'solix.galaxy.showQuiet.v1';
+
+function readQuietPref(): boolean {
+  try {
+    return localStorage.getItem(QUIET_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeQuietPref(b: boolean): void {
+  try {
+    localStorage.setItem(QUIET_KEY, b ? '1' : '0');
+  } catch {
+    /* ignore */
+  }
+}
 const VIEW_KEY = 'solix.viewMode.v1';
 
 /**
@@ -559,6 +579,7 @@ export const useSolixStore = create<SolixState>((set, get) => ({
   selectedAdvisorId: null,
   selectedSkillId: null,
   motionEnabled: readMotionPref(),
+  showQuietSessions: readQuietPref(),
   viewMode: readViewPref(),
   playback: EMPTY_PLAYBACK,
   toasts: [],
@@ -1717,6 +1738,10 @@ export const useSolixStore = create<SolixState>((set, get) => ({
     writeMotionPref(b);
     set({ motionEnabled: b });
   },
+  setShowQuietSessions: (b) => {
+    writeQuietPref(b);
+    set({ showQuietSessions: b });
+  },
   toggleMotion: () => {
     const next = !get().motionEnabled;
     writeMotionPref(next);
@@ -1832,6 +1857,52 @@ const planetsOf = memoOn((sessions: Record<string, Session>): Session[] =>
 
 export function selectPlanets(state: SolixState): Session[] {
   return planetsOf(effectiveSessions(state));
+}
+
+/** An idle session with no activity for this long is "quiet". */
+export const QUIET_AFTER_MS = 24 * 3600_000;
+
+/**
+ * The planets the galaxy draws: everything except idle sessions quiet for
+ * over a day, unless the person asked to see them.
+ *
+ * Measured on 2026-11-03 on the owner's machine: 481 sessions, 464 of them
+ * idle, and the galaxy an unreadable cloud of planets for sessions long over.
+ * Most were processes that had ended without Solix noticing, which the
+ * server now retires (`CLAIM-DEAD-SESSIONS-RETIRE`). But a backfill
+ * (`solix import`) creates idle sessions with no process at all, and they
+ * would fill the galaxy just the same. So quiet sessions are hidden by default,
+ * the galaxy says how many, and one click shows them. Never hidden: anything
+ * active or waiting on you, anything recent, and the session you selected.
+ * List still shows everything. (`CLAIM-GALAXY-HIDES-QUIET`)
+ */
+const scenePlanetsOf = memoOn(
+  (planets: Session[], showQuiet: boolean, selected: string | null, hourBucket: number): Session[] => {
+    if (showQuiet) return planets;
+    const cutoff = hourBucket * 3600_000 - QUIET_AFTER_MS;
+    const kept = planets.filter(
+      (s) => s.status !== 'idle' || s.id === selected || (s.updatedAt ?? 0) >= cutoff,
+    );
+    return kept.length === planets.length ? planets : kept;
+  },
+);
+
+export function selectScenePlanets(state: SolixState): Session[] {
+  return scenePlanetsOf(
+    selectPlanets(state),
+    state.showQuietSessions,
+    state.selectedSessionId,
+    Math.floor(Date.now() / 3600_000),
+  );
+}
+
+/** How many sessions are quiet, whether or not they are being shown. */
+export function selectQuietCount(state: SolixState): number {
+  const planets = selectPlanets(state);
+  return (
+    planets.length -
+    scenePlanetsOf(planets, false, state.selectedSessionId, Math.floor(Date.now() / 3600_000)).length
+  );
 }
 
 const advisorPlanetsOf = memoOn((sessions: Record<string, Session>): Session[] =>

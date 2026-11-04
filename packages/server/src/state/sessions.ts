@@ -449,3 +449,75 @@ export function listSessionsForProject(db: DB, projectId: string): Session[] {
     .all(projectId) as SessionRow[];
   return rows.map(rowToSession);
 }
+
+/**
+ * Is a process with this id still running on this machine?
+ *
+ * `kill(pid, 0)` sends no signal; it only asks. `ESRCH` means no such
+ * process. `EPERM` means it exists but belongs to someone else, which is
+ * still "running".
+ */
+export function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
+  }
+}
+
+/**
+ * Retire sessions whose process has ended.
+ *
+ * Measured on 2026-11-03 on the owner's machine: the top bar read
+ * "17 active · 464 idle" among 481 sessions, with only a handful of `claude`
+ * processes running. Solix does not install Claude Code's session-end hook,
+ * so a session ended only when someone pressed Terminate. A `claude` that
+ * exited stayed `idle` forever, and one killed mid-turn stayed `active`.
+ * The count was wrong, and the galaxy filled with planets for processes that
+ * no longer existed.
+ *
+ * A session is retired when its recorded pid is no longer running. What is
+ * deliberately left alone:
+ * - Agent View sessions: their supervisor owns their lifecycle.
+ * - Sessions still `spawning`: their pid may not be recorded yet.
+ * - Sessions in `skip`: the router saw their pid already gone *while their
+ *   events were still arriving*, so the pid it was given is not the agent's
+ *   process (a hook run by a short-lived shell, or a session on another
+ *   machine). Its absence proves nothing there.
+ * - pid 0/1 (unknown) and Solix's own pid.
+ *
+ * `terminated_at` is the session's last activity, not the moment of the
+ * sweep: the process ended at some point after that, and a sweep of a
+ * months-old history should not show 400 sessions ending at the same second.
+ * A session retired here that turns out to be alive comes back by itself:
+ * its next hook event upserts it as `idle`. (`CLAIM-DEAD-SESSIONS-RETIRE`)
+ */
+export function sweepDeadSessions(
+  db: DB,
+  opts: { isAlive?: (pid: number) => boolean; skip?: ReadonlySet<string> } = {},
+): string[] {
+  const isAlive = opts.isAlive ?? processIsAlive;
+  const rows = db
+    .prepare(
+      `SELECT id, pid FROM sessions
+       WHERE status NOT IN ('terminated', 'spawning')
+         AND (origin IS NULL OR origin != 'agentview')
+         AND pid > 1`,
+    )
+    .all() as Array<{ id: string; pid: number }>;
+  const retired: string[] = [];
+  const retire = db.prepare(
+    `UPDATE sessions
+     SET status = 'terminated',
+         terminated_at = COALESCE(terminated_at, updated_at)
+     WHERE id = ? AND status != 'terminated'`,
+  );
+  for (const row of rows) {
+    if (opts.skip?.has(row.id)) continue;
+    if (row.pid === process.pid) continue;
+    if (isAlive(row.pid)) continue;
+    if (retire.run(row.id).changes > 0) retired.push(row.id);
+  }
+  return retired;
+}

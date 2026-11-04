@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { Html } from '@react-three/drei';
 import {
   selectAdvisorPlanets,
-  selectPlanets,
+  selectScenePlanets,
   useSolixStore,
 } from '../store/index.js';
 import { planetOrbitRadius, planetPhase } from './orbits.js';
@@ -17,7 +17,7 @@ import { planetOrbitRadius, planetPhase } from './orbits.js';
  */
 export function ProjectLabels(): JSX.Element {
   const projects = useSolixStore((s) => s.projects);
-  const planets = useSolixStore(selectPlanets);
+  const planets = useSolixStore(selectScenePlanets);
   const advisorPlanets = useSolixStore(selectAdvisorPlanets);
 
   const groups = useMemo(() => {

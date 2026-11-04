@@ -6,7 +6,7 @@ import { EffectComposer, Bloom } from '@react-three/postprocessing';
 import { ACESFilmicToneMapping } from 'three';
 import {
   selectAdvisorPlanets,
-  selectPlanets,
+  selectScenePlanets,
   useSolixStore,
 } from '../store/index.js';
 import { Sun } from './Sun.js';
@@ -28,7 +28,7 @@ import { BackSide, type Mesh } from 'three';
 const MILKY_WAY_URL = '/textures/milky_way.jpg';
 
 export function Scene(): JSX.Element {
-  const planets = useSolixStore(selectPlanets);
+  const planets = useSolixStore(selectScenePlanets);
   const advisorPlanets = useSolixStore(selectAdvisorPlanets);
   const selectSession = useSolixStore((s) => s.selectSession);
   const selectAdvisor = useSolixStore((s) => s.selectAdvisor);

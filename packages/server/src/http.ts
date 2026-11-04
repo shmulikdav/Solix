@@ -290,6 +290,9 @@ export function createHttpApp(opts: {
       demo: process.env.SOLIX_DEMO === '1',
       /** True under `solix gate`: no one is at the gate; uncovered calls are refused. */
       headless: opts.router.isHeadless(),
+      /** So `solix stop` and a second `solix` can say which process holds the
+       *  port. Loopback-only, behind the Host check, like the rest of /api. */
+      pid: process.pid,
       ts: Date.now(),
     }),
   );

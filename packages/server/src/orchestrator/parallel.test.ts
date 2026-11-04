@@ -212,3 +212,17 @@ describe('parallel Maestro — worktrees + integrate', () => {
     expect(readFileSync(join(repo, 'b.txt'), 'utf8')).toBe('bravo');
   });
 });
+
+/**
+ * CLAIM-PARALLEL-LIMIT-ENFORCED states the default. It said "default 1" for a
+ * release after the default became 2, because nothing pinned it. Now
+ * something does.
+ */
+describe('CLAIM-PARALLEL-LIMIT-ENFORCED · the default parallel limit', () => {
+  it('is 2 for a plan created without one, both on create and as stored', () => {
+    const db = resetDbForTests();
+    const plan = createPlan(db, { name: 'p', goalPrompt: 'g', cwd: '/tmp/default-limit', status: 'draft' });
+    expect(plan.parallelLimit).toBe(2);
+    expect(getPlan(db, plan.id)!.parallelLimit).toBe(2);
+  });
+});
