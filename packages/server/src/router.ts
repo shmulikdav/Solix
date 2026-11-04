@@ -13,6 +13,8 @@ import {
   setSessionMission,
   setSessionStatus,
   upsertSession,
+  processIsAlive,
+  sweepDeadSessions,
 } from './state/sessions.js';
 import {
   addMissionTokens,
@@ -186,7 +188,36 @@ export class EventRouter {
     this.launcher = launcher;
   }
 
+  /**
+   * Sessions whose reported pid was already gone while their events were
+   * still arriving. That pid is not the agent's process (a hook run by a
+   * short-lived shell, or a session on another machine), so its absence must
+   * never retire the session. See `sweepDeadSessions`.
+   */
+  private readonly pidNotTheAgent = new Set<string>();
+
+  private notePid(event: HookEvent): void {
+    if (!(event.pid > 1)) return;
+    if (processIsAlive(event.pid)) return;
+    this.pidNotTheAgent.add(this.extractSessionId(event));
+  }
+
+  /**
+   * Retire sessions whose process has ended, and take them off every client.
+   * Run at startup and on a timer by `createSolixServer`, never from the
+   * constructor (tests build routers with made-up pids).
+   * (`CLAIM-DEAD-SESSIONS-RETIRE`)
+   */
+  sweepDeadSessions(isAlive: (pid: number) => boolean = processIsAlive): string[] {
+    const retired = sweepDeadSessions(this.db, { isAlive, skip: this.pidNotTheAgent });
+    for (const sessionId of retired) {
+      this.broadcaster.broadcast({ type: 'session_remove', sessionId });
+    }
+    return retired;
+  }
+
   handleHookEvent(event: HookEvent): void {
+    this.notePid(event);
     try {
       switch (event.event) {
         case 'session_start':
@@ -551,6 +582,7 @@ export class EventRouter {
   requestPermission(
     event: HookEvent,
   ): Promise<{ approved: boolean; timedOut: boolean; reason?: string }> {
+    this.notePid(event);
     const sessionId = this.extractSessionId(event);
     const p = event.payload as Record<string, unknown>;
     const { tool, args } = this.describeGatedTool(event.event, p);

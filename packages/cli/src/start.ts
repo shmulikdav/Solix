@@ -1,4 +1,5 @@
 import { resolvePort } from '@solix/shared';
+import { pidListeningOn, portInUseMessage, probeSolix } from './stop.js';
 import { createSolixServer } from '@solix/server/create';
 import { getDb } from '@solix/server/db';
 import {
@@ -211,12 +212,11 @@ export async function start(opts: StartOptions = {}): Promise<void> {
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === 'EADDRINUSE') {
-      console.error(
-        `[solix] port ${port} is already in use — nothing was started.\n` +
-          '        Another Solix is probably still running: open\n' +
-          `        http://127.0.0.1:${port} to check. If it is something else,\n` +
-          `        run \`solix start --port ${port + 1}\`.`,
-      );
+      // Say which Solix holds the port and whether it is this version, so an
+      // upgrade does not leave the old server running unnoticed. (stop.ts)
+      const running = await probeSolix(port);
+      if (running && running.pid === undefined) running.pid = pidListeningOn(port);
+      console.error(portInUseMessage(port, running, __SOLIX_VERSION__));
     } else if (code === 'EACCES') {
       console.error(
         `[solix] not allowed to listen on port ${port}. Ports below 1024\n` +

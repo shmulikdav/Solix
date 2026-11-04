@@ -4,7 +4,7 @@ import type { Session } from '@solix/shared';
 import {
   selectAdvisorPlanets,
   selectGoalsArray,
-  selectPlanets,
+  selectScenePlanets,
   useSolixStore,
 } from '../store/index.js';
 import { planetOrbitRadius, planetPhase } from './orbits.js';
@@ -23,7 +23,7 @@ function planetPosition(s: Session): [number, number, number] {
 }
 
 export function ConstellationLines(): JSX.Element | null {
-  const planets = useSolixStore(selectPlanets);
+  const planets = useSolixStore(selectScenePlanets);
   const advisorPlanets = useSolixStore(selectAdvisorPlanets);
   const goals = useSolixStore(selectGoalsArray);
 

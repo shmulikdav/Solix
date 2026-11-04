@@ -26,6 +26,7 @@ import {
 import { importCmd } from './import.js';
 import { level } from './level.js';
 import { rulesTest, type RulesTestOptions } from './rulesTest.js';
+import { stop } from './stop.js';
 import { gate } from './gate.js';
 import { unknownCommand, unknownCommandMessage } from './commandGuard.js';
 import { rulesAdd, rulesDefaults, rulesList, rulesRemove, rulesSetEnabled } from './rules.js';
@@ -84,6 +85,14 @@ program
       noWire: !opts.wire,
       headless: Boolean(opts.headless),
     });
+  });
+
+program
+  .command('stop')
+  .description('Stop the Solix server running on this port (it refuses what it is holding first)')
+  .option('--port <port>', 'the port it runs on (default: SOLIX_PORT or 4242)', (v) => parseInt(v, 10))
+  .action(async (opts: { port?: number }) => {
+    process.exitCode = await stop(opts);
   });
 
 program

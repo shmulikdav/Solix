@@ -5,6 +5,58 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### A session ends when its process does
+
+Measured on the owner's machine on 2026-11-03: the top bar read **"17 active ·
+464 idle"** among 481 sessions, with only a few `claude` processes running.
+Solix doesn't install Claude Code's session-end hook, so a session ended only
+when someone pressed Terminate. A `claude` that exited stayed `idle` forever,
+and one killed mid-turn stayed `active`.
+
+- At startup and every minute, Solix retires sessions whose process has
+  ended. They stop counting and leave the galaxy. The end is dated to the
+  session's last activity, not to the sweep.
+- **Left alone:**
+  - Agent View sessions, whose supervisor owns them.
+  - Sessions still spawning.
+  - Sessions whose reported pid was already gone while their events were
+    still arriving. That pid isn't the agent's process: a hook run by a
+    short-lived shell, or a session on another machine.
+- A session retired by mistake comes back on its next event.
+- `CLAIM-DEAD-SESSIONS-RETIRE`, tested against real processes.
+
+### The galaxy stays readable with a long history
+
+- Idle sessions quiet for over a day aren't drawn.
+- The galaxy says how many it's hiding ("312 quiet sessions hidden · Show"),
+  and one click shows them. The choice is remembered.
+- **Never hidden:** anything working, waiting on you, recent, or selected.
+  **List** still shows everything.
+- This matters most after `solix import`, which backfills idle sessions that
+  have no process to check.
+- `CLAIM-GALAXY-HIDES-QUIET`.
+
+### Upgrading no longer needs `kill`
+
+- **`solix stop`** stops the running server. It only signals a process that
+  answered as Solix, and Solix refuses anything it's holding before it exits.
+  After `npm i -g`, run `solix stop && solix`.
+- **A second `solix` on a busy port** now says which Solix is there and how
+  to replace it:
+  `Solix 1.20.3 is already running on port 4242 (pid 4711), and this is 1.20.4`.
+  Before, it said only "port 4242 is already in use". The old server kept
+  running, and the browser kept showing it, without the fixes just installed.
+- `/api/health` reports the server's pid.
+- `CLAIM-UPGRADE-NAMES-THE-RUNNING-SERVER`.
+
+### Fixed
+
+- `docs/CLAIMS.md` said the parallel limit defaults to 1. It's been 2 since
+  1.20.0. The text is corrected, and a test now pins the default, so the
+  claim can't drift again.
+
 ## [1.20.3] — 2026-11-03
 
 ### Security: the default rules allowed reaching outside the project

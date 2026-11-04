@@ -54,6 +54,12 @@ export interface SolixServerOptions {
   /** Nobody is at the gate (CI / `solix gate`): a gated call no rule covers is
    *  refused at once instead of held. See EventRouter. */
   headless?: boolean;
+  /**
+   * How often to retire sessions whose process has ended (ms). 0 turns the
+   * sweep off. Default 60s, plus once at startup. Off in the demo, whose
+   * sessions have made-up pids. (`CLAIM-DEAD-SESSIONS-RETIRE`)
+   */
+  sessionSweepMs?: number;
   /** Hook install state for /api/diagnostics. Only the CLI can answer this
    *  honestly, since it owns the install; omitted when embedded. */
   hookStatus?: () => {
@@ -419,6 +425,20 @@ export async function createSolixServer(
   // Sprint M — heartbeat scheduler. Every ~30s, fire any enabled schedule
   // whose next_run_at has passed by launching it through the normal internal
   // launch path, then advance its next_run_at.
+  // Retire sessions whose claude process has ended: once now, then every
+  // minute. Without it a session ended only when someone pressed Terminate.
+  const sweepMs = process.env.SOLIX_DEMO === '1' ? 0 : (opts.sessionSweepMs ?? 60_000);
+  const sweep = () => {
+    try {
+      router.sweepDeadSessions();
+    } catch (err) {
+      console.warn('[sessions] sweep failed:', (err as Error).message);
+    }
+  };
+  if (sweepMs > 0) sweep();
+  const sweepTimer = sweepMs > 0 ? setInterval(sweep, sweepMs) : null;
+  sweepTimer?.unref?.();
+
   const scheduleTimer = setInterval(() => {
     try {
       for (const s of listDueSchedules(db, now())) {
@@ -439,6 +459,7 @@ export async function createSolixServer(
     close: () =>
       new Promise<void>((resolve) => {
         clearInterval(scheduleTimer);
+        if (sweepTimer) clearInterval(sweepTimer);
         stopNotifier();
         stopAgentViewBridge();
         transcripts.shutdownAll();

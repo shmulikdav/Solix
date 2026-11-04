@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { selectDockOffsetPx, useSolixStore } from '../store/index.js';
+import { selectDockOffsetPx, selectQuietCount, useSolixStore } from '../store/index.js';
 import { RAIL_WIDTH_PX } from '../shell/surfaces.js';
 
 const HINT_KEY = 'solix.scenehint.dismissed.v1';
@@ -13,6 +13,9 @@ export function SceneControls(): JSX.Element {
   const surface = useSolixStore((s) => s.workspaceSurface);
   const inGalaxy = viewMode === 'galaxy' && !surface;
   const toggleMotion = useSolixStore((s) => s.toggleMotion);
+  const quietCount = useSolixStore(selectQuietCount);
+  const showQuiet = useSolixStore((s) => s.showQuietSessions);
+  const setShowQuiet = useSolixStore((s) => s.setShowQuietSessions);
   const [hintDismissed, setHintDismissed] = useState(true);
 
   useEffect(() => {
@@ -68,6 +71,23 @@ export function SceneControls(): JSX.Element {
               ✕
             </button>
           </div>
+        </div>
+      )}
+      {/* Quiet sessions (idle for over a day) are not drawn unless asked for,
+          and the galaxy says so rather than hiding them silently.
+          See selectScenePlanets / CLAIM-GALAXY-HIDES-QUIET. */}
+      {inGalaxy && quietCount > 0 && (
+        <div className="pointer-events-none absolute bottom-4 z-20" style={{ left: RAIL_WIDTH_PX + 16 }}>
+          <button
+            onClick={() => setShowQuiet(!showQuiet)}
+            aria-pressed={showQuiet}
+            title="Idle sessions with no activity for over a day. List always shows them."
+            className="pointer-events-auto rounded-full border border-solix-border bg-solix-panel/85 backdrop-blur px-3 py-1.5 text-[11px] text-slate-300 hover:text-white hover:bg-solix-border/40"
+          >
+            {showQuiet
+              ? `Hide ${quietCount} quiet session${quietCount === 1 ? '' : 's'}`
+              : `${quietCount} quiet session${quietCount === 1 ? '' : 's'} hidden · Show`}
+          </button>
         </div>
       )}
       {/* Orbital motion only exists in the galaxy view — the button rendered in

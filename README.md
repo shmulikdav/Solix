@@ -134,7 +134,9 @@ without touching your real data (it runs against a sandboxed demo DB).
 Then run `claude` in any terminal and a real planet will appear within
 a second.
 
-To verify the install: `solix doctor`. To remove cleanly: `solix
+To verify the install: `solix doctor`. To stop the server: `solix stop`
+(after `npm i -g` to upgrade, `solix stop && solix` restarts it on the new
+version). To remove cleanly: `solix
 uninstall`.
 
 ### Typing to an agent from Solix, not just from its terminal
