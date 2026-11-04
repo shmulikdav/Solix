@@ -11,7 +11,7 @@ There's no account and no telemetry, and it's MIT-licensed.
 
 This is a private beta. What follows includes the part most briefs leave out, where it is thin, because you'll find it anyway and I'd rather you found it here.
 
-**You need 1.20.3 or later.** Check with `solix --version`. Earlier 1.20 builds have a known hole in the approval rules, described under *Where it has been hardened*.
+**You need 1.20.4 or later.** Check with `solix --version`. Earlier 1.20 builds have a known hole in the approval rules, and 1.20.3 has the session-count and upgrade problems fixed in 1.20.4. Both are described under *Where it has been hardened*.
 
 ---
 
@@ -37,12 +37,13 @@ Requirements:
 
 ### Upgrading from an earlier Solix
 
-`npm i -g` updates the command, but **a Solix server that's already running keeps running the old version.** A new `solix` then says "port 4242 is already in use". Replace the running one:
+`npm i -g` updates the command, but **a Solix server that's already running keeps running the old version.** Restart it on the new one:
 
 ```sh
-kill $(lsof -tiTCP:4242 -sTCP:LISTEN)
-solix
+solix stop && solix
 ```
+
+If the server you're replacing is older than 1.20.4, `solix stop` finds it through `lsof`. If `lsof` isn't installed, it tells you to stop the server with Ctrl+C in its terminal. A second `solix` on a busy port now tells you which version is running there.
 
 The version in the top-left of the UI should match `solix --version`. If you have run Solix before, your earlier history and settings are kept.
 
@@ -132,9 +133,8 @@ The CI example is in [`docs/GATE.md`](GATE.md).
 
 Named deliberately. These are real and known, and none of them is a surprise to me. There's no need to report them, but tell me if one of them stops you.
 
-- **The galaxy struggles with a long history.** With hundreds of past sessions, idle ones crowd the view and labels become unreadable. **List** (left rail) is the readable view at that size, and collapse-by-project helps.
-- **The "active" count can be too high.** A session whose `claude` was killed without exiting cleanly can stay "active". Compare with `pgrep -fl claude | wc -l` if it looks wrong.
-- **Upgrading needs the manual restart** above. There's no `solix stop` yet.
+- **A very large live fleet hasn't been tuned.** Quiet history is hidden now (see below), but hundreds of sessions *working at once* would still strain the galaxy, and List isn't virtualised.
+- **Sessions on another machine** (hooks pointed at a remote Solix) are never retired automatically. Solix can only check processes on its own machine.
 - **Approval rules are not a sandbox.** Allowing `npm test` allows whatever your tests do. Only Bash, Read, Write, Edit, MultiEdit and Task go through Solix's gate, and Solix doesn't control the network. For untrusted work, run the agent in a container. [`docs/THREAT-MODEL.md`](THREAT-MODEL.md) is the full picture, and is worth five minutes.
 - **The headline number is pre-release.** On the last measured run, default rules took a test task from 30 holds to 4. Changes since then are proven by tests but not yet re-measured on a real machine.
 - **No update notice.** Solix doesn't phone home, so it won't tell you a newer version exists. I'll tell you directly when a fix matters.
@@ -148,6 +148,14 @@ Named deliberately. These are real and known, and none of them is a surprise to 
 ## Where it has been hardened since the last brief
 
 The last brief went out with 1.18.3. Since then:
+
+**New in 1.20.4, found by running it on a machine with months of history:**
+
+- **A session ends when its `claude` does.** Solix used to miss session ends, so a machine showed "17 active · 464 idle" with a handful of agents running. Sessions whose process has ended are now retired within a minute, and the count is true.
+- **The galaxy stays readable.** Idle sessions quiet for over a day are hidden, with a visible "N quiet sessions hidden · Show". Anything working, waiting on you, or recent is never hidden, and List shows everything.
+- **`solix stop`**, and a second `solix` that says which version is already running. Upgrading is `solix stop && solix`.
+
+**Earlier in 1.20:**
 
 - **A hold is the exception now.** Approval rules: standing decisions, consulted after the denylist (which no rule can override) and before anyone is asked.
 - **A "no" sticks.** A command a person denies is refused for the rest of that plan. A task whose attempt was denied comes to you instead of retrying. A plan whose question was still open when Solix stopped comes back **paused**, not decided by default.
@@ -164,9 +172,9 @@ The last brief went out with 1.18.3. Since then:
 | A hand-written regex rule like `^cat ` reading `~/.ssh` | 1.20.2 |
 | `Read ~/.ssh/id_ed25519`, `cat $HOME/.aws/credentials`, `cat ../../.ssh/…` | 1.20.3 |
 
-All are fixed, each with a test that fails if it comes back. The denylist (`rm -rf /`, writes to SSH keys, `curl | sh`, `sudo`) ran first throughout. This is why you need 1.20.3.
+All are fixed, each with a test that fails if it comes back. The denylist (`rm -rf /`, writes to SSH keys, `curl | sh`, `sudo`) ran first throughout. This is why you need 1.20.3 or later; 1.20.4 adds the fixes above.
 
-**1,372 tests.** Every public claim Solix makes is bound to a test that fails when it stops being true. There are 48, listed in [`docs/CLAIMS.md`](CLAIMS.md).
+**1,402 tests.** Every public claim Solix makes is bound to a test that fails when it stops being true. There are 51, listed in [`docs/CLAIMS.md`](CLAIMS.md).
 
 ---
 

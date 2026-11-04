@@ -121,3 +121,33 @@ describe.skipIf(!existsSync(CLI))('solix stop and the port message, end to end a
     expect(await probeSolix(port)).toBeNull();
   }, 40_000);
 });
+
+const hasLsof = spawnSync('sh', ['-c', 'command -v lsof'], { encoding: 'utf8' }).status === 0;
+
+describe.skipIf(!existsSync(CLI) || !hasLsof)('solix stop on a server older than 1.20.4 (no pid in /api/health)', () => {
+  it('finds the pid through lsof and stops it — the upgrade path from 1.20.3', async () => {
+    const { defaultStopDeps } = await import('./stop.js');
+    const port = await freePort();
+    const env = { ...process.env, SOLIX_HOME: mkdtempSync(join(tmpdir(), 'solix-stop-old-')), SOLIX_DISABLE_AGENTVIEW: '1' };
+    const server = spawn(process.execPath, [CLI, 'start', '--headless', '--no-wire', '--port', String(port)], { env, stdio: 'ignore' });
+    children.push(server);
+    for (let i = 0; i < 80 && !(await probeSolix(port)); i++) await new Promise((r) => setTimeout(r, 150));
+
+    const lines: string[] = [];
+    // An old server: /api/health answers as Solix but carries no pid.
+    const code = await stop(
+      { port },
+      {
+        ...defaultStopDeps,
+        probe: async (p) => {
+          const r = await probeSolix(p);
+          return r ? { version: '1.20.3', headless: r.headless } : null;
+        },
+        log: (l) => void lines.push(l),
+      },
+    );
+    expect(code).toBe(0);
+    expect(lines.join('\n')).toContain(`stopped Solix 1.20.3 (pid ${server.pid})`);
+    expect(await probeSolix(port)).toBeNull();
+  }, 40_000);
+});
