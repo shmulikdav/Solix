@@ -1,5 +1,8 @@
 # Solix 1.18.3 — what to try, and what is young
 
+> **Superseded.** This brief went out with 1.18.3 and is kept as a record.
+> The current one, for the beta on 1.20.3 or later, is [`BETA.md`](BETA.md).
+
 A note to go with the build, written to be read before you open it.
 
 Solix is a local control plane for Claude Code agents: every session shows up

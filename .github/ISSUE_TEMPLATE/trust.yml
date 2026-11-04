@@ -1,0 +1,62 @@
+name: Something didn't hold
+description: The moment you stopped trusting Solix — a number that looked wrong, a claim that didn't hold, a hold that should have happened
+title: "[trust]: "
+labels: ["trust"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This is the most useful report you can send. Solix makes every public promise testable ([docs/CLAIMS.md](https://github.com/shmulikdav/Solix/blob/main/docs/CLAIMS.md)) — a moment where one didn't hold is a defect, even if nothing crashed.
+
+        **If an agent did something the gate should have stopped, that is a security report — please use [private vulnerability reporting](https://github.com/shmulikdav/Solix/security/advisories/new) instead of this form.**
+
+        Please don't paste code, prompts, or anything private.
+  - type: textarea
+    id: moment
+    attributes:
+      label: The moment
+      description: What did Solix say or show, and what was actually true?
+      placeholder: |
+        The top bar said 17 active, but only 2 claude processes were running.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where
+      options:
+        - The gate (a hold, a decision, a refusal)
+        - Approval rules (allowed or asked when it shouldn't have)
+        - A number (cost, context, counts, the ledger)
+        - Maestro (a plan, a task, verification, the diff)
+        - solix gate (CI)
+        - Install / uninstall / upgrade
+        - Something else
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+  - type: input
+    id: solix-version
+    attributes:
+      label: Solix version
+      description: Output of `solix --version`
+      placeholder: "1.20.3"
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Anything that shows it
+      description: For a rule question, `solix rules test "<command>"` output is ideal. `solix doctor` output helps for anything else. All local, no secrets.
+      render: shell
+  - type: dropdown
+    id: stopped
+    attributes:
+      label: Would this stop you using Solix?
+      options:
+        - "Yes"
+        - Maybe
+        - "No — but it made me double-check"
