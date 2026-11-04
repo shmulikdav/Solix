@@ -102,6 +102,18 @@ CORS is restricted to the known localhost origins. The server binds to
 
 ## Reporting
 
-Found an issue? Open a report at
-https://github.com/shmulikdav/Solix/issues (or contact the maintainer
-privately for sensitive disclosures).
+**A security problem — anything that let an agent do something the gate
+should have stopped, or let anything other than you read or drive your local
+Solix — must not go in a public issue.** Report it privately through GitHub:
+
+**https://github.com/shmulikdav/Solix/security/advisories/new**
+
+Include the Solix version (`solix --version`), the platform, the exact
+command or tool call, and what you expected the gate to do. `solix rules test
+"<command>"` output is ideal: it shows what the rules decided and why. A
+confirmed bypass is fixed with a claim in [`docs/CLAIMS.md`](docs/CLAIMS.md) —
+a test that fails if the bypass ever comes back — and credited in the release
+notes unless you would rather it was not.
+
+Anything else — a bug, a wrong number, a gap — is welcome as a public issue:
+https://github.com/shmulikdav/Solix/issues/new/choose

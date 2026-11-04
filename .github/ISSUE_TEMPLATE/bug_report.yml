@@ -9,6 +9,8 @@ body:
         Thanks for trying Solix! A few details make bugs much faster to fix.
 
         **Solix is 100% local** — please don't paste anything from your codebase, prompts, or anything you'd rather keep private.
+
+        **Did the gate let something through it should have stopped?** That is a security report — please don't file it here. Use [private vulnerability reporting](https://github.com/shmulikdav/Solix/security/advisories/new) instead.
   - type: textarea
     id: what-happened
     attributes:
@@ -22,14 +24,14 @@ body:
       label: Steps to reproduce
       placeholder: |
         1. npm i -g @shmulikdav/solix
-        2. solix install && solix start
+        2. solix
         3. ...
   - type: input
     id: solix-version
     attributes:
       label: Solix version
       description: Output of `solix --version`
-      placeholder: "1.9.0"
+      placeholder: "1.20.3"
     validations:
       required: true
   - type: dropdown

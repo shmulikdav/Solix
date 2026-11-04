@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security problem privately
+    url: https://github.com/shmulikdav/Solix/security/advisories/new
+    about: Anything that let an agent do something the gate should have stopped, or let something other than you reach your local Solix. Please don't open a public issue for these.
+  - name: Threat model — what the gate does and does not guarantee
+    url: https://github.com/shmulikdav/Solix/blob/main/docs/THREAT-MODEL.md
+    about: Read this first if you are unsure whether something is a bug or a known limit.
