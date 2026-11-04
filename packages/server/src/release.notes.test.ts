@@ -90,7 +90,7 @@ describe('docs/releases', () => {
   const files = readdirSync(NOTES_DIR).filter((f) => f.endsWith('.md'));
 
   it('has notes for every release that has been published', () => {
-    expect(files.sort()).toEqual(['v1.17.0.md', 'v1.18.0.md', 'v1.18.1.md', 'v1.18.3.md', 'v1.20.0.md', 'v1.20.1.md', 'v1.20.2.md', 'v1.20.3.md']);
+    expect(files.sort()).toEqual(['v1.17.0.md', 'v1.18.0.md', 'v1.18.1.md', 'v1.18.3.md', 'v1.20.0.md', 'v1.20.1.md', 'v1.20.2.md', 'v1.20.3.md', 'v1.20.4.md']);
   });
 
   it.each(files)('%s parses and carries its markup', (file) => {
@@ -110,7 +110,7 @@ describe('docs/releases', () => {
     const latest = files.filter(
       (f) => parseNotes(readFileSync(resolve(NOTES_DIR, f), 'utf8')).meta.latest === 'true',
     );
-    expect(latest).toEqual(['v1.20.3.md']);
+    expect(latest).toEqual(['v1.20.4.md']);
   });
 });
 
