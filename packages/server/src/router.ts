@@ -13,8 +13,11 @@ import {
   setSessionMission,
   setSessionStatus,
   upsertSession,
+  isShellComm,
   processIsAlive,
+  readProcIdentities,
   sweepDeadSessions,
+  type ProcIdentity,
 } from './state/sessions.js';
 import {
   addMissionTokens,
@@ -196,10 +199,27 @@ export class EventRouter {
    */
   private readonly pidNotTheAgent = new Set<string>();
 
+  /**
+   * Session id → the program at its pid when its events arrived, read once
+   * per pid. A later sweep that finds a different program there knows the pid
+   * was reused. See `sweepDeadSessions`.
+   */
+  private readonly procOf = new Map<string, { pid: number } & ProcIdentity>();
+
   private notePid(event: HookEvent): void {
     if (!(event.pid > 1)) return;
-    if (processIsAlive(event.pid)) return;
-    this.pidNotTheAgent.add(this.extractSessionId(event));
+    const sessionId = this.extractSessionId(event);
+    if (!processIsAlive(event.pid)) {
+      this.pidNotTheAgent.add(sessionId);
+      return;
+    }
+    if (this.procOf.get(sessionId)?.pid === event.pid) return;
+    const id = readProcIdentities([event.pid]).get(event.pid);
+    if (!id) return;
+    this.procOf.set(sessionId, { pid: event.pid, ...id });
+    // A shell at the pid while the session is alive: the hook reported its
+    // parent shell, not the agent, so the pid says nothing about the session.
+    if (isShellComm(id.comm)) this.pidNotTheAgent.add(sessionId);
   }
 
   /**
@@ -208,8 +228,16 @@ export class EventRouter {
    * constructor (tests build routers with made-up pids).
    * (`CLAIM-DEAD-SESSIONS-RETIRE`)
    */
-  sweepDeadSessions(isAlive: (pid: number) => boolean = processIsAlive): string[] {
-    const retired = sweepDeadSessions(this.db, { isAlive, skip: this.pidNotTheAgent });
+  sweepDeadSessions(
+    isAlive: (pid: number) => boolean = processIsAlive,
+    identities: (pids: readonly number[]) => Map<number, ProcIdentity> = readProcIdentities,
+  ): string[] {
+    const retired = sweepDeadSessions(this.db, {
+      isAlive,
+      identities,
+      skip: this.pidNotTheAgent,
+      known: this.procOf,
+    });
     for (const sessionId of retired) {
       this.broadcaster.broadcast({ type: 'session_remove', sessionId });
     }

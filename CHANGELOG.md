@@ -5,6 +5,40 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.20.5] — 2026-11-05
+
+### A reused pid no longer keeps a session alive
+
+Measured on the owner's machine after 1.20.4: the sweep took **481 sessions
+down to 8**, but only one of the 8 was a running `claude`:
+
+| What was at the recorded pid | Count | Why 1.20.4 kept it |
+|---|---|---|
+| Other programs (system services, the Dock, another app) | 4 | macOS had reused the numbers |
+| A login shell | 1 | Reused, or a hook that reported its shell |
+| pid 1 (`launchd`), a hook whose parent had already exited | 1 | Can't be judged |
+| No pid recorded at all | 1 | Can't be judged |
+
+The sweep had only asked "is something running at this pid?".
+
+- **It now checks the program as well as the pid.** When a session's events
+  arrive, Solix records which program holds its pid, and since when. A
+  different program there later, or one started after the session was last
+  heard from, means the number was reused, and the session is retired.
+- **A shell at the pid while events arrive** means the pid was never the
+  agent's. That session is never judged by it, rather than retired and
+  revived every minute.
+- **The startup sweep says what it did:** "retired N sessions whose claude
+  process had ended".
+- `CLAIM-DEAD-SESSIONS-RETIRE`, tested against real processes.
+
+### The counts show the fleet right now
+
+The top bar and the band (the line above the Claude Code prompt) count by the
+galaxy's rule: an idle session quiet for over a day isn't counted, whatever the
+show-quiet toggle says. This covers what no sweep can judge with certainty: a
+pid of 0 or 1. Spend still counts everything. `CLAIM-GALAXY-HIDES-QUIET`.
+
 ## [1.20.4] — 2026-11-04
 
 ### A session ends when its process does
