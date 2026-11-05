@@ -428,14 +428,25 @@ export async function createSolixServer(
   // Retire sessions whose claude process has ended: once now, then every
   // minute. Without it a session ended only when someone pressed Terminate.
   const sweepMs = process.env.SOLIX_DEMO === '1' ? 0 : (opts.sessionSweepMs ?? 60_000);
-  const sweep = () => {
+  const sweep = (): number => {
     try {
-      router.sweepDeadSessions();
+      return router.sweepDeadSessions().length;
     } catch (err) {
       console.warn('[sessions] sweep failed:', (err as Error).message);
+      return 0;
     }
   };
-  if (sweepMs > 0) sweep();
+  if (sweepMs > 0) {
+    // Say what the startup sweep did: it may retire most of a long history at
+    // once, and a silent change to the counts reads as a bug.
+    const retired = sweep();
+    if (retired > 0 && !opts.headless) {
+      console.log(
+        `[solix] retired ${retired} session${retired === 1 ? '' : 's'} whose claude process had ended ` +
+          '(their history stays in the database)',
+      );
+    }
+  }
   const sweepTimer = sweepMs > 0 ? setInterval(sweep, sweepMs) : null;
   sweepTimer?.unref?.();
 

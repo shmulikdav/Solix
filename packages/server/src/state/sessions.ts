@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process';
 import type {
   AgentRuntime,
   Model,
@@ -466,6 +467,54 @@ export function processIsAlive(pid: number): boolean {
   }
 }
 
+/** Which program holds a pid, and since when (epoch seconds). */
+export interface ProcIdentity {
+  startSec: number;
+  comm: string;
+}
+
+/** `ps` elapsed time `[[dd-]hh:]mm:ss` in seconds. */
+function etimeSeconds(etime: string): number | null {
+  const m = /^(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/.exec(etime.trim());
+  if (!m) return null;
+  return Number(m[1] ?? 0) * 86400 + Number(m[2] ?? 0) * 3600 + Number(m[3]) * 60 + Number(m[4]);
+}
+
+/**
+ * What runs at each pid, from one `ps` call. The same flags work on macOS and
+ * Linux. Pids not running are absent from the map.
+ */
+export function readProcIdentities(pids: readonly number[]): Map<number, ProcIdentity> {
+  const out = new Map<number, ProcIdentity>();
+  if (pids.length === 0) return out;
+  const r = spawnSync('ps', ['-o', 'pid=,etime=,comm=', '-p', pids.join(',')], {
+    encoding: 'utf8',
+    env: { ...process.env, LC_ALL: 'C' },
+  });
+  const nowSec = Date.now() / 1000;
+  for (const line of (r.stdout ?? '').split('\n')) {
+    const m = /^\s*(\d+)\s+(\S+)\s+(.+?)\s*$/.exec(line);
+    if (!m) continue;
+    const age = etimeSeconds(m[2]!);
+    if (age === null) continue;
+    out.set(Number(m[1]), { startSec: nowSec - age, comm: m[3]! });
+  }
+  return out;
+}
+
+/** The program name without its path or a login shell's leading dash. */
+export function commName(comm: string): string {
+  return comm.split('/').pop()!.replace(/^-/, '');
+}
+
+/** A shell is never the agent itself: a hook that reports one reported its parent shell. */
+export function isShellComm(comm: string): boolean {
+  return /^(sh|bash|zsh|fish|dash|ksh|tcsh|csh)$/.test(commName(comm));
+}
+
+/** Seconds of slack when comparing start times read at different moments. */
+const START_SLACK_SEC = 3;
+
 /**
  * Retire sessions whose process has ended.
  *
@@ -474,18 +523,33 @@ export function processIsAlive(pid: number): boolean {
  * processes running. Solix does not install Claude Code's session-end hook,
  * so a session ended only when someone pressed Terminate. A `claude` that
  * exited stayed `idle` forever, and one killed mid-turn stayed `active`.
- * The count was wrong, and the galaxy filled with planets for processes that
- * no longer existed.
  *
- * A session is retired when its recorded pid is no longer running. What is
- * deliberately left alone:
+ * A session is retired when the process it recorded is gone. **Gone includes
+ * "its pid now belongs to another program".** Measured on 2026-11-05, after
+ * 1.20.4's sweep took the owner's machine from 481 sessions to 8: of those 8,
+ * one pid was a running `claude`. Four now belonged to system services, the
+ * Dock and another app, because macOS had reused the numbers. Asking only "is
+ * something running at this pid?" kept them all. So:
+ *
+ * - When a session's events arrive, the router records which program holds
+ *   its pid and since when (`known`).
+ * - At sweep time, a different program, or the same name started at a
+ *   different time, means the pid was reused, and the session is retired.
+ * - With no record (Solix restarted since the session's last event), a
+ *   process that started *after* the session was last heard from cannot be
+ *   the agent that sent that event. It is reused too.
+ *
+ * Deliberately left alone:
  * - Agent View sessions: their supervisor owns their lifecycle.
  * - Sessions still `spawning`: their pid may not be recorded yet.
- * - Sessions in `skip`: the router saw their pid already gone *while their
- *   events were still arriving*, so the pid it was given is not the agent's
- *   process (a hook run by a short-lived shell, or a session on another
- *   machine). Its absence proves nothing there.
- * - pid 0/1 (unknown) and Solix's own pid.
+ * - Sessions in `skip`: the router saw that their pid is not the agent's
+ *   process (gone while events still arrived, or a shell), so liveness says
+ *   nothing about them.
+ * - pid 0/1 (unknown: 1 is init, which a hook reports when its parent had
+ *   already exited) and Solix's own pid.
+ *
+ * Those that cannot be judged still stop counting once they are quiet; see
+ * the galaxy's quiet rule.
  *
  * `terminated_at` is the session's last activity, not the moment of the
  * sweep: the process ended at some point after that, and a sweep of a
@@ -495,17 +559,24 @@ export function processIsAlive(pid: number): boolean {
  */
 export function sweepDeadSessions(
   db: DB,
-  opts: { isAlive?: (pid: number) => boolean; skip?: ReadonlySet<string> } = {},
+  opts: {
+    isAlive?: (pid: number) => boolean;
+    skip?: ReadonlySet<string>;
+    /** Session id → the process its events came from, recorded by the router. */
+    known?: ReadonlyMap<string, { pid: number } & ProcIdentity>;
+    identities?: (pids: readonly number[]) => Map<number, ProcIdentity>;
+  } = {},
 ): string[] {
   const isAlive = opts.isAlive ?? processIsAlive;
+  const identities = opts.identities ?? readProcIdentities;
   const rows = db
     .prepare(
-      `SELECT id, pid FROM sessions
+      `SELECT id, pid, updated_at FROM sessions
        WHERE status NOT IN ('terminated', 'spawning')
          AND (origin IS NULL OR origin != 'agentview')
          AND pid > 1`,
     )
-    .all() as Array<{ id: string; pid: number }>;
+    .all() as Array<{ id: string; pid: number; updated_at: number }>;
   const retired: string[] = [];
   const retire = db.prepare(
     `UPDATE sessions
@@ -513,11 +584,27 @@ export function sweepDeadSessions(
          terminated_at = COALESCE(terminated_at, updated_at)
      WHERE id = ? AND status != 'terminated'`,
   );
+  const alive: typeof rows = [];
   for (const row of rows) {
     if (opts.skip?.has(row.id)) continue;
     if (row.pid === process.pid) continue;
-    if (isAlive(row.pid)) continue;
-    if (retire.run(row.id).changes > 0) retired.push(row.id);
+    if (!isAlive(row.pid)) {
+      if (retire.run(row.id).changes > 0) retired.push(row.id);
+    } else {
+      alive.push(row);
+    }
+  }
+  // Alive at the number is not alive as the agent: check who holds it now.
+  const now = identities([...new Set(alive.map((r) => r.pid))]);
+  for (const row of alive) {
+    const cur = now.get(row.pid);
+    if (!cur) continue; // could not read it; say nothing rather than guess
+    const rec = opts.known?.get(row.id);
+    const reused =
+      rec && rec.pid === row.pid
+        ? commName(rec.comm) !== commName(cur.comm) || Math.abs(rec.startSec - cur.startSec) > START_SLACK_SEC
+        : cur.startSec > row.updated_at / 1000 + START_SLACK_SEC;
+    if (reused && retire.run(row.id).changes > 0) retired.push(row.id);
   }
   return retired;
 }

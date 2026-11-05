@@ -132,3 +132,22 @@ describe('CLAIM-GALAXY-HIDES-QUIET: every galaxy layer draws the same planets', 
     expect(src).not.toContain('useSolixStore(selectPlanets)');
   });
 });
+
+describe('CLAIM-GALAXY-HIDES-QUIET: the top bar counts what is live', () => {
+  it('leaves quiet idle sessions out of the counts, whatever the galaxy toggle says', async () => {
+    const { selectCountedPlanets } = await import('../store/index.js');
+    const fleet = [session('q1'), session('q2'), session('recent', { updatedAt: RECENT }), session('live', { status: 'active' })];
+    load(fleet, { showQuietSessions: true });
+    expect(selectCountedPlanets(useSolixStore.getState()).map((s) => s.id).sort()).toEqual(['live', 'recent']);
+    load(fleet, { showQuietSessions: false });
+    expect(selectCountedPlanets(useSolixStore.getState())).toHaveLength(2);
+  });
+
+  it('TopBar counts from selectCountedPlanets', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const src = readFileSync(join(process.cwd(), 'packages/web/src/hud/TopBar.tsx'), 'utf8');
+    expect(src).toContain('useSolixStore(selectCountedPlanets)');
+    expect(src).not.toContain('useSolixStore(selectPlanets)');
+  });
+});

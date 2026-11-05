@@ -1896,6 +1896,17 @@ export function selectScenePlanets(state: SolixState): Session[] {
   );
 }
 
+/**
+ * The sessions the top bar counts: the galaxy's default view, whatever the
+ * show-quiet toggle says. An idle session quiet for over a day is not part of
+ * "the fleet right now". On the owner's machine, after 1.20.4, 7 of 8 "idle"
+ * were such sessions: a pid of 0 or 1, or a pid since reused, that no sweep can
+ * judge with certainty. (`CLAIM-GALAXY-HIDES-QUIET`)
+ */
+export function selectCountedPlanets(state: SolixState): Session[] {
+  return scenePlanetsOf(selectPlanets(state), false, state.selectedSessionId, Math.floor(Date.now() / 3600_000));
+}
+
 /** How many sessions are quiet, whether or not they are being shown. */
 export function selectQuietCount(state: SolixState): number {
   const planets = selectPlanets(state);

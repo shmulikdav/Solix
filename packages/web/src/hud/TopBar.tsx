@@ -1,4 +1,4 @@
-import { selectPlanets, useSolixStore } from '../store/index.js';
+import { selectCountedPlanets, useSolixStore } from '../store/index.js';
 import {
   RAIL_WIDTH_PX,
   TOP_BAR_HEIGHT_PX,
@@ -25,7 +25,8 @@ export function TopBar(): JSX.Element {
   const exitPlayback = useSolixStore((s) => s.exitPlayback);
   const orgs = useSolixStore((s) => s.orgs);
   const currentOrgId = useSolixStore((s) => s.currentOrgId);
-  const planets = useSolixStore(selectPlanets);
+  // What is live, not every session ever seen: see selectCountedPlanets.
+  const planets = useSolixStore(selectCountedPlanets);
 
   const activeOrg = orgs.find((o) => o.id === currentOrgId);
   const counts = planets.reduce(

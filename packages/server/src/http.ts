@@ -690,8 +690,12 @@ export function createHttpApp(opts: {
     const sessions = listActiveSessions(opts.db);
     const counts = { active: 0, needsYou: 0, idle: 0 };
     let spendUsd = 0;
+    // Same rule as the galaxy and top bar: an idle session quiet for over a
+    // day is not part of the fleet right now. (CLAIM-GALAXY-HIDES-QUIET)
+    const quietBefore = Date.now() - 24 * 3600_000;
     for (const s of sessions) {
       spendUsd += s.costUsd ?? 0;
+      if (s.status === 'idle' && (s.updatedAt ?? 0) < quietBefore) continue;
       if (s.status === 'active') counts.active++;
       else if (
         s.status === 'awaiting_permission' ||
