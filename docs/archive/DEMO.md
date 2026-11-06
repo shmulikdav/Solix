@@ -1,3 +1,7 @@
+> **Archived — describes Solix around 1.7 (mid-2026).** It predates Maestro, the gate, approval
+> rules and levels, and some commands and behaviour here are no longer accurate. Kept for history.
+> Start from the [README](../../README.md); for testers, [`docs/BETA.md`](../BETA.md).
+
 # Solix — a 10-minute first look
 
 Hi! I'm sending you something I've been building. It's called **Solix** —
