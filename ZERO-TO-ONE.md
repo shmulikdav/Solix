@@ -87,5 +87,5 @@ persist in `~/.solix/solix.db` for next time. To remove the Claude Code hooks:
   (`SOLIX_GATE_POLICY` fail-open/fail-closed, `SOLIX_GATE_TIMEOUT`,
   `SOLIX_GATE_TIMEOUT_MS`, the opt-in sandbox `SOLIX_ENV_SCRUB` /
   `SOLIX_SANDBOX_CMD`).
-- `DEMO.md` — a slower, non-developer walkthrough.
-- `CLI.md` — every `solix` subcommand.
+- `docs/BETA.md` — the tester brief: what to try first, and what is young.
+- `solix --help` — every `solix` subcommand.

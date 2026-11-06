@@ -320,12 +320,17 @@ export async function chooseSandboxPort(
  */
 async function bootSandbox(
   preferredPort: number,
-  { detach }: { detach: boolean },
+  { detach, keep }: { detach: boolean; keep: boolean },
 ): Promise<BootResult | null> {
   const port = await chooseSandboxPort(preferredPort);
   if (port == null) return null;
 
   mkdirSync(SOLIX_HOME, { recursive: true });
+  // Start from an empty sandbox. A demo that never tore down (terminal closed,
+  // killed, `--no-ticker`) leaves its database behind, and the server reopens
+  // it: the new seed lands beside the old one. Invisible while the ids never
+  // changed; when they did, a galaxy of 30 showed 60. `--keep` keeps it.
+  if (!keep) removeSandboxDb();
 
   // Spawn ourselves with the `start` subcommand. import.meta.url points at
   // packages/cli/dist/index.js after build, which is also the binary the user
@@ -532,7 +537,10 @@ export function planSessions(demoRootCwd: string): SeededSession[] {
   for (let i = 0; i < STATUS_PLAN.length; i++) {
     const projectName = PROJECTS[i % PROJECTS.length]!;
     sessions.push({
-      id: `demo-${String(i).padStart(2, '0')}-${projectName}`,
+      // Short enough to show whole: a session has no name, so every view
+      // labels it by the first 8 characters of its id. `demo-05-observability`
+      // showed as "demo-05-", on the website's screenshots too.
+      id: `demo-${String(i).padStart(2, '0')}`,
       pid: 90_000 + i,
       cwd: join(demoRootCwd, projectName),
       projectName,
@@ -939,18 +947,27 @@ interface TeardownOptions {
  * itself" is a sentence something can check. It was one of two published
  * promises about this command with no test behind it.
  */
+function removeSandboxDb(): void {
+  for (const p of [DEMO_DB_PATH, `${DEMO_DB_PATH}-shm`, `${DEMO_DB_PATH}-wal`]) {
+    try {
+      if (existsSync(p)) unlinkSync(p);
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 export async function tearDownSandbox(opts: TeardownOptions): Promise<void> {
   if (opts.stopTicker) opts.stopTicker();
   // Kill the child reliably (SIGTERM → SIGKILL) and wait for it to exit, so
   // Ctrl+C never leaves an orphaned server squatting on the port/DB.
   if (opts.child) await killChildHard(opts.child);
   if (!opts.keep) {
-    for (const p of [DEMO_DB_PATH, `${DEMO_DB_PATH}-shm`, `${DEMO_DB_PATH}-wal`, DEMO_PID_PATH]) {
-      try {
-        if (existsSync(p)) unlinkSync(p);
-      } catch {
-        /* ignore */
-      }
+    removeSandboxDb();
+    try {
+      if (existsSync(DEMO_PID_PATH)) unlinkSync(DEMO_PID_PATH);
+    } catch {
+      /* ignore */
     }
     console.log(`[solix demo] sandbox cleaned up.`);
   } else {
@@ -969,6 +986,8 @@ function registerTeardown(opts: TeardownOptions): void {
   };
   process.on('SIGINT', () => void onSignal('SIGINT'));
   process.on('SIGTERM', () => void onSignal('SIGTERM'));
+  // Closing the terminal window. Without this the sandbox outlived it.
+  process.on('SIGHUP', () => void onSignal('SIGHUP'));
 }
 
 // ---------------------------------------------------------------------------
@@ -1017,7 +1036,10 @@ export async function demoCmd(opts: DemoOptions = {}): Promise<void> {
       logPath: null,
     };
   } else {
-    boot = await bootSandbox(preferredPort, { detach: opts.noTicker === true });
+    boot = await bootSandbox(preferredPort, {
+      detach: opts.noTicker === true,
+      keep: opts.keep === true,
+    });
     if (!boot) {
       process.exitCode = 1;
       return;

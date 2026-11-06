@@ -1,77 +1,74 @@
 # Solix
 
-> The control layer for your coding agents.
-
-Every running `claude` session becomes a planet orbiting the sun.
-Status is encoded as visual properties — color (model), halo
-(role/status), size (context %), pulse (needs attention). Click a
-planet to read its transcript; press `Y` to approve a sensitive
-permission without leaving the browser.
+> The control layer for your coding agents — 100% local.
 
 [![npm version](https://img.shields.io/npm/v/@shmulikdav/solix.svg)](https://www.npmjs.com/package/@shmulikdav/solix)
 [![npm downloads](https://img.shields.io/npm/dm/@shmulikdav/solix.svg)](https://www.npmjs.com/package/@shmulikdav/solix)
 [![license](https://img.shields.io/npm/l/@shmulikdav/solix.svg)](https://github.com/shmulikdav/Solix/blob/main/LICENSE)
 [![node](https://img.shields.io/node/v/@shmulikdav/solix.svg)](https://nodejs.org)
 
+**Build with agents that have to ask first.**
+
+Solix holds every risky command from the Claude Code agents it launches until a
+person approves it, with the exact command in front of you. It can plan a goal
+into tasks, run one agent per task, check each result and hand you the diff,
+and it shows every session on your machine with what it costs. No account, no
+telemetry.
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/shmulikdav/Solix/main/docs/readme/hold-card.png" width="420"
+       alt="Two commands held in Solix's Decisions panel, git push origin main and rm -rf canary/, each with Approve, Deny and Always allow.">
+</p>
+
 ## Install
 
 ```sh
 npm i -g @shmulikdav/solix
+solix            # wires the Claude Code hooks, then opens http://127.0.0.1:4242
+solix demo       # or: a full synthetic galaxy in a sandbox, nothing real touched
 ```
 
-Requires Node ≥ 20. The package bundles a built React UI and the
-advisor crew manifest, so a single `npm install` gives you
-everything.
+macOS, Linux, or Windows through WSL. Node 20 or later, and Claude Code. First
+run says what it will write to `~/.claude/settings.json` and backs it up first;
+`solix uninstall` takes out only Solix's own hooks.
 
-## Quick start
+**Upgrading:** `npm i -g` updates the command, but a running server keeps the old
+version. Restart it with `solix stop && solix`.
+
+## The gate, in four commands
 
 ```sh
-solix install        # one-time: wires Claude Code hooks
-solix start          # boot the server (default port 4242)
-# In another terminal:
-solix demo           # seed a fully populated demo galaxy to play with
+solix rules defaults                          # stop being asked about routine work
+solix rules test "cat ~/.ssh/id_ed25519"      # what would the gate decide, and why
+solix ledger                                  # what you allowed, and when
+solix gate --rules policy.json -- claude -p "Run the tests"   # CI: nobody at the gate
 ```
 
-Open `http://127.0.0.1:4242`. Press `Y` to approve the demo's
-pending permission. You're now driving Claude Code agents from a
-mission-control UI.
+The denylist (`rm -rf /`, `curl … | sh`, `sudo`, writes to SSH keys) refuses at
+every level and no rule overrides it. A `claude` session you start yourself is
+shown and costed but not held, unless you export `SOLIX_GATE_ENABLED=1` before
+starting it.
 
-## Common commands
+Rules are standing decisions, not a sandbox: allowing `npm test` allows whatever
+your tests do. The threat model says what the gate guarantees and where the
+real boundary is.
 
-```sh
-solix install           # wire hooks into ~/.claude/settings.json
-solix start             # default sub-command; boot server + serve UI
-solix demo              # synthetic seed for first-look demos
-solix doctor            # diagnose your setup
-solix advisors list     # see the built-in crew (Compass, Forge, ...)
-solix advisors pin <id> # always-on advisor planet
-solix galaxy export <out>      # snapshot config to JSON
-solix galaxy import <fileOrUrl># apply a snapshot
-solix uninstall         # restore ~/.claude/settings.json
-```
+**New task, Maestro and routines run Claude on your account** and spend real
+money. Give a Maestro plan a budget cap and it pauses before spending past it.
 
-Every command has `-h` / `--help`.
+Every command has `--help`. `solix doctor` checks the install.
 
-## Native dependency note
+## Docs
 
-Solix uses `better-sqlite3` for local persistence. On most platforms
-(macOS, Linux, Windows) npm pulls a prebuilt binary — no compile
-step. If your platform isn't covered, npm will compile from source,
-which needs a working C++ toolchain (`xcode-select --install` /
-`build-essential` / Visual Studio Build Tools).
+- [README](https://github.com/shmulikdav/Solix#readme): the gate, Maestro, install, what it writes
+- [Threat model](https://github.com/shmulikdav/Solix/blob/main/docs/THREAT-MODEL.md): what the gate guarantees, and what it does not
+- [`solix gate` in CI](https://github.com/shmulikdav/Solix/blob/main/docs/GATE.md)
+- [Claims](https://github.com/shmulikdav/Solix/blob/main/docs/CLAIMS.md): every public claim, and the test that fails when it stops being true
+- [Changelog](https://github.com/shmulikdav/Solix/blob/main/CHANGELOG.md)
 
-## Documentation
-
-The full docs live in the GitHub repo:
-
-- **CLI reference** — every flag of every sub-command
-- **Operating guide** — task-oriented "I want to do X" recipes
-- **README** — architecture and metaphor
-- **DEMO walkthroughs** — for non-technical, PM, and developer
-  audiences
-
-→ <https://github.com/shmulikdav/Solix>
+Security problems: report privately at
+<https://github.com/shmulikdav/Solix/security/advisories/new>, never in a public issue.
 
 ## License
 
-MIT — see `LICENSE`.
+MIT.

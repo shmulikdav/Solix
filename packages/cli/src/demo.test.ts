@@ -334,6 +334,45 @@ describe('CLAIM-DEMO-SEEDS-OR-SAYS · demoCmd', () => {
     expect(dirs).toEqual(new Set(planSessions(cwd).map((s) => s.cwd)));
   });
 
+  it('names every planet in full: the label the UI shows is the whole id', async () => {
+    // Sessions have no name, so the galaxy, List, Missions and Mission Control
+    // label each one by `id.slice(0, 8)`. The ids used to be
+    // `demo-05-observability`, which every view cut to "demo-05-".
+    const { planSessions } = await load();
+    const ids = planSessions(join(home, 'demo-projects')).map((s) => s.id);
+    for (const id of ids) expect(id.slice(0, 8)).toBe(id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it.each([
+    [false, 'starts from an empty sandbox, not the database a previous run left'],
+    [true, 'with --keep, reuses the database already there'],
+  ])('keep=%s: %s', async (keep) => {
+    // A demo that never tore down (terminal closed, killed, --no-ticker) left
+    // demo.db behind and the server reopened it, so a new seed landed beside
+    // the old one: 60 planets where the summary said 30, the first time the
+    // seeded ids changed.
+    const { demoCmd } = await load();
+    const port = freePortPair();
+    const db = join(home, '.solix', 'demo.db');
+    mkdirSync(join(home, '.solix'), { recursive: true });
+    for (const f of [db, `${db}-wal`, `${db}-shm`]) writeFileSync(f, 'left by an earlier run');
+
+    const fake = await withFakeSandbox(port);
+    const spawnSandbox = hoisted.onSpawn!;
+    const atBoot: boolean[] = [];
+    hoisted.onSpawn = (cmd, args) => {
+      if (args.includes('start')) atBoot.push(existsSync(db), existsSync(`${db}-wal`));
+      return spawnSandbox(cmd, args);
+    };
+
+    const run = demoCmd({ port, noTicker: true, keep, cwd: join(home, 'demo-projects') });
+    await fake.booted;
+    await run;
+
+    expect(atBoot).toEqual([keep, keep]);
+  });
+
   it('refuses to claim a seed when the very first event is rejected', async () => {
     const { demoCmd } = await load();
     const port = freePortPair();
