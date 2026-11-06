@@ -5,6 +5,22 @@ All notable changes to Solix (`@shmulikdav/solix`) are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### `solix demo` names its agents in full, and starts clean
+
+- **Agents are labelled `demo-05`, not `demo-05-`.** A session has no name, so
+  every view labels it by the first 8 characters of its id, and the demo's
+  ids (`demo-05-observability`) were cut mid-word, on the website's
+  screenshots too. The ids are now `demo-00` to `demo-29`; the project still
+  comes from the folder each one runs in.
+- **A demo that never tore down no longer leaks into the next one.** Closing
+  the terminal (SIGHUP) skipped the teardown, and `--no-ticker` leaves its
+  server running on purpose. Either way `~/.solix/demo.db` stayed, the next
+  `solix demo` reopened it, and the new seed landed beside the old one. Now
+  the demo starts from an empty sandbox unless you pass `--keep`, and closing
+  the terminal tears it down like Ctrl+C.
+
 ## [1.20.5] — 2026-11-05
 
 ### A reused pid no longer keeps a session alive

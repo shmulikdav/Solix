@@ -344,7 +344,7 @@ program
       'and keep firing activity until Ctrl+C. Showcase mode for live demos.',
   )
   .option('-p, --port <port>', 'server port (falls back to +1 on conflict)', (v) => parseInt(v, 10), 4242)
-  .option('--keep', 'preserve ~/.solix/demo.db after teardown (default removes it)')
+  .option('--keep', 'keep ~/.solix/demo.db: reuse the one already there, and leave it after teardown (default starts empty and removes it)')
   .option('--no-server', 'skip spawning a sandbox server; seed against the server you already have running')
   .option('--no-ticker', 'seed once and exit (static snapshot for screenshots)')
   .action(
