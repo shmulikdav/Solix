@@ -38,6 +38,24 @@ their findings were in Solix itself:
   welcome modal offered `solix demo`; it now offers a short tour: open
   Decisions and answer a held command, switch views, read the ledger.
 
+### The advisors work on your project, not on Solix's
+
+Several of the fifteen advisors Solix installs into `~/.claude/agents` had
+been written for Solix's own repository. Sentinel, on by default, reviewed
+"Solix's attack surface" (its settings.json patching, its server on 4242).
+Helios aimed for "60fps with 20 simultaneous planets", Lumen tuned the
+galaxy scene, Forge ran this repo's build and guarded its router, and Delta,
+Mira, Atlas, Argus and Vale pointed at its files. On any other project they
+reviewed the wrong product.
+
+They now read the project in front of them: its own build and test commands,
+its conventions (`CLAUDE.md`, `CONTRIBUTING.md`), its design system, its
+migration tool and its release process. Each keeps its role and output
+format. Compass no longer promises to write a backlog file it had no tool
+to write, and the manifest no longer calls Maestro "(Pro)", a tier that does
+not exist. The new prompts replace the installed ones the first time you run
+`solix` after upgrading; agent files you wrote yourself are still left alone.
+
 ## [1.20.5] — 2026-11-05
 
 ### A reused pid no longer keeps a session alive

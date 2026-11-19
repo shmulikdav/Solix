@@ -106,6 +106,7 @@ If you cannot write step 2, you cannot make the claim.
 | `CLAIM-GATE-ONE-HOOK-SET` | Under `solix gate`, only the gate's own hooks reach the gate: for `claude` its port, token and fail-closed policy are set on its hook commands and removed from the agent's environment, so Solix hooks installed globally on the machine cannot also report to it, and each call is decided and counted once. | docs/GATE.md, CHANGELOG 1.20.0 | `packages/cli/src/gate.test.ts` |
 | `CLAIM-DECISIONS-ONE-COUNT` | The rail badge, the Decisions panel and Mission Control show one number for what is waiting on you: held calls plus plans paused at their budget cap. | the rail, the Decisions panel, Mission Control | `packages/web/src/hud/decisionQueue.test.tsx` |
 | `CLAIM-DEMO-DECISIONS-IN-LEDGER` | Decisions made in `solix demo` are readable with `solix ledger --demo`, labelled as the sandbox's invented data, and plain `solix ledger` points there when its own record is empty and a sandbox exists. | the demo's welcome modal, `solix ledger` | `packages/cli/src/ledger.demo.test.ts` |
+| `CLAIM-ADVISORS-PORTABLE` | The advisors Solix installs into `~/.claude/agents` (and the `solix-crew` plugin) are written for the user's project: no advisor prompt or manifest entry refers to Solix's own code, UI, build, package, PRD or a paid tier. | README ("15 advisors"), the crew roster, the site's advisor cards | `packages/server/src/agents.portable.test.ts` |
 
 ## The matrix
 
