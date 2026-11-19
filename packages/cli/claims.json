@@ -320,6 +320,12 @@
       "claim": "Decisions made in `solix demo` are readable with `solix ledger --demo`, labelled as the sandbox's invented data, and plain `solix ledger` points there when its own record is empty and a sandbox exists.",
       "publishedIn": "the demo's welcome modal, `solix ledger`",
       "heldBy": "packages/cli/src/ledger.demo.test.ts"
+    },
+    {
+      "id": "CLAIM-ADVISORS-PORTABLE",
+      "claim": "The advisors Solix installs into `~/.claude/agents` (and the `solix-crew` plugin) are written for the user's project: no advisor prompt or manifest entry refers to Solix's own code, UI, build, package, PRD or a paid tier.",
+      "publishedIn": "README (\"15 advisors\"), the crew roster, the site's advisor cards",
+      "heldBy": "packages/server/src/agents.portable.test.ts"
     }
   ]
 }
