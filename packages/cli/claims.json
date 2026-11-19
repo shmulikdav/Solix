@@ -308,6 +308,18 @@
       "claim": "Under `solix gate`, only the gate's own hooks reach the gate: for `claude` its port, token and fail-closed policy are set on its hook commands and removed from the agent's environment, so Solix hooks installed globally on the machine cannot also report to it, and each call is decided and counted once.",
       "publishedIn": "docs/GATE.md, CHANGELOG 1.20.0",
       "heldBy": "packages/cli/src/gate.test.ts"
+    },
+    {
+      "id": "CLAIM-DECISIONS-ONE-COUNT",
+      "claim": "The rail badge, the Decisions panel and Mission Control show one number for what is waiting on you: held calls plus plans paused at their budget cap.",
+      "publishedIn": "the rail, the Decisions panel, Mission Control",
+      "heldBy": "packages/web/src/hud/decisionQueue.test.tsx"
+    },
+    {
+      "id": "CLAIM-DEMO-DECISIONS-IN-LEDGER",
+      "claim": "Decisions made in `solix demo` are readable with `solix ledger --demo`, labelled as the sandbox's invented data, and plain `solix ledger` points there when its own record is empty and a sandbox exists.",
+      "publishedIn": "the demo's welcome modal, `solix ledger`",
+      "heldBy": "packages/cli/src/ledger.demo.test.ts"
     }
   ]
 }

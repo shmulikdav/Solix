@@ -21,6 +21,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the demo starts from an empty sandbox unless you pass `--keep`, and closing
   the terminal tears it down like Ctrl+C.
 
+### From an outside QA pass (2026-11-19)
+
+An evaluator tested the site, the CLI and the demo as a new user. Three of
+their findings were in Solix itself:
+
+- **One number for what is waiting on you.** The rail said 3, the Decisions
+  panel "4 waiting on you", Mission Control "3 pending now": the panel counted
+  a plan paused at its budget cap and the other two did not. All three now
+  show held calls plus budget holds, from one selector.
+- **`solix ledger --demo`.** Decisions made in the demo were recorded, but in
+  the demo's own sandbox, so `solix ledger` said "No decisions yet". It now
+  reads the sandbox with `--demo`, labelled as invented data, and plain
+  `solix ledger` points there when its own record is empty.
+- **The demo no longer suggests running the demo.** Inside `solix demo` the
+  welcome modal offered `solix demo`; it now offers a short tour: open
+  Decisions and answer a held command, switch views, read the ledger.
+
 ## [1.20.5] — 2026-11-05
 
 ### A reused pid no longer keeps a session alive

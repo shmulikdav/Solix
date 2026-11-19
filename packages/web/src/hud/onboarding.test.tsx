@@ -157,3 +157,43 @@ describe('HelpPanel', () => {
     );
   });
 });
+
+/**
+ * Inside `solix demo`, the welcome modal suggested running `solix demo`.
+ * Reported by an outside tester on 2026-11-19: "the first screen a new
+ * evaluator sees". In the demo it now offers a short tour instead.
+ */
+describe('Welcome inside the demo', () => {
+  function asDemo(demo: boolean) {
+    // @ts-expect-error -- test double
+    global.fetch = vi.fn(async (url: string) => ({
+      ok: true,
+      json: async () => (String(url).includes('/api/health') ? { demo } : []),
+    }));
+  }
+
+  it('does not suggest running the demo you are already in', async () => {
+    asDemo(true);
+    render(<Welcome onPlanBuild={() => {}} onOpenCrew={() => {}} />);
+    await waitFor(() => expect(screen.getByText(/You are in the demo/)).toBeTruthy());
+    expect(screen.queryByText(/Want a populated galaxy/)).toBeNull();
+    expect(screen.getByText('solix ledger --demo')).toBeTruthy();
+  });
+
+  it('its first step opens Decisions and closes the modal', async () => {
+    asDemo(true);
+    useSolixStore.setState({ activePanel: null });
+    render(<Welcome onPlanBuild={() => {}} onOpenCrew={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Open Decisions' }));
+    expect(useSolixStore.getState().activePanel).toBe('decisions');
+    expect(screen.queryByText('Pick one to start')).toBeNull();
+  });
+
+  it('outside the demo, still suggests it', async () => {
+    asDemo(false);
+    render(<Welcome onPlanBuild={() => {}} onOpenCrew={() => {}} />);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.getByText(/Want a populated galaxy/)).toBeTruthy();
+    expect(screen.queryByText(/You are in the demo/)).toBeNull();
+  });
+});

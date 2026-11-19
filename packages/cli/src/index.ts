@@ -262,7 +262,8 @@ program
   .option('-d, --days <days>', 'window in days (default 30)', (v) => parseInt(v, 10))
   .option('--md [file]', 'write Markdown (default solix-ledger.md)')
   .option('--csv [file]', 'write CSV (default solix-ledger.csv)')
-  .action((opts: { days?: number; md?: string | boolean; csv?: string | boolean }) => {
+  .option('--demo', "read the running `solix demo` sandbox instead of your real record")
+  .action((opts: { days?: number; md?: string | boolean; csv?: string | boolean; demo?: boolean }) => {
     ledger(opts);
   });
 

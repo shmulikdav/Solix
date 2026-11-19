@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { readDismissed, writeDismissed } from './onboarding.js';
+import { useDemoMode } from './useDemoMode.js';
 import { selectAllAdvisors, useSolixStore } from '../store/index.js';
 
 interface WelcomeProps {
@@ -41,6 +42,8 @@ export function Welcome({
   // frame of the modal on every load.
   const [dismissed, setDismissed] = useState(readDismissed);
   const [copied, setCopied] = useState(false);
+  const demo = useDemoMode();
+  const openPanel = useSolixStore((s) => s.openPanel);
 
   /**
    * Derived, not written down. This read "Fourteen advisors" while the
@@ -155,18 +158,49 @@ export function Welcome({
             />
           </div>
 
-          <div className="mt-4 pt-3 border-t border-solix-border text-xs text-slate-400 flex items-center gap-2 flex-wrap">
-            <span>Want a populated galaxy to explore? Run</span>
-            <code className="bg-black/40 px-1.5 py-0.5 rounded font-mono text-slate-200">
-              solix demo
-            </code>
-            <button
-              onClick={copyDemo}
-              className="px-1.5 py-0.5 rounded border border-solix-border text-[10px] text-slate-400 hover:text-white"
-            >
-              {copied ? 'copied' : 'copy'}
-            </button>
-          </div>
+          {demo ? (
+            <div className="mt-4 pt-3 border-t border-solix-border text-xs text-slate-400">
+              <div className="text-slate-200 mb-1.5">
+                You are in the demo. Every agent, cost and held command here is
+                invented, so approving one runs nothing. Try:
+              </div>
+              <ol className="list-decimal pl-4 space-y-0.5">
+                <li>
+                  <button
+                    onClick={() => {
+                      close();
+                      openPanel('decisions');
+                    }}
+                    className="text-solix-accent hover:underline"
+                  >
+                    Open Decisions
+                  </button>{' '}
+                  and approve or deny a held command (<Kbd>Y</Kbd> / <Kbd>N</Kbd>).
+                </li>
+                <li>
+                  <Kbd>V</Kbd> for List and Missions, <Kbd>W</Kbd> or click the
+                  sun for Mission Control.
+                </li>
+                <li>
+                  In a terminal, <Code>solix ledger --demo</Code> shows the
+                  decisions you just made.
+                </li>
+              </ol>
+            </div>
+          ) : (
+            <div className="mt-4 pt-3 border-t border-solix-border text-xs text-slate-400 flex items-center gap-2 flex-wrap">
+              <span>Want a populated galaxy to explore? Run</span>
+              <code className="bg-black/40 px-1.5 py-0.5 rounded font-mono text-slate-200">
+                solix demo
+              </code>
+              <button
+                onClick={copyDemo}
+                className="px-1.5 py-0.5 rounded border border-solix-border text-[10px] text-slate-400 hover:text-white"
+              >
+                {copied ? 'copied' : 'copy'}
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="px-6 py-3 border-t border-solix-border flex items-center gap-2">
@@ -227,5 +261,21 @@ function Choice({
       </div>
       <div className="text-xs text-slate-400 mt-0.5 leading-snug">{body}</div>
     </button>
+  );
+}
+
+function Kbd({ children }: { children: string }): JSX.Element {
+  return (
+    <kbd className="px-1 py-0.5 rounded bg-black/50 border border-solix-border text-[10px] font-mono text-slate-300">
+      {children}
+    </kbd>
+  );
+}
+
+function Code({ children }: { children: string }): JSX.Element {
+  return (
+    <code className="bg-black/40 px-1 py-0.5 rounded font-mono text-slate-200">
+      {children}
+    </code>
   );
 }

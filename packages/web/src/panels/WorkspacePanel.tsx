@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
 import type { AuditEvent } from '@solix/shared';
-import { selectWorkspaceSummary, useSolixStore } from '../store/index.js';
+import {
+  selectDecisionsWaiting,
+  selectWorkspaceSummary,
+  useSolixStore,
+} from '../store/index.js';
 import { Surface } from '../shell/Surface.js';
 
 interface WorkspacePanelProps {
@@ -72,6 +76,7 @@ export function WorkspacePanel({
   onClose,
 }: WorkspacePanelProps): JSX.Element | null {
   const summary = useSolixStore(selectWorkspaceSummary);
+  const waiting = useSolixStore(selectDecisionsWaiting);
   const selectSession = useSolixStore((s) => s.selectSession);
   const [interventions, setInterventions] = useState<number | null>(null);
 
@@ -159,7 +164,7 @@ export function WorkspacePanel({
           <Tile
             label="Interventions"
             value={interventions === null ? '—' : String(interventions)}
-            hint={`${summary.pendingPermissions} pending now`}
+            hint={`${waiting} waiting on you`}
           />
         </div>
 

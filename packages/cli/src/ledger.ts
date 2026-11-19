@@ -1,6 +1,7 @@
-import { writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { getDb } from '@solix/server/db';
+import { existsSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { getDb, openDbReadonly } from '@solix/server/db';
 import {
   countLedgerDecisions,
   countRuleDecisions,
@@ -30,12 +31,34 @@ const RED = '\x1b[31m';
 
 const MARK = { approved: `${OK}✓${RESET}`, denied: `${RED}✗${RESET}`, blocked: `${WARN}⛔${RESET}` };
 
+/**
+ * Where `solix demo` keeps its sandbox. The same path demo.ts uses: the demo
+ * never writes to the real database, so its decisions are only here.
+ */
+export function demoDbPath(): string {
+  return join(process.env.SOLIX_HOME ?? join(homedir(), '.solix'), 'demo.db');
+}
+
 export function ledger(opts: {
   days?: number;
   md?: string | boolean;
   csv?: string | boolean;
+  /**
+   * Read `solix demo`'s sandbox instead of your real record. An outside
+   * tester approved and denied held commands in the demo on 2026-11-19, ran
+   * `solix ledger`, and got "No decisions yet": the demo writes to its own
+   * database, which the ledger never looked at.
+   */
+  demo?: boolean;
 } = {}): void {
-  const db = getDb();
+  if (opts.demo && !existsSync(demoDbPath())) {
+    console.log(
+      `\n  ${DIM}No demo sandbox at ${demoDbPath()}. It exists while \`solix demo\` runs\n` +
+        `  (or after \`solix demo --keep\`); start one, decide a held command, and run this again.${RESET}\n`,
+    );
+    return;
+  }
+  const db = opts.demo ? openDbReadonly(demoDbPath()) : getDb();
   const until = Date.now();
   const since = until - (opts.days ?? 30) * 24 * 60 * 60 * 1000;
 
@@ -71,7 +94,7 @@ export function ledger(opts: {
 
   const days = opts.days ?? 30;
   console.log(
-    `\n${BOLD}What you allowed${RESET} ${DIM}· last ${days} day${days === 1 ? '' : 's'}${RESET}\n`,
+    `\n${BOLD}What you allowed${RESET} ${DIM}· last ${days} day${days === 1 ? '' : 's'}${opts.demo ? ' · solix demo sandbox, invented data' : ''}${RESET}\n`,
   );
 
   if (entries.length === 0) {
@@ -79,6 +102,11 @@ export function ledger(opts: {
       `  ${DIM}No decisions yet. The gate runs on tasks Solix launches —\n` +
         `  once one asks for something, it is recorded here.${RESET}\n`,
     );
+    // The demo keeps its own record, so point at it rather than let an empty
+    // answer read as "the ledger does not work".
+    if (!opts.demo && existsSync(demoDbPath())) {
+      console.log(`  ${DIM}Decisions made in \`solix demo\` are in its sandbox: solix ledger --demo${RESET}\n`);
+    }
     return;
   }
 

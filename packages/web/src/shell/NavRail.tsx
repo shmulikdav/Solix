@@ -1,5 +1,5 @@
 import {
-  selectPendingPermissionsOrdered,
+  selectDecisionsWaiting,
   selectPlanets,
   useSolixStore,
 } from '../store/index.js';
@@ -43,7 +43,8 @@ export function NavRail({
   const surface = useSolixStore((s) => s.workspaceSurface);
   const openSurface = useSolixStore((s) => s.openSurface);
   const closeSurface = useSolixStore((s) => s.closeSurface);
-  const pending = useSolixStore(selectPendingPermissionsOrdered).length;
+  // Held calls and budget holds: the same number the Decisions panel shows.
+  const pending = useSolixStore(selectDecisionsWaiting);
 
   // Only the count that means "a human is needed" earns a badge. Active and
   // idle are context; attention is an instruction.
@@ -167,7 +168,7 @@ export function NavRail({
                       {item.id === 'decisions' && pending > 0 && (
                         <span
                           className="shrink-0 rounded-full bg-solix-warn px-1.5 text-[11px] font-semibold text-black"
-                          title={`${pending} waiting on your approval`}
+                          title={`${pending} waiting on you`}
                         >
                           {pending}
                         </span>
