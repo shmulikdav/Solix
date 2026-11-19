@@ -219,7 +219,7 @@ beyond a file.
 ## Every claim here has a test
 
 Each public claim Solix makes is bound to a test that fails when the claim
-stops being true. There are 51 of them, listed in
+stops being true. There are 53 of them, listed in
 [`docs/CLAIMS.md`](docs/CLAIMS.md). If you find one that doesn't hold, that is
 the most useful thing you could report.
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
+  selectDecisionsWaiting,
   selectPendingPermissionsOrdered,
   useSolixStore,
 } from '../store/index.js';
@@ -41,7 +42,8 @@ export function DecisionQueue(): JSX.Element | null {
   const alerts = Object.values(budgetAlerts).sort(
     (a, b) => b.receivedAt - a.receivedAt,
   );
-  const count = items.length + alerts.length;
+  // The same count as the rail badge and Mission Control.
+  const count = useSolixStore(selectDecisionsWaiting);
 
   const onAsk = (sessionId: string): void => {
     selectSession(sessionId);

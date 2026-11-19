@@ -2182,6 +2182,23 @@ export function selectPendingPermissionsOrdered(
   return pendingOrderedOf(state.pendingPermissions);
 }
 
+/**
+ * Everything waiting on a person: held calls plus plans paused at their
+ * budget cap. The one number the rail badge, the Decisions panel and Mission
+ * Control all show.
+ *
+ * Reported on 2026-11-19 by an outside tester, with real clicks: the rail said
+ * 3, the panel said "4 waiting on you", and Mission Control said "3 pending
+ * now". The panel counted a budget hold; the other two counted held calls
+ * only. Three readings of one queue, in a product that sells exact figures.
+ */
+export function selectDecisionsWaiting(state: SolixState): number {
+  return (
+    Object.keys(state.pendingPermissions).length +
+    Object.keys(state.budgetAlerts).length
+  );
+}
+
 /** Enabled routines only — the galaxy's pulsing heartbeat nodes depend on this
  *  filter, so do not widen it. The Fleet > Routines tab wants every routine,
  *  including the disabled ones it needs to offer re-enabling. */

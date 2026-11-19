@@ -13,6 +13,7 @@ import {
 } from '../store/index.js';
 import { DecisionQueue } from './DecisionQueue.js';
 import { NavRail } from '../shell/NavRail.js';
+import { WorkspacePanel } from '../panels/WorkspacePanel.js';
 
 /**
  * Decisions is the surface that unblocks stuck agents, so it carries more
@@ -119,12 +120,12 @@ describe('the rail carries the signal', () => {
   it('shows the pending count beside Decisions', () => {
     seed({ a: perm('a', 1), b: perm('b', 2) });
     render(<NavRail {...railProps} />);
-    expect(screen.getByTitle('2 waiting on your approval')).toBeTruthy();
+    expect(screen.getByTitle('2 waiting on you')).toBeTruthy();
   });
 
   it('shows no count when nothing is pending', () => {
     render(<NavRail {...railProps} />);
-    expect(screen.queryByTitle(/waiting on your approval/)).toBeNull();
+    expect(screen.queryByTitle(/waiting on you/)).toBeNull();
   });
 
   // chime() is off unless opted into and notify() only fires when the tab is
@@ -250,5 +251,48 @@ describe('DecisionQueue while the socket is down', () => {
       });
     });
     expect(screen.queryByText('Bash')).toBeNull();
+  });
+});
+
+/**
+ * CLAIM-DECISIONS-ONE-COUNT. The rail, the Decisions panel and Mission Control
+ * show one number for what is waiting on you, held calls and budget holds
+ * alike.
+ *
+ * Reported on 2026-11-19 by an outside tester with real clicks: the rail said
+ * 3, the panel "4 waiting on you", Mission Control "3 pending now". The panel
+ * counted a plan paused at its budget cap; the other two did not.
+ */
+describe('CLAIM-DECISIONS-ONE-COUNT: one number for what is waiting on you', () => {
+  const railProps = {
+    onNewTask: () => {},
+    onOpenTimeline: () => {},
+    onOpenHelp: () => {},
+    onReportProblem: () => {},
+  };
+
+  function seedWithBudgetHold() {
+    seed({ a: perm('a', 1), b: perm('b', 2), c: perm('c', 3) });
+    useSolixStore.setState({
+      budgetAlerts: {
+        'sess-x': { sessionId: 'sess-x', costUsd: 5.2, budgetUsd: 5, receivedAt: 4 },
+      },
+    });
+  }
+
+  it('the rail, the panel and Mission Control all say 4', () => {
+    seedWithBudgetHold();
+
+    render(<NavRail {...railProps} />);
+    expect(screen.getByTitle('4 waiting on you')).toBeTruthy();
+    cleanup();
+
+    render(<DecisionQueue />);
+    expect(screen.getByText('4 waiting on you')).toBeTruthy();
+    cleanup();
+
+    render(<WorkspacePanel open onClose={() => {}} />);
+    expect(screen.getByText('4 waiting on you')).toBeTruthy();
+    expect(document.body.textContent).not.toMatch(/3 (pending|waiting)/);
   });
 });
