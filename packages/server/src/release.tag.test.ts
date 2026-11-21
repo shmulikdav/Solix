@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 // @ts-expect-error — a plain .mjs script, imported for its pure predicates.
-import { checkRelease, parseChangelogVersions } from '../../../scripts/release-tag.mjs';
+import { checkRelease, parseChangelogVersions, unknownArgs } from '../../../scripts/release-tag.mjs';
 
 /**
  * Every case here is a release that actually went wrong, or the near miss it
@@ -152,5 +152,20 @@ describe('parseChangelogVersions', () => {
       readFileSync(resolve(import.meta.dirname, '../../cli/package.json'), 'utf8'),
     ) as { version: string };
     expect(versions).toContain(pkg.version);
+  });
+});
+
+describe('release:tag refuses arguments it does not know', () => {
+  // `--help` and a mistyped `--dry-rn` used to be ignored, so the script went
+  // straight into a real release. Found while preparing 1.20.6.
+  it('names anything that is not one of its flags', () => {
+    expect(unknownArgs(['--help'])).toEqual(['--help']);
+    expect(unknownArgs(['--dry-rn'])).toEqual(['--dry-rn']);
+    expect(unknownArgs(['--dry-run', 'v1.20.6'])).toEqual(['v1.20.6']);
+  });
+
+  it('accepts its own flags', () => {
+    expect(unknownArgs([])).toEqual([]);
+    expect(unknownArgs(['--dry-run', '--retag', '--yes', '-y'])).toEqual([]);
   });
 });

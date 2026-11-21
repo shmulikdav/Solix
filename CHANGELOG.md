@@ -7,36 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### `solix demo` names its agents in full, and starts clean
-
-- **Agents are labelled `demo-05`, not `demo-05-`.** A session has no name, so
-  every view labels it by the first 8 characters of its id, and the demo's
-  ids (`demo-05-observability`) were cut mid-word, on the website's
-  screenshots too. The ids are now `demo-00` to `demo-29`; the project still
-  comes from the folder each one runs in.
-- **A demo that never tore down no longer leaks into the next one.** Closing
-  the terminal (SIGHUP) skipped the teardown, and `--no-ticker` leaves its
-  server running on purpose. Either way `~/.solix/demo.db` stayed, the next
-  `solix demo` reopened it, and the new seed landed beside the old one. Now
-  the demo starts from an empty sandbox unless you pass `--keep`, and closing
-  the terminal tears it down like Ctrl+C.
-
-### From an outside QA pass (2026-11-19)
-
-An evaluator tested the site, the CLI and the demo as a new user. Three of
-their findings were in Solix itself:
-
-- **One number for what is waiting on you.** The rail said 3, the Decisions
-  panel "4 waiting on you", Mission Control "3 pending now": the panel counted
-  a plan paused at its budget cap and the other two did not. All three now
-  show held calls plus budget holds, from one selector.
-- **`solix ledger --demo`.** Decisions made in the demo were recorded, but in
-  the demo's own sandbox, so `solix ledger` said "No decisions yet". It now
-  reads the sandbox with `--demo`, labelled as invented data, and plain
-  `solix ledger` points there when its own record is empty.
-- **The demo no longer suggests running the demo.** Inside `solix demo` the
-  welcome modal offered `solix demo`; it now offers a short tour: open
-  Decisions and answer a held command, switch views, read the ledger.
+## [1.20.6] — 2026-11-21
 
 ### The advisors work on your project, not on Solix's
 
@@ -55,6 +26,49 @@ format. Compass no longer promises to write a backlog file it had no tool
 to write, and the manifest no longer calls Maestro "(Pro)", a tier that does
 not exist. The new prompts replace the installed ones the first time you run
 `solix` after upgrading; agent files you wrote yourself are still left alone.
+
+### From an outside QA pass (2026-11-19)
+
+An evaluator tested the site, the CLI and the demo as a new user. Three of
+their findings were in Solix itself:
+
+- **One number for what is waiting on you.** The rail said 3, the Decisions
+  panel "4 waiting on you", Mission Control "3 pending now": the panel counted
+  a plan paused at its budget cap and the other two did not. All three now
+  show held calls plus budget holds, from one selector.
+- **`solix ledger --demo`.** Decisions made in the demo were recorded, but in
+  the demo's own sandbox, so `solix ledger` said "No decisions yet". It now
+  reads the sandbox with `--demo`, labelled as invented data, and plain
+  `solix ledger` points there when its own record is empty.
+- **The demo no longer suggests running the demo.** Inside `solix demo` the
+  welcome modal offered `solix demo`; it now offers a short tour: open
+  Decisions and answer a held command, switch views, read the ledger.
+
+### `solix demo` names its agents in full, and starts clean
+
+- **Agents are labelled `demo-05`, not `demo-05-`.** A session has no name, so
+  every view labels it by the first 8 characters of its id, and the demo's
+  ids (`demo-05-observability`) were cut mid-word, on the website's
+  screenshots too. The ids are now `demo-00` to `demo-29`; the project still
+  comes from the folder each one runs in.
+- **A demo that never tore down no longer leaks into the next one.** Closing
+  the terminal (SIGHUP) skipped the teardown, and `--no-ticker` leaves its
+  server running on purpose. Either way `~/.solix/demo.db` stayed, the next
+  `solix demo` reopened it, and the new seed landed beside the old one. Now
+  the demo starts from an empty sandbox unless you pass `--keep`, and closing
+  the terminal tears it down like Ctrl+C.
+
+### Docs
+
+- **A gate-first README**, with a real held-command screenshot and real
+  `solix ledger` output, and an npm page that matches it.
+- **`CONTRIBUTING.md`**: building, verify-to-fail, the claims ledger, the
+  eval, and the release runbook.
+- **`docs/REFERENCE.md`** for the galaxy, advisors, skills and textures. Six
+  long docs from the 1.7 era moved to `docs/archive/`, marked historical.
+- **`pnpm release:tag` refuses options it doesn't know.** `--help` or a
+  mistyped `--dry-rn` used to be ignored, so the script went straight into a
+  real release, stopped only by the typed confirmation.
 
 ## [1.20.5] — 2026-11-05
 
