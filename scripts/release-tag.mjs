@@ -157,7 +157,30 @@ function publishedVersions(name) {
   }
 }
 
+const KNOWN_FLAGS = new Set(['--dry-run', '--retag', '--yes', '-y']);
+
+/**
+ * Arguments this script does not understand. Pure.
+ *
+ * It used to ignore them: `pnpm release:tag --help` and a mistyped
+ * `--dry-rn` both went straight into a real release, stopped only by the
+ * typed confirmation (found while preparing 1.20.6). A flag meant to make
+ * this safer must never be silently dropped.
+ */
+export function unknownArgs(argv) {
+  return argv.filter((a) => !KNOWN_FLAGS.has(a));
+}
+
 async function main() {
+  const unknown = unknownArgs(process.argv.slice(2));
+  if (unknown.length) {
+    console.error(
+      `${C.red}✗${C.reset} unknown option${unknown.length > 1 ? 's' : ''}: ${unknown.join(' ')} — nothing was fetched, tagged or pushed.\n` +
+        `  usage: pnpm release:tag [--dry-run] [--retag] [--yes]`,
+    );
+    process.exitCode = 1;
+    return;
+  }
   const args = new Set(process.argv.slice(2));
   const dryRun = args.has('--dry-run');
   const retag = args.has('--retag');
